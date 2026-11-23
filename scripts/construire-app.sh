@@ -59,5 +59,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# Bureau synchronisé par iCloud : il ajoute des attributs Finder que codesign refuse (« detritus not allowed »).
+xattr -cr "$APP"
 codesign --force --deep --sign - "$APP"
 echo "Prêt : $ICI/$APP"

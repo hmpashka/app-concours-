@@ -51,7 +51,8 @@ struct ComparerDoublon: View {
             // vignettes en arrière-plan, priorité basse : la copie du serveur suffit pour la première
             let cheminPremiere = p.map { $0.copie.isEmpty ? $0.chemin : $0.copie }
             let cheminDerniere = doublon.chemin
-            let (a, b) = await Task.detached(priority: .utility) {
+            // type écrit en entier : sinon Swift déduit NSObject? pour le tuple
+            let (a, b) = await Task.detached(priority: .utility) { () -> (NSImage?, NSImage?) in
                 (cheminPremiere.flatMap { Vignette.charger($0, cote: 900) }, Vignette.charger(cheminDerniere, cote: 900))
             }.value
             imagePremiere = a
