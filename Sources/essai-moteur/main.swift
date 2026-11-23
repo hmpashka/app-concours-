@@ -123,7 +123,7 @@ func pixels(_ u: URL) -> Data? {
 var identiques = 0, differents = 0, motsCles = 0
 let parNomOrigine = Dictionary(photos.map { ($0.deletingPathExtension().lastPathComponent, $0) }, uniquingKeysWith: { a, _ in a })
 for u in envoyes.prefix(30) {
-    // IMG_4410_1432.JPG ← IMG_4410.JPG
+    // IMG_4410-32.JPG ← IMG_4410.JPG
     var base = u.deletingPathExtension().lastPathComponent
     if let i = base.lastIndex(of: "_") { base = String(base[..<i]) }
     guard let origine = parNomOrigine[base] else { continue }

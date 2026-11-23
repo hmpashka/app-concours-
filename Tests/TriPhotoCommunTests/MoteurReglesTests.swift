@@ -3,21 +3,21 @@ import XCTest
 
 final class RenommageTests: XCTestCase {
     func testNomAvecMinuteDePriseDeVue() {
-        XCTAssertEqual(Renommage.nom(origine: "IMG_4410.JPG", priseEXIF: "2026:11:29 14:32:07"), "IMG_4410_1432.JPG")
-        XCTAssertEqual(Renommage.nom(origine: "_MG_0001.jpg", priseEXIF: "2026:11:29 09:05:59"), "_MG_0001_0905.jpg")
+        XCTAssertEqual(Renommage.nom(origine: "IMG_4410.JPG", priseEXIF: "2026:11:29 14:32:07"), "IMG_4410-32.JPG")
+        XCTAssertEqual(Renommage.nom(origine: "_MG_0001.jpg", priseEXIF: "2026:11:29 09:05:59"), "_MG_0001-05.jpg")
     }
 
     func testSansDateEXIF() {
         var c = DateComponents()
         c.year = 2026; c.month = 11; c.day = 29; c.hour = 8; c.minute = 7
         let d = Calendar.current.date(from: c)!
-        XCTAssertEqual(Renommage.nom(origine: "IMG_1.JPG", priseEXIF: nil, secours: d), "IMG_1_0807.JPG")
-        XCTAssertEqual(Renommage.nom(origine: "IMG_1.JPG", priseEXIF: "abîmée"), "IMG_1_0000.JPG")
+        XCTAssertEqual(Renommage.nom(origine: "IMG_1.JPG", priseEXIF: nil, secours: d), "IMG_1-07.JPG")
+        XCTAssertEqual(Renommage.nom(origine: "IMG_1.JPG", priseEXIF: "abîmée"), "IMG_1-00.JPG")
     }
 
     func testNomLibre() {
-        let pris: Set = ["A_1432.JPG", "A_1432-2.JPG"]
-        XCTAssertEqual(Renommage.libre("A_1432.JPG") { pris.contains($0) }, "A_1432-3.JPG")
+        let pris: Set = ["A-32.JPG", "A-32-2.JPG"]
+        XCTAssertEqual(Renommage.libre("A-32.JPG") { pris.contains($0) }, "A-32-3.JPG")
         XCTAssertEqual(Renommage.libre("B.JPG") { pris.contains($0) }, "B.JPG")
     }
 }

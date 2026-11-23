@@ -18,7 +18,7 @@ Plan de développement validé le 23/11/2026 : 6 étapes, chacune testée avant 
 
 - `Sources/TriPhotoCommun` : ce qui servira aussi à l'iPhone (lecture du fichier FFE SIF / FFE Compet, codes
   `#épreuve_dossard`, noms des dossiers d'épreuve).
-- `Sources/TriPhotoMoteur` : le moteur photos, sans interface (réception, contrôle, renommage `IMG_4410_1432.JPG`,
+- `Sources/TriPhotoMoteur` : le moteur photos, sans interface (réception, contrôle, renommage `IMG_4410-32.JPG`,
   copie .cube vers le serveur local, IPTC dans l'original sans recompression, import Lightroom, dossier tampon,
   régulateur Lightroom, journal SQLite pour reprendre après un plantage).
 - `Sources/TriPhotoMac` : l'app Mac (SwiftUI).
