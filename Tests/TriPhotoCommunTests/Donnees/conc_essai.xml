@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!-- Fichier de concours FFE INVENTÉ (même structure que le format SIF 1.6) : aucune personne ni aucun cheval réel. -->
+<ffe:message xmlns:ffe="http://www.ffe.com/message" version="1.6">
+  <concours num="9999001" nom="CONCOURS D'ESSAI" discipline="01" nom_discipline="CSO" departement="99 " nom_departement="ESSAI     ">
+    <organisateur num="9999999" nom="CLUB D'ESSAI"/>
+    <officiel num="01" fonction="01" nom_fonction="Président du jury" lic="0000001A" nom="TEST" prenom="Paul" president="true"/>
+    <officiel num="02" fonction="05" nom_fonction="Chronometreur" lic="0000002B" nom="TEST" prenom="Lea"/>
+    <profil>
+      <officiels><fonction id="01" nom="Président du jury" num="01" obli="true" president="true" niv-min="1"/></officiels>
+      <resultat>
+        <detail id="1" nom="Une manche barème A sans chronomètre sans barrage"><epreuve/></detail>
+        <detail id="3" nom="Une manche barème A au chronomètre sans barrage"><epreuve/></detail>
+        <detail id="5" nom="Une manche barème A temps différé"><epreuve/></detail>
+      </resultat>
+    </profil>
+    <epreuve num="01" date="2026-06-20" categorie="CL2v" nom_categorie="Club 2 Vitesse" montant_eng="20" montant_eng_terrain="35" profil_detail="3">
+      <profil>
+        <engagement><role code="01" nom="COUPLE" type="C" nb_min="1" nb_max="1"/></engagement>
+        <resultat note="false" classement="true" sf="true" ct="false"><detail id="3" nom="Une manche barème A au chronomètre sans barrage"/></resultat>
+        <officiels/>
+      </profil>
+      <engagement id="000000000000001" dossard="1">
+        <cavalier lic="1000001A" nom="TEST" prenom="Alice" dnaiss="2010-01-01" club="9999999" nom_club="CLUB D'ESSAI" region="99" nom_region="ESSAI"/>
+        <equide sire="90000001X" nom="CHEVAL UN" sexe="H" dnaiss="2015-01-01" taille="148" race="PONEY" code_race="PO" robe="BAI" code_robe="BA" transpondeur="000000000000001"/>
+        <club num="9999999" nom="CLUB D'ESSAI"/>
+        <coach lic="0000003C" nom="TEST" prenom="Coach"/>
+      </engagement>
+      <engagement id="000000000000002" dossard="2" hors_classement="1">
+        <cavalier lic="1000002B" nom="TEST" prenom="Bruno"/>
+        <equide sire="90000002Y" nom="CHEVAL DEUX"/>
+        <club num="9999999" nom="CLUB D'ESSAI"/>
+      </engagement>
+    </epreuve>
+    <epreuve num="02" date="2026-06-21" categorie="CL2g" nom_categorie="Club 2 Grand Prix" montant_eng="20" montant_eng_terrain="35" profil_detail="5">
+      <profil><resultat note="false" classement="true" sf="true" ct="false"/></profil>
+    </epreuve>
+  </concours>
+</ffe:message>

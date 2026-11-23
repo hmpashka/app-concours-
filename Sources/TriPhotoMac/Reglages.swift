@@ -1,0 +1,137 @@
+import Foundation
+import TriPhotoCommun
+
+/// Réglages d'un concours. Gardés d'un jour à l'autre ; enregistrables comme modèle (« CSO 4 pistes »).
+struct ReglagesConcours: Codable, Equatable {
+    enum Chronometrage: String, Codable, CaseIterable, Identifiable {
+        case hmTiming = "HM Timing"
+        case captureHorseComp = "Capture Horse & Comp"
+        var id: String { rawValue }
+    }
+
+    enum Protocole: String, Codable, CaseIterable, Identifiable {
+        case smb = "SMB"
+        case ftp = "FTP"
+        var id: String { rawValue }
+    }
+
+    struct Piste: Codable, Equatable, Identifiable {
+        var id = UUID()
+        var nom: String
+        var photographe: String
+    }
+
+    // 1. Concours
+    var nomConcours = ""
+    var nombreJours = 1
+    var cheminFFE = ""
+    var chronometrage: Chronometrage = .hmTiming
+    var pistes: [Piste] = [Piste(nom: "Piste 1", photographe: "")]
+
+    // 2. Dossiers
+    var dossierReception = ""
+    var dossierImportLightroom = ""
+    var dossierTravailLightroom = ""
+    var dossierServeurLocal = ""
+    var dossierTampon = ""
+
+    // 3. Copies compressées
+    var cubeServeur = ""
+    var coteServeur = 1500
+    var qualiteServeur = 56
+    var cubeGalerieIdentique = true
+    var cubeGalerie = ""
+    var coteGalerie = 1200
+    var qualiteGalerie = 56
+    var numeroIncruste = true
+
+    // 4. Lightroom et dossier tampon
+    var tamponActif = false
+    var tailleLot = 20
+    var silenceBoitierMinutes = 5
+    var retarderSiLightroomOccupe = true
+
+    // 5. Envois
+    var protocoleServeur: Protocole = .smb
+    var adresseFTPGalerie = ""
+    var sauvegardeActive = false
+    var dossierSauvegarde = ""
+
+    // 6. Clôture
+    var dossierClotures = ""
+
+    init() {}
+
+    // Lecture tolérante : un réglage ajouté dans une version suivante prend sa valeur par défaut.
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func lire<T: Decodable>(_ cle: CodingKeys, _ defaut: T) -> T { (try? c.decode(T.self, forKey: cle)) ?? defaut }
+        nomConcours = lire(.nomConcours, nomConcours)
+        nombreJours = lire(.nombreJours, nombreJours)
+        cheminFFE = lire(.cheminFFE, cheminFFE)
+        chronometrage = lire(.chronometrage, chronometrage)
+        pistes = lire(.pistes, pistes)
+        dossierReception = lire(.dossierReception, dossierReception)
+        dossierImportLightroom = lire(.dossierImportLightroom, dossierImportLightroom)
+        dossierTravailLightroom = lire(.dossierTravailLightroom, dossierTravailLightroom)
+        dossierServeurLocal = lire(.dossierServeurLocal, dossierServeurLocal)
+        dossierTampon = lire(.dossierTampon, dossierTampon)
+        cubeServeur = lire(.cubeServeur, cubeServeur)
+        coteServeur = lire(.coteServeur, coteServeur)
+        qualiteServeur = lire(.qualiteServeur, qualiteServeur)
+        cubeGalerieIdentique = lire(.cubeGalerieIdentique, cubeGalerieIdentique)
+        cubeGalerie = lire(.cubeGalerie, cubeGalerie)
+        coteGalerie = lire(.coteGalerie, coteGalerie)
+        qualiteGalerie = lire(.qualiteGalerie, qualiteGalerie)
+        numeroIncruste = lire(.numeroIncruste, numeroIncruste)
+        tamponActif = lire(.tamponActif, tamponActif)
+        tailleLot = lire(.tailleLot, tailleLot)
+        silenceBoitierMinutes = lire(.silenceBoitierMinutes, silenceBoitierMinutes)
+        retarderSiLightroomOccupe = lire(.retarderSiLightroomOccupe, retarderSiLightroomOccupe)
+        protocoleServeur = lire(.protocoleServeur, protocoleServeur)
+        adresseFTPGalerie = lire(.adresseFTPGalerie, adresseFTPGalerie)
+        sauvegardeActive = lire(.sauvegardeActive, sauvegardeActive)
+        dossierSauvegarde = lire(.dossierSauvegarde, dossierSauvegarde)
+        dossierClotures = lire(.dossierClotures, dossierClotures)
+    }
+}
+
+/// Où l'app range ce qu'elle garde : ~/Library/Application Support/Tri-photo/
+enum Stockage {
+    static var dossier: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let d = base.appendingPathComponent("Tri-photo", isDirectory: true)
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+
+    static var dossierModeles: URL {
+        let d = dossier.appendingPathComponent("Modèles", isDirectory: true)
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+
+    static func lire<T: Decodable>(_ type: T.Type, nom: String) -> T? {
+        let url = dossier.appendingPathComponent(nom)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+
+    /// Écriture sûre : fichier temporaire puis remplacement, pour ne jamais laisser un fichier à moitié écrit.
+    static func ecrire<T: Encodable>(_ valeur: T, nom: String) {
+        ecrire(valeur, vers: dossier.appendingPathComponent(nom))
+    }
+
+    static func ecrire<T: Encodable>(_ valeur: T, vers url: URL) {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? enc.encode(valeur) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    static func modeles() -> [String] {
+        let fichiers = (try? FileManager.default.contentsOfDirectory(atPath: dossierModeles.path)) ?? []
+        return fichiers.filter { $0.hasSuffix(".json") }.map { String($0.dropLast(5)) }.sorted()
+    }
+}
