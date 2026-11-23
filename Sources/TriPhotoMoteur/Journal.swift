@@ -8,6 +8,8 @@ public enum EtatPhoto: String, CaseIterable, Sendable {
     case tampon         // original (avec IPTC) dans le dossier tampon, en attente du lot
     case envoyee        // original (avec IPTC) dans l'import Lightroom : terminé
     case aRenvoyer      // mal transférée : à redemander au boîtier
+    case doublon        // même nom qu'une photo déjà envoyée : attend la décision de HUGO, rien n'est envoyé
+    case ecartee        // doublon mis à la corbeille par HUGO
     case erreur         // problème (serveur absent…) : sera retentée
 }
 
@@ -109,6 +111,15 @@ final class Journal {
         defer { sqlite3_finalize(st) }
         lier(st, 1, chemin)
         return sqlite3_step(st) == SQLITE_ROW ? fiche(st) : nil
+    }
+
+    /// Ce nom est-il déjà pris par une autre photo (copiée, envoyée, au tampon ou doublon en attente) ?
+    func nomDejaUtilise(_ nom: String, sauf id: Int64) -> Bool {
+        let st = preparer("SELECT 1 FROM photos WHERE nom=? COLLATE NOCASE AND id<>? AND etat IN ('copiee','tampon','envoyee','doublon') LIMIT 1")
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, nom)
+        sqlite3_bind_int64(st, 2, id)
+        return sqlite3_step(st) == SQLITE_ROW
     }
 
     func fiches(etat: EtatPhoto, limite: Int = 10_000) -> [FichePhoto] {

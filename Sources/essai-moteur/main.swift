@@ -92,7 +92,7 @@ var fin: Date?
 while true {
     RunLoop.main.run(until: Date().addingTimeInterval(0.5))
     let r = moteur.resume
-    let faites = nombre(importLR) + (avecTampon ? nombre(tampon) : 0) + r.aRenvoyer.count
+    let faites = nombre(importLR) + (avecTampon ? nombre(tampon) : 0) + r.aRenvoyer.count + r.doublons.count
     if Date().timeIntervalSince(dernierAffichage) >= 5 {
         dernierAffichage = Date()
         print(String(format: "  %4ld / %ld  · %5.0f photos/min · file %ld · Lightroom %3.0f %% · ouvriers %ld",
@@ -142,6 +142,7 @@ print(String(format: "  %ld photos en %.0f s : %.0f photos par minute", photos.c
 print("  Envoyées à l'import Lightroom : \(envoyes.count)")
 print("  Copies .cube sur le serveur : \(copies)")
 print("  À renvoyer (mal transférées) : \(r.aRenvoyer.count)")
+print("  Doublons mis de côté : \(r.doublons.count)")
 print("  En erreur : \(r.enErreur)\(r.message.isEmpty ? "" : " (dernier message : \(r.message))")")
 print("  Originaux vérifiés (30 max) : \(identiques) pixels identiques, \(differents) différents")
 print("  Avec mots-clés IPTC : \(motsCles) (seulement si le code correspond au fichier FFE)")

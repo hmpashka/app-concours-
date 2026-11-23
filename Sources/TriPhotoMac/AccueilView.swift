@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import TriPhotoCommun
 import TriPhotoMoteur
@@ -29,6 +30,7 @@ struct AccueilView: View {
                         }
                     }
                     chiffres
+                    if !r.doublons.isEmpty { doublons }
                     boitiers
                     recentes
                 }
@@ -56,6 +58,28 @@ struct AccueilView: View {
                   alerte: !r.aRenvoyer.isEmpty)
             if etat.reglages.tamponActif {
                 Tuile(titre: "Dossier tampon", valeur: "\(r.dansTampon)", detail: "en attente du lot pour Lightroom")
+            }
+        }
+    }
+
+    // MARK: - Doublons
+
+    private var doublons: some View {
+        Carte(titre: "Doublons à décider (\(r.doublons.count))",
+              sousTitre: "Même nom qu'une photo déjà reçue. Rien n'est envoyé à Lightroom ni au serveur tant que tu n'as pas choisi.") {
+            ForEach(r.doublons.prefix(30), id: \.id) { f in
+                HStack {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(f.origine).font(.system(size: 12, design: .monospaced))
+                        Text("\(f.code.isEmpty ? "sans code" : f.code) · \(f.boitier)")
+                            .font(.system(size: 11)).foregroundStyle(Theme.texteDiscret)
+                    }
+                    Spacer()
+                    Button("Voir") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: f.chemin)]) }
+                        .buttonStyle(BoutonStyle())
+                    Button("Garder (autre nom)") { moteur.garderDoublon(f) }.buttonStyle(BoutonStyle(principal: true))
+                    Button("Jeter") { moteur.jeterDoublon(f) }.buttonStyle(BoutonStyle())
+                }
             }
         }
     }
@@ -94,7 +118,7 @@ struct AccueilView: View {
                         .foregroundStyle(p.code.isEmpty ? Theme.attention : Theme.texte)
                     Spacer()
                     Text(p.boitier).font(.system(size: 11)).foregroundStyle(Theme.texteDiscret)
-                    Pastille(texte: Self.libelle(p.etat), genre: p.etat == .envoyee ? .ok : (p.etat == .erreur || p.etat == .aRenvoyer) ? .attention : .neutre)
+                    Pastille(texte: Self.libelle(p.etat), genre: p.etat == .envoyee ? .ok : (p.etat == .erreur || p.etat == .aRenvoyer || p.etat == .doublon) ? .attention : .neutre)
                 }
             }
         }
@@ -161,6 +185,8 @@ struct AccueilView: View {
         case .envoyee: return "Lightroom"
         case .aRenvoyer: return "à renvoyer"
         case .erreur: return "erreur"
+        case .doublon: return "doublon"
+        case .ecartee: return "jetée"
         }
     }
 }

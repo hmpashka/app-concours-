@@ -56,6 +56,7 @@ public struct ResumeMoteur {
     public var enFile = 0
     public var retardSecondes = 0.0
     public var aRenvoyer: [FichePhoto] = []
+    public var doublons: [FichePhoto] = []
     public var enErreur = 0
     public var derniereErreur = ""
     public var dansTampon = 0
@@ -103,6 +104,8 @@ public final class Moteur: ObservableObject {
 
     public static let dossierARenvoyer = "_À renvoyer"
     public static let dossierAAttribuer = "À attribuer"
+    public static let dossierDoublons = "_Doublons"
+    static let doublonAccepte = "Doublon accepté par HUGO"
 
     // MARK: - Démarrer / arrêter
 
@@ -175,7 +178,10 @@ public final class Moteur: ObservableObject {
                                     options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
         var l: [(URL, UInt64)] = []
         for case let url as URL in e {
-            if url.lastPathComponent == dossierARenvoyer { e.skipDescendants(); continue }
+            if url.lastPathComponent == dossierARenvoyer || url.lastPathComponent == dossierDoublons {
+                e.skipDescendants()
+                continue
+            }
             let ext = url.pathExtension.lowercased()
             guard ext == "jpg" || ext == "jpeg" else { continue }
             let taille = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
@@ -227,15 +233,33 @@ public final class Moteur: ObservableObject {
                 throw TraitementPhoto.Erreur.ecriture("serveur local introuvable (\(c.serveur.path))")
             }
 
-            // 3. Renommage (une seule fois) : nom d'origine + minute de prise de vue, libre partout où il va.
+            // 3. Renommage (une seule fois) : nom d'origine + -minute de prise de vue.
+            //    Normalement aucun doublon n'est possible : s'il y en a un, la photo est mise de côté et
+            //    n'entre pas dans Lightroom tant que HUGO n'a pas décidé (garder sous un autre nom, ou jeter).
             let destination = c.tampon ?? c.importLightroom
-            if fiche.nom == fiche.origine {
-                let base = Renommage.nom(origine: fiche.origine, priseEXIF: infos.priseEXIF,
-                                         secours: (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate)
-                fiche.nom = Renommage.libre(base) { n in
-                    FileManager.default.fileExists(atPath: destination.appendingPathComponent(n).path)
-                        || FileManager.default.fileExists(atPath: c.importLightroom.appendingPathComponent(n).path)
+            if fiche.erreur != Moteur.doublonAccepte {
+                let nom = Renommage.nom(origine: fiche.origine, priseEXIF: infos.priseEXIF,
+                                        secours: (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate)
+                let id = fiche.id
+                let pris = file.sync { journal?.nomDejaUtilise(nom, sauf: id) ?? false }
+                    || FileManager.default.fileExists(atPath: destination.appendingPathComponent(nom).path)
+                    || FileManager.default.fileExists(atPath: c.importLightroom.appendingPathComponent(nom).path)
+                if pris {
+                    let cote = c.reception.appendingPathComponent(Moteur.dossierDoublons, isDirectory: true)
+                    try FileManager.default.createDirectory(at: cote, withIntermediateDirectories: true)
+                    let dest = cote.appendingPathComponent(Renommage.libre(fiche.origine) {
+                        FileManager.default.fileExists(atPath: cote.appendingPathComponent($0).path)
+                    })
+                    try FileManager.default.moveItem(at: url, to: dest)
+                    fiche.nom = nom
+                    fiche.code = code?.texte ?? ""
+                    fiche.etat = .doublon
+                    fiche.chemin = dest.path
+                    fiche.erreur = "Même nom qu'une photo déjà reçue : \(nom)"
+                    terminer(fiche, chemin: chemin)
+                    return
                 }
+                fiche.nom = nom
             }
 
             // 4. Copie compressée avec le .cube vers le serveur local.
@@ -268,11 +292,12 @@ public final class Moteur: ObservableObject {
             terminer(fiche, chemin: chemin)
         } catch {
             fiche.etat = .erreur
-            fiche.erreur = error.localizedDescription
+            let texte = error.localizedDescription
+            if fiche.erreur != Moteur.doublonAccepte { fiche.erreur = texte }   // un doublon accepté le reste
             let f = fiche
             file.sync {
                 journal?.mettreAJour(f)
-                message = f.erreur
+                message = texte
                 reessayerApres[chemin] = Date().addingTimeInterval(15)
                 enCours.remove(chemin)
                 tailles[chemin] = nil
@@ -334,6 +359,7 @@ public final class Moteur: ObservableObject {
         r.retardSecondes = vuesEnAttente.values.min().map { maintenant.timeIntervalSince($0) } ?? 0
         // à renvoyer : tant que le fichier abîmé est encore dans « _À renvoyer » (HUGO le supprime une fois renvoyé)
         r.aRenvoyer = j.fiches(etat: .aRenvoyer, limite: 500).filter { FileManager.default.fileExists(atPath: $0.chemin) }
+        r.doublons = j.fiches(etat: .doublon, limite: 500).filter { FileManager.default.fileExists(atPath: $0.chemin) }
         r.enErreur = compte[.erreur] ?? 0
         r.dansTampon = compte[.tampon] ?? 0
         r.boitiers = j.boitiers(depuis: debutJournee).filter { !$0.nom.isEmpty }
@@ -343,5 +369,54 @@ public final class Moteur: ObservableObject {
         r.ouvriers = ouvriers.maxConcurrentOperationCount
         r.message = message
         DispatchQueue.main.async { self.resume = r }
+    }
+
+    // MARK: - Doublons (décision de HUGO)
+
+    /// Garder la photo : elle repart dans le tri sous un nom libre (« DERB1340-35-2.JPG »).
+    public func garderDoublon(_ f: FichePhoto) {
+        file.async { [weak self] in
+            guard let self, let c = self.config, let j = self.journal else { return }
+            let fm = FileManager.default
+            let source = URL(fileURLWithPath: f.chemin)
+            guard fm.fileExists(atPath: source.path) else { return }
+            let destination = c.tampon ?? c.importLightroom
+            let nom = Renommage.libre(f.nom) { n in
+                j.nomDejaUtilise(n, sauf: f.id) || fm.fileExists(atPath: destination.appendingPathComponent(n).path)
+                    || fm.fileExists(atPath: c.importLightroom.appendingPathComponent(n).path)
+            }
+            let retour = c.reception.appendingPathComponent(Renommage.libre(f.origine) {
+                fm.fileExists(atPath: c.reception.appendingPathComponent($0).path)
+            })
+            do {
+                try fm.moveItem(at: source, to: retour)
+                var g = f
+                g.nom = nom
+                g.chemin = retour.path
+                g.etat = .recue
+                g.erreur = Moteur.doublonAccepte
+                j.mettreAJour(g)
+                self.message = "Doublon gardé : il part sous le nom \(nom)."
+            } catch {
+                self.message = "Doublon : \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Jeter la photo : elle va à la corbeille du Mac (récupérable), rien n'est envoyé.
+    public func jeterDoublon(_ f: FichePhoto) {
+        file.async { [weak self] in
+            guard let self, let j = self.journal else { return }
+            do {
+                try FileManager.default.trashItem(at: URL(fileURLWithPath: f.chemin), resultingItemURL: nil)
+                var g = f
+                g.etat = .ecartee
+                g.erreur = "Mise à la corbeille par HUGO"
+                j.mettreAJour(g)
+                self.message = "Doublon \(f.origine) mis à la corbeille."
+            } catch {
+                self.message = "Doublon : \(error.localizedDescription)"
+            }
+        }
     }
 }
