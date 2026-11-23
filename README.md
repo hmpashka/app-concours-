@@ -7,8 +7,8 @@ Plan de développement validé le 23/11/2026 : 6 étapes, chacune testée avant 
 
 | Étape | Contenu | État |
 | --- | --- | --- |
-| 0 | Fondations : fenêtre, menus, panneaux, réglages, fichier FFE, raccourcis, mode entraînement | en cours |
-| 1 | Moteur photos (réception, renommage, .cube, IPTC, Lightroom) + accueil | |
+| 0 | Fondations : fenêtre, menus, panneaux, réglages, fichier FFE, raccourcis, mode entraînement | validée 23/11 |
+| 1 | Moteur photos (réception, renommage, .cube, IPTC, Lightroom) + accueil | en cours |
 | 2 | Codes (chrono, à valider), revue, suivi Lightroom, Capture Horse & Comp | |
 | 3 | App iPhone Piste + messagerie | |
 | 4 | Galerie FTP, régulateur réseau, clôture, accès à distance | |
@@ -18,7 +18,12 @@ Plan de développement validé le 23/11/2026 : 6 étapes, chacune testée avant 
 
 - `Sources/TriPhotoCommun` : ce qui servira aussi à l'iPhone (lecture du fichier FFE SIF / FFE Compet, codes
   `#épreuve_dossard`, noms des dossiers d'épreuve).
+- `Sources/TriPhotoMoteur` : le moteur photos, sans interface (réception, contrôle, renommage `IMG_4410_1432.JPG`,
+  copie .cube vers le serveur local, IPTC dans l'original sans recompression, import Lightroom, dossier tampon,
+  régulateur Lightroom, journal SQLite pour reprendre après un plantage).
 - `Sources/TriPhotoMac` : l'app Mac (SwiftUI).
+- `Sources/essai-moteur` : essai du moteur sur un dossier de photos, sans toucher au dossier donné :
+  `swift run -c release essai-moteur ~/Photos/test --cube mon.cube --ffe conc123.xml`
 - `Tests/TriPhotoCommunTests` : tests, avec des fichiers inventés (aucune personne ni cheval réel).
 - `Ressources/Icone-1024.png` : l'icône.
 

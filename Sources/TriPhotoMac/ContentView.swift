@@ -12,8 +12,7 @@ struct ContentView: View {
             Group {
                 switch etat.ecran {
                 case .reglages: ReglagesView()
-                case .accueil: BientotView(titre: "Accueil", etape: 1,
-                                           texte: "Tableau de bord : pistes et boîtiers, photos reçues, file d'attente, photos à renvoyer, épreuves en cours.")
+                case .accueil: AccueilView(moteur: etat.moteur)
                 case .aValider: BientotView(titre: "À valider", etape: 2,
                                             texte: "Corrections de code proposées d'après le chrono, par série, avec vignettes avant / après.")
                 case .revue: BientotView(titre: "Revue", etape: 2,

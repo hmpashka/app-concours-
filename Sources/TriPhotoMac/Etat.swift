@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import TriPhotoCommun
+import TriPhotoMoteur
 import UniformTypeIdentifiers
 
 /// Les écrans de l'app, dans l'ordre des onglets des maquettes.
@@ -28,6 +29,8 @@ final class Etat: ObservableObject {
     @Published var erreurFFE: String?
 
     let raccourcis = Raccourcis()
+    let moteur = Moteur()
+    @Published var erreurDemarrage: String?
     let entrainement: Entrainement
 
     init() {
@@ -97,6 +100,46 @@ final class Etat: ObservableObject {
         m.nomConcours = reglages.nomConcours
         reglages = m
     }
+
+    // MARK: - Journée (moteur photos)
+
+    /// Démarre le tri : vérifie les dossiers, lit le .cube, puis lance le moteur et ouvre l'accueil.
+    func demarrerJournee() {
+        let r = reglages
+        func dossier(_ chemin: String, _ nom: String) throws -> URL {
+            var estDossier: ObjCBool = false
+            guard !chemin.isEmpty, FileManager.default.fileExists(atPath: chemin, isDirectory: &estDossier),
+                  estDossier.boolValue else {
+                throw NSError(domain: "TriPhoto", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(nom) : dossier introuvable."])
+            }
+            return URL(fileURLWithPath: chemin, isDirectory: true)
+        }
+        do {
+            let reception = try dossier(r.dossierReception, "Dossier de réception")
+            let importLR = try dossier(r.dossierImportLightroom, "Import Lightroom")
+            let serveur = try dossier(r.dossierServeurLocal, "Serveur local")
+            var tampon: URL?
+            if r.tamponActif { tampon = try dossier(r.dossierTampon, "Dossier tampon") }
+            if Set([reception, importLR, serveur].map(\.standardizedFileURL)).count < 3 {
+                throw NSError(domain: "TriPhoto", code: 2, userInfo: [NSLocalizedDescriptionKey:
+                    "La réception, l'import Lightroom et le serveur local doivent être trois dossiers différents."])
+            }
+            var cube: FichierCube?
+            if !r.cubeServeur.isEmpty { cube = try FichierCube(fichier: URL(fileURLWithPath: r.cubeServeur)) }
+            try moteur.demarrer(ConfigMoteur(reception: reception, importLightroom: importLR, tampon: tampon,
+                                             serveur: serveur, cote: r.coteServeur, qualite: r.qualiteServeur,
+                                             cube: cube, concours: concours, tailleLot: r.tailleLot,
+                                             silenceMinutes: r.silenceBoitierMinutes,
+                                             retarderSiOccupe: r.retarderSiLightroomOccupe,
+                                             journal: Stockage.dossier.appendingPathComponent("journal.sqlite")))
+            erreurDemarrage = nil
+            ecran = .accueil
+        } catch {
+            erreurDemarrage = error.localizedDescription
+        }
+    }
+
+    func arreterJournee() { moteur.arreter() }
 
     // MARK: - Prêt à démarrer ?
 

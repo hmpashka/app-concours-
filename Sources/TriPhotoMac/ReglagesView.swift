@@ -346,6 +346,7 @@ struct ChoixChemin: View {
 /// Panneau de droite : ce qui manque avant de démarrer la journée.
 struct PretADemarrer: View {
     @EnvironmentObject var etat: Etat
+    @State private var moteurActif = false
 
     var body: some View {
         let v = etat.verifications
@@ -360,12 +361,22 @@ struct PretADemarrer: View {
                     }
                 }
             }
-            Button("Démarrer la journée") {}
-                .buttonStyle(BoutonStyle(principal: true))
-                .disabled(true)
-                .padding(.top, 8)
-            Text("Le démarrage du tri arrive à l'étape 1. Il restera possible avec un point orange : il sera rappelé sur l'accueil.")
-                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            if moteurActif {
+                Button("Arrêter le tri") { etat.arreterJournee() }
+                    .buttonStyle(BoutonStyle())
+                    .padding(.top, 8)
+                Text("Le tri tourne. Les photos en cours finissent proprement.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            } else {
+                Button("Démarrer la journée") { etat.demarrerJournee() }
+                    .buttonStyle(BoutonStyle(principal: true))
+                    .padding(.top, 8)
+                Text("Le démarrage reste possible avec un point orange (le .cube est facultatif) ; les dossiers, eux, sont obligatoires.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            }
+            if let e = etat.erreurDemarrage {
+                Text(e).font(.system(size: 12)).foregroundStyle(Theme.erreur)
+            }
             Divider().overlay(Theme.bordure).padding(.vertical, 4)
             Text("Mode entraînement").font(.system(size: 13, weight: .semibold))
             Text("Rejouer les photos d'un ancien concours dans le dossier de réception, pour tester sans risque.")
@@ -375,6 +386,7 @@ struct PretADemarrer: View {
             Spacer()
         }
         .padding(16)
+        .onReceive(etat.moteur.$actif) { moteurActif = $0 }
     }
 }
 

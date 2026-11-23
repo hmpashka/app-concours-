@@ -1,0 +1,186 @@
+import SwiftUI
+import TriPhotoCommun
+import TriPhotoMoteur
+
+/// Accueil / tableau de bord (maquette 1), version étape 1 : chiffres du tri, boîtiers, photos à renvoyer,
+/// dernières photos. Les pistes, épreuves en cours et heures de fin arrivent avec le chrono (étape 2).
+struct AccueilView: View {
+    @EnvironmentObject var etat: Etat
+    @ObservedObject var moteur: Moteur
+
+    private var r: ResumeMoteur { moteur.resume }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if !moteur.actif {
+                        Carte(titre: "Le tri n'est pas démarré") {
+                            HStack {
+                                Text("Vérifie les réglages, puis démarre la journée.")
+                                    .font(.system(size: 13)).foregroundStyle(Theme.texteDiscret)
+                                Spacer()
+                                Button("Démarrer la journée") { etat.demarrerJournee() }
+                                    .buttonStyle(BoutonStyle(principal: true))
+                            }
+                            if let e = etat.erreurDemarrage {
+                                Text(e).font(.system(size: 12)).foregroundStyle(Theme.erreur)
+                            }
+                        }
+                    }
+                    chiffres
+                    boitiers
+                    recentes
+                }
+                .padding(24)
+            }
+            .frame(maxWidth: .infinity)
+            if etat.panneauDroit {
+                Divider().overlay(Theme.bordure)
+                panneauDroit.frame(width: 300).background(Theme.panneau)
+            }
+        }
+    }
+
+    // MARK: - Chiffres
+
+    private var chiffres: some View {
+        HStack(spacing: 12) {
+            Tuile(titre: "Photos reçues aujourd'hui", valeur: "\(r.recues)",
+                  detail: "\(Int(r.parMinute.rounded())) par minute en ce moment")
+            Tuile(titre: "File d'attente", valeur: "\(r.enFile)",
+                  detail: r.enFile == 0 ? "Aucun retard" : "Retard : \(Self.duree(r.retardSecondes))",
+                  alerte: r.retardSecondes > 60)
+            Tuile(titre: "Photos à renvoyer", valeur: "\(r.aRenvoyer.count)",
+                  detail: r.aRenvoyer.isEmpty ? "Tout est bien arrivé" : r.aRenvoyer.prefix(3).map(\.origine).joined(separator: ", "),
+                  alerte: !r.aRenvoyer.isEmpty)
+            if etat.reglages.tamponActif {
+                Tuile(titre: "Dossier tampon", valeur: "\(r.dansTampon)", detail: "en attente du lot pour Lightroom")
+            }
+        }
+    }
+
+    // MARK: - Boîtiers
+
+    private var boitiers: some View {
+        Carte(titre: "Boîtiers", sousTitre: "\(r.boitiers.count) boîtier\(r.boitiers.count > 1 ? "s" : "") aujourd'hui") {
+            if r.boitiers.isEmpty {
+                Text("Aucune photo reçue pour l'instant.").font(.system(size: 13)).foregroundStyle(Theme.texteDiscret)
+            }
+            ForEach(r.boitiers) { b in
+                HStack {
+                    Text(b.nom).font(.system(size: 13))
+                    Spacer()
+                    Text("\(b.photos) photos").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+                    if let d = b.derniere {
+                        let silence = Date().timeIntervalSince(d)
+                        Pastille(texte: silence < 300 ? "dernière il y a \(Self.duree(silence))" : "silencieux depuis \(Self.duree(silence))",
+                                 genre: silence < 300 ? .ok : .attention)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Dernières photos
+
+    private var recentes: some View {
+        Carte(titre: "Dernières photos reçues", sousTitre: "Nom · code · boîtier") {
+            ForEach(r.recentes) { p in
+                HStack {
+                    Text(p.nom).font(.system(size: 12, design: .monospaced))
+                    Text(p.code.isEmpty ? "sans code" : p.code)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(p.code.isEmpty ? Theme.attention : Theme.texte)
+                    Spacer()
+                    Text(p.boitier).font(.system(size: 11)).foregroundStyle(Theme.texteDiscret)
+                    Pastille(texte: Self.libelle(p.etat), genre: p.etat == .envoyee ? .ok : (p.etat == .erreur || p.etat == .aRenvoyer) ? .attention : .neutre)
+                }
+            }
+        }
+    }
+
+    // MARK: - Panneau de droite
+
+    private var panneauDroit: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Régulateur").font(.system(size: 14, weight: .semibold))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Lightroom : \(Int((r.chargeLightroom * 100).rounded())) % du Mac").font(.system(size: 13))
+                Text("Photos traitées en même temps : \(r.ouvriers)").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+                Text(RegleRegulateur.lightroomOccupe(chargeLightroom: r.chargeLightroom)
+                     ? "Lightroom travaille : Tri-photo ralentit, reprise automatique."
+                     : "Lightroom est calme : Tri-photo va à pleine vitesse.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            }
+            Divider().overlay(Theme.bordure)
+            Text("Photos à renvoyer").font(.system(size: 14, weight: .semibold))
+            if r.aRenvoyer.isEmpty {
+                Text("Aucune.").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+            } else {
+                Text("Mal transférées : à redemander au boîtier sous leur nom d'origine. Elles sont dans « _À renvoyer » du dossier de réception ; supprime-les une fois renvoyées.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+                ForEach(r.aRenvoyer.prefix(20), id: \.id) { f in
+                    HStack {
+                        Text(f.origine).font(.system(size: 12, design: .monospaced))
+                        Spacer()
+                        Text(f.boitier).font(.system(size: 11)).foregroundStyle(Theme.texteDiscret)
+                    }
+                }
+            }
+            if r.enErreur > 0 || !r.message.isEmpty {
+                Divider().overlay(Theme.bordure)
+                Text("Dernier message").font(.system(size: 14, weight: .semibold))
+                if r.enErreur > 0 {
+                    Text("\(r.enErreur) photo\(r.enErreur > 1 ? "s" : "") en erreur, nouvel essai automatique.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.attention)
+                }
+                Text(r.message).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+            }
+            Spacer()
+            if moteur.actif {
+                Button("Arrêter le tri") { etat.arreterJournee() }.buttonStyle(BoutonStyle())
+            }
+        }
+        .padding(16)
+    }
+
+    // MARK: - Outils
+
+    static func duree(_ s: Double) -> String {
+        if s < 60 { return "\(Int(s)) s" }
+        if s < 3600 { return "\(Int(s / 60)) min" }
+        return "\(Int(s / 3600)) h \(Int(s.truncatingRemainder(dividingBy: 3600) / 60)) min"
+    }
+
+    static func libelle(_ e: EtatPhoto) -> String {
+        switch e {
+        case .recue: return "reçue"
+        case .copiee: return "copiée"
+        case .tampon: return "tampon"
+        case .envoyee: return "Lightroom"
+        case .aRenvoyer: return "à renvoyer"
+        case .erreur: return "erreur"
+        }
+    }
+}
+
+/// Grand chiffre de l'accueil.
+struct Tuile: View {
+    var titre: String
+    var valeur: String
+    var detail: String
+    var alerte = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(titre).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+            Text(valeur).font(.system(size: 28, weight: .semibold)).foregroundStyle(alerte ? Theme.attention : Theme.texte)
+            Text(detail).font(.system(size: 11)).foregroundStyle(Theme.texteDiscret).lineLimit(1)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.carte, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(alerte ? Theme.attention.opacity(0.5) : Theme.bordure, lineWidth: 1))
+    }
+}
