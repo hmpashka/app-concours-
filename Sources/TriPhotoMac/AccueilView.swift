@@ -8,6 +8,7 @@ import TriPhotoMoteur
 struct AccueilView: View {
     @EnvironmentObject var etat: Etat
     @ObservedObject var moteur: Moteur
+    @State private var comparer: FichePhoto?
 
     private var r: ResumeMoteur { moteur.resume }
 
@@ -42,6 +43,7 @@ struct AccueilView: View {
                 panneauDroit.frame(width: 300).background(Theme.panneau)
             }
         }
+        .sheet(item: $comparer) { f in ComparerDoublon(doublon: f, moteur: moteur) }
     }
 
     // MARK: - Chiffres
@@ -77,7 +79,8 @@ struct AccueilView: View {
                     Spacer()
                     Button("Voir") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: f.chemin)]) }
                         .buttonStyle(BoutonStyle())
-                    Button("Garder (autre nom)") { moteur.garderDoublon(f) }.buttonStyle(BoutonStyle(principal: true))
+                    Button("Comparer…") { comparer = f }.buttonStyle(BoutonStyle(principal: true))
+                    Button("Garder (autre nom)") { moteur.garderDoublon(f) }.buttonStyle(BoutonStyle())
                     Button("Jeter") { moteur.jeterDoublon(f) }.buttonStyle(BoutonStyle())
                 }
             }

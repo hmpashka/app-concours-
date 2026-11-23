@@ -131,7 +131,9 @@ final class Etat: ObservableObject {
                                              cube: cube, concours: concours, tailleLot: r.tailleLot,
                                              silenceMinutes: r.silenceBoitierMinutes,
                                              retarderSiOccupe: r.retarderSiLightroomOccupe,
-                                             journal: Stockage.dossier.appendingPathComponent("journal.sqlite")))
+                                             journal: Stockage.dossier.appendingPathComponent("journal.sqlite"),
+                                             travailLightroom: r.dossierTravailLightroom.isEmpty ? nil
+                                                 : URL(fileURLWithPath: r.dossierTravailLightroom, isDirectory: true)))
             erreurDemarrage = nil
             ecran = .accueil
         } catch {

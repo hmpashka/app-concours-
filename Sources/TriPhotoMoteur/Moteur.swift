@@ -16,10 +16,11 @@ public struct ConfigMoteur {
     public var silenceMinutes: Int
     public var retarderSiOccupe: Bool
     public var journal: URL        // fichier du journal (base SQLite)
+    public var travailLightroom: URL?   // pour retrouver une photo déjà importée par Lightroom
 
     public init(reception: URL, importLightroom: URL, tampon: URL?, serveur: URL, cote: Int, qualite: Int,
                 cube: FichierCube?, concours: Concours?, tailleLot: Int, silenceMinutes: Int,
-                retarderSiOccupe: Bool, journal: URL) {
+                retarderSiOccupe: Bool, journal: URL, travailLightroom: URL? = nil) {
         self.reception = reception
         self.importLightroom = importLightroom
         self.tampon = tampon
@@ -32,6 +33,7 @@ public struct ConfigMoteur {
         self.silenceMinutes = silenceMinutes
         self.retarderSiOccupe = retarderSiOccupe
         self.journal = journal
+        self.travailLightroom = travailLightroom
     }
 }
 
@@ -416,6 +418,69 @@ public final class Moteur: ObservableObject {
                 self.message = "Doublon \(f.origine) mis à la corbeille."
             } catch {
                 self.message = "Doublon : \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// La photo déjà reçue sous le même nom qu'un doublon (pour les montrer côte à côte).
+    public func premiere(pour doublon: FichePhoto) -> FichePhoto? {
+        file.sync { journal?.fiche(nom: doublon.nom, sauf: doublon.id) }
+    }
+
+    /// Remplacer la première photo par le doublon (le dernier reçu) : nouvelle copie .cube sur le serveur, et
+    /// l'original remplacé là où il est (import Lightroom, tampon ou dossier de travail de Lightroom). L'ancien
+    /// original va à la corbeille du Mac : tout reste récupérable.
+    public func remplacerPremiere(par doublon: FichePhoto) {
+        file.async { [weak self] in
+            guard let self, let c = self.config, let j = self.journal else { return }
+            let fm = FileManager.default
+            let nouvelle = URL(fileURLWithPath: doublon.chemin)
+            guard fm.fileExists(atPath: nouvelle.path), var premiere = j.fiche(nom: doublon.nom, sauf: doublon.id) else {
+                self.message = "Remplacement impossible : photo introuvable."
+                return
+            }
+            // Où est l'original de la première ? Là où on l'a déposé, sinon dans le dossier de travail de Lightroom.
+            var cible: URL? = fm.fileExists(atPath: premiere.chemin) ? URL(fileURLWithPath: premiere.chemin) : nil
+            if cible == nil, let travail = c.travailLightroom,
+               let e = fm.enumerator(at: travail, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+                for case let u as URL in e where u.lastPathComponent.caseInsensitiveCompare(premiere.nom) == .orderedSame {
+                    cible = u
+                    break
+                }
+            }
+            guard let cible else {
+                self.message = "Remplacement impossible : l'original de \(premiere.nom) n'a pas été retrouvé."
+                return
+            }
+            do {
+                guard let infos = TraitementPhoto.infos(nouvelle) else { throw TraitementPhoto.Erreur.illisible(nouvelle.lastPathComponent) }
+                let code = CodePassage.lire(infos.copyright)
+                if !premiere.copie.isEmpty {
+                    try TraitementPhoto.fabriquerCopie(de: nouvelle, vers: URL(fileURLWithPath: premiere.copie), cote: c.cote,
+                                                       qualite: c.qualite, cube: c.cube,
+                                                       copyright: code?.texte ?? infos.copyright, priseEXIF: infos.priseEXIF)
+                }
+                var motsCles: [String] = []
+                if let code, let couple = c.concours?.couple(pour: code) {
+                    motsCles += [couple.cavalier, couple.cheval].filter { !$0.isEmpty }
+                }
+                if let code, let ep = c.concours?.epreuve(numero: code.epreuve) { motsCles.append("Épreuve \(ep.nomDossier)") }
+                // la nouvelle version est d'abord écrite à côté, puis l'ancienne part à la corbeille
+                let provisoire = cible.deletingLastPathComponent().appendingPathComponent(".remplacement-\(cible.lastPathComponent)")
+                try TraitementPhoto.copierAvecIPTC(de: nouvelle, vers: provisoire, motsCles: motsCles, codeOrigine: code?.texte ?? "")
+                try fm.trashItem(at: cible, resultingItemURL: nil)
+                try fm.moveItem(at: provisoire, to: cible)
+                try fm.removeItem(at: nouvelle)
+                premiere.erreur = "Remplacée par le doublon \(doublon.origine)"
+                premiere.chemin = cible.path
+                j.mettreAJour(premiere)
+                var d = doublon
+                d.etat = .ecartee
+                d.erreur = "A remplacé la première photo \(premiere.nom)"
+                j.mettreAJour(d)
+                self.message = "\(premiere.nom) remplacée par le dernier reçu. Dans Lightroom, si l'aperçu n'a pas changé : clic droit > Mettre à jour l'aperçu."
+            } catch {
+                self.message = "Remplacement : \(error.localizedDescription)"
             }
         }
     }

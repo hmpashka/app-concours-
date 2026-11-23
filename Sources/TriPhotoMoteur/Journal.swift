@@ -122,6 +122,15 @@ final class Journal {
         return sqlite3_step(st) == SQLITE_ROW
     }
 
+    /// La photo déjà reçue qui porte ce nom (celle qu'un doublon pourrait remplacer).
+    func fiche(nom: String, sauf id: Int64) -> FichePhoto? {
+        let st = preparer("SELECT \(Journal.colonnes) FROM photos WHERE nom=? COLLATE NOCASE AND id<>? AND etat IN ('copiee','tampon','envoyee') ORDER BY id LIMIT 1")
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, nom)
+        sqlite3_bind_int64(st, 2, id)
+        return sqlite3_step(st) == SQLITE_ROW ? fiche(st) : nil
+    }
+
     func fiches(etat: EtatPhoto, limite: Int = 10_000) -> [FichePhoto] {
         let st = preparer("SELECT \(Journal.colonnes) FROM photos WHERE etat=? ORDER BY id LIMIT ?")
         defer { sqlite3_finalize(st) }
