@@ -7,6 +7,11 @@ final class RenommageTests: XCTestCase {
         XCTAssertEqual(Renommage.nom(origine: "_MG_0001.jpg", priseEXIF: "2026:11:29 09:05:59"), "_MG_0001-05.jpg")
     }
 
+    func testNomDejaAvecLaMinuteGarde() {
+        XCTAssertEqual(Renommage.nom(origine: "DERB1340-35.JPG", priseEXIF: "2026:11:20 10:35:12"), "DERB1340-35.JPG")
+        XCTAssertEqual(Renommage.nom(origine: "DERB1340-35.JPG", priseEXIF: "2026:11:20 10:36:00"), "DERB1340-35-36.JPG")
+    }
+
     func testSansDateEXIF() {
         var c = DateComponents()
         c.year = 2026; c.month = 11; c.day = 29; c.hour = 8; c.minute = 7

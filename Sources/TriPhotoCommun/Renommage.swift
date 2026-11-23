@@ -13,6 +13,8 @@ public enum Renommage {
         let ext = (origine as NSString).pathExtension
         let base = (origine as NSString).deletingPathExtension
         let mm = minute(priseEXIF) ?? secours.map(minute(date:)) ?? "00"
+        // Déjà renommée (« DERB1340-35.JPG » prise à la minute 35) : le nom est gardé tel quel.
+        if base.hasSuffix("-\(mm)") { return origine }
         return ext.isEmpty ? "\(base)-\(mm)" : "\(base)-\(mm).\(ext)"
     }
 
