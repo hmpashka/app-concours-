@@ -143,8 +143,7 @@ var fin: Date?
 while true {
     RunLoop.main.run(until: Date().addingTimeInterval(0.5))
     let r = moteur.resume
-    let codes = r.series.filter { $0.genre == .photoCode }.count
-    let faites = nombre(importLR) + (avecTampon ? nombre(tampon) : 0) + r.aRenvoyer.count + r.doublons.count + r.aValider + codes
+    let faites = nombre(importLR) + (avecTampon ? nombre(tampon) : 0) + r.aRenvoyer.count + r.doublons.count + r.aValider
     if Date().timeIntervalSince(dernierAffichage) >= 5 {
         dernierAffichage = Date()
         print(String(format: "  %4ld / %ld  · %5.0f photos/min · file %ld · Lightroom %3.0f %% · ouvriers %ld",
@@ -195,7 +194,7 @@ print("  Envoyées à l'import Lightroom : \(envoyes.count)")
 print("  Copies .cube sur le serveur : \(copies)")
 print("  À renvoyer (mal transférées) : \(r.aRenvoyer.count)")
 print("  Doublons mis de côté : \(r.doublons.count)")
-print("  À valider (propositions du chrono) : \(r.aValider) photos en \(r.series.filter { $0.genre == .chrono }.count) séries")
+print("  À valider (propositions du chrono) : \(r.series.filter { $0.genre == .chrono }.reduce(0) { $0 + $1.photos.count }) photos en \(r.series.filter { $0.genre == .chrono }.count) séries")
 print("  Photos de code détectées : \(r.series.filter { $0.genre == .photoCode }.count)")
 for s in r.series.prefix(8) {
     print("    · \(s.genre == .photoCode ? "photo de code" : "\(s.photos.count) photos") \(s.code) → \(s.proposition) (\(s.confiance) %) : \(s.raison)")

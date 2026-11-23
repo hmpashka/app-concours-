@@ -76,7 +76,8 @@ public struct ResumeMoteur {
 
     // Étape 2
     public var series: [SerieAValider] = []
-    public var aValider: Int { series.reduce(0) { $0 + $1.photos.count } }
+    /// Photos mises de côté en attente de validation (les photos de code comptent pour une).
+    public var aValider: Int { series.reduce(0) { $0 + ($1.genre == .photoCode ? 1 : $1.photos.count) } }
     public var enAttenteChrono = 0
     public var chrono: EtatChrono?
     public var enPiste: [EnPiste] = []
@@ -582,19 +583,35 @@ public final class Moteur: ObservableObject {
         r.enAttenteChrono = enAttenteChrono.count
         var series: [String: SerieAValider] = [:]
         var ordre: [String] = []
-        for f in j.fiches(etat: .aValider, limite: 2000) where FileManager.default.fileExists(atPath: f.chemin) {
-            let id = f.serie.isEmpty ? "chrono-\(f.id)" : f.serie
-            if series[id] == nil {
+        // Séries : photos d'un même boîtier qui se suivent (moins d'une minute d'écart à la prise de vue), avec le
+        // même code et la même proposition. Calculées ici, sur l'heure de prise de vue : l'ordre de traitement
+        // (plusieurs photos à la fois) ne coupe plus une série en morceaux.
+        let enAttente = j.fiches(etat: .aValider, limite: 2000)
+            .filter { FileManager.default.fileExists(atPath: $0.chemin) }
+            .sorted { ($0.boitier, $0.prise ?? $0.recue) < ($1.boitier, $1.prise ?? $1.recue) }
+        var courante: String?
+        var precedente: FichePhoto?
+        for f in enAttente {
+            let meme = precedente.map { p in
+                p.boitier == f.boitier && p.code == f.code && p.proposition == f.proposition
+                    && (f.prise ?? f.recue).timeIntervalSince(p.prise ?? p.recue) < 60
+            } ?? false
+            if !meme || courante == nil {
+                let id = "chrono-\(f.id)"
+                courante = id
                 ordre.append(id)
                 series[id] = SerieAValider(id: id, genre: .chrono, boitier: f.boitier, photos: [], photoCode: nil,
                                            code: f.code, proposition: f.proposition, raison: f.raison,
                                            confiance: f.confiance, preselection: [])
             }
-            series[id]?.photos.append(f)
-            series[id]?.preselection.insert(f.id)
-            // lecture d'abord dans une variable : lire et modifier « series » dans la même ligne est refusé
-            let confiance = series[id]?.confiance ?? 100
-            series[id]?.confiance = min(confiance, f.confiance)
+            if let id = courante {
+                series[id]?.photos.append(f)
+                series[id]?.preselection.insert(f.id)
+                // lecture d'abord dans une variable : lire et modifier « series » dans la même ligne est refusé
+                let confiance = series[id]?.confiance ?? 100
+                series[id]?.confiance = min(confiance, f.confiance)
+            }
+            precedente = f
         }
         for pc in j.fiches(etat: .photoCode, limite: 200) where !pc.serie.isEmpty {
             guard let prise = pc.prise else { continue }
