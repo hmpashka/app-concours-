@@ -167,8 +167,38 @@ struct ReglagesView: View {
                 }
                 .pickerStyle(.segmented).labelsHidden().frame(width: 320)
             }
-            Text("Le lien avec HM Timing et la Capture Horse & Comp arrivent à l'étape 2.")
-                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            if etat.reglages.chronometrage == .hmTiming {
+                Ligne("Adresse de HM Timing") {
+                    TextField("192.168.1.20:8080", text: $etat.reglages.adresseHM).textFieldStyle(.roundedBorder).frame(width: 260)
+                }
+                Ligne("Code de régie") {
+                    SecureField("", text: $etat.reglages.codeRegieHM).textFieldStyle(.roundedBorder).frame(width: 160)
+                }
+                Ligne("Code technicien") {
+                    SecureField("", text: $etat.reglages.codeTechHM).textFieldStyle(.roundedBorder).frame(width: 160)
+                }
+                Ligne("Fin de tour tolérée") {
+                    Stepper("\(etat.reglages.finDeTourSecondes) s après l'arrivée", value: $etat.reglages.finDeTourSecondes, in: 0...60, step: 5)
+                }
+                Ligne("Latence au changement") {
+                    Stepper("\(etat.reglages.latenceSecondes) s", value: $etat.reglages.latenceSecondes, in: 0...30)
+                }
+                Ligne("Attente du chrono") {
+                    Stepper("\(etat.reglages.attenteChronoMinutes) min au plus, puis la photo part avec son code",
+                            value: $etat.reglages.attenteChronoMinutes, in: 1...15)
+                }
+                ChoixChemin(titre: "Passages pour le mode entraînement (facultatif)",
+                            aide: "Fichier JSON des passages d'un ancien concours : remplace HM Timing pour s'entraîner.",
+                            chemin: $etat.reglages.fichierPassagesEntrainement, fichier: true, types: [.json])
+                Text("Aucune correction n'est appliquée seule : chaque proposition du chrono va dans « À valider ».")
+                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            } else {
+                Text("Capture Horse & Comp : en préparation (je te pose une question avant de la construire).")
+                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            }
+            Ligne("Photos en _00") {
+                Stepper("attendent \(etat.reglages.attente00Minutes) min une photo de code", value: $etat.reglages.attente00Minutes, in: 0...10)
+            }
             Divider().overlay(Theme.bordure)
             Text("Pistes et photographes").font(.system(size: 13, weight: .semibold))
             ForEach($etat.reglages.pistes) { $piste in

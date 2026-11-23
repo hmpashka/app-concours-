@@ -1,5 +1,6 @@
 import SwiftUI
 import TriPhotoCommun
+import TriPhotoMoteur
 
 /// Fenêtre principale : bandeau du concours et onglets en haut, puis l'écran choisi.
 struct ContentView: View {
@@ -7,16 +8,14 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Bandeau()
+            Bandeau(moteur: etat.moteur)
             Divider().overlay(Theme.bordure)
             Group {
                 switch etat.ecran {
                 case .reglages: ReglagesView()
                 case .accueil: AccueilView(moteur: etat.moteur)
-                case .aValider: BientotView(titre: "À valider", etape: 2,
-                                            texte: "Corrections de code proposées d'après le chrono, par série, avec vignettes avant / après.")
-                case .revue: BientotView(titre: "Revue", etape: 2,
-                                         texte: "Revue rapide, une photo à la fois : bonne, floue, sol, code.")
+                case .aValider: AValiderView(moteur: etat.moteur)
+                case .revue: RevueView(moteur: etat.moteur)
                 case .memoire: BientotView(titre: "Mémoire", etape: 5,
                                            texte: "Exemples par catégorie, partagés entre les stands par iCloud.")
                 }
@@ -36,6 +35,7 @@ struct ContentView: View {
 /// Bandeau du haut : nom du concours, état, onglets, bouton de clôture.
 struct Bandeau: View {
     @EnvironmentObject var etat: Etat
+    @ObservedObject var moteur: Moteur
 
     private var sousTitre: String {
         var morceaux: [String] = [Date().formatted(.dateTime.weekday(.wide).day().month(.wide).locale(Locale(identifier: "fr_FR")))]
@@ -59,7 +59,16 @@ struct Bandeau: View {
             HStack(spacing: 4) {
                 ForEach(Ecran.allCases) { e in
                     Button { etat.ecran = e } label: {
-                        Text(e.rawValue)
+                        HStack(spacing: 5) {
+                            Text(e.rawValue)
+                            if e == .aValider && !moteur.resume.series.isEmpty {
+                                Text("\(moteur.resume.series.count)")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .padding(.horizontal, 5).padding(.vertical, 1)
+                                    .background(Theme.orange, in: Capsule())
+                                    .foregroundStyle(Color.black)
+                            }
+                        }
                             .font(.system(size: 13, weight: etat.ecran == e ? .semibold : .regular))
                             .foregroundStyle(etat.ecran == e ? Color.white : Theme.texteDiscret)
                             .padding(.horizontal, 12)

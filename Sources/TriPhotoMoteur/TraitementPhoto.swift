@@ -125,10 +125,18 @@ enum TraitementPhoto {
 
     /// Écrit l'original vers `final` avec les champs IPTC, sans décoder ni recompresser l'image : seules les
     /// métadonnées changent (CGImageDestinationCopyImageSource). Le fichier de départ n'est pas modifié.
-    static func copierAvecIPTC(de url: URL, vers final: URL, motsCles: [String], codeOrigine: String) throws {
+    /// `copyright` : le code validé par HUGO, écrit à la place de celui du photographe (nil : on ne touche pas).
+    static func copierAvecIPTC(de url: URL, vers final: URL, motsCles: [String], codeOrigine: String,
+                               copyright: String? = nil) throws {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { throw Erreur.illisible(url.lastPathComponent) }
         let meta = CGImageSourceCopyMetadataAtIndex(src, 0, nil).flatMap { CGImageMetadataCreateMutableCopy($0) }
             ?? CGImageMetadataCreateMutable()
+        if let copyright, !copyright.isEmpty {
+            CGImageMetadataSetValueMatchingImageProperty(meta, kCGImagePropertyTIFFDictionary,
+                                                         kCGImagePropertyTIFFCopyright, copyright as CFString)
+            CGImageMetadataSetValueMatchingImageProperty(meta, kCGImagePropertyIPTCDictionary,
+                                                         kCGImagePropertyIPTCCopyrightNotice, copyright as CFString)
+        }
         if !motsCles.isEmpty {
             CGImageMetadataSetValueMatchingImageProperty(meta, kCGImagePropertyIPTCDictionary,
                                                          kCGImagePropertyIPTCKeywords, motsCles as CFArray)
@@ -150,6 +158,12 @@ enum TraitementPhoto {
                 throw Erreur.ecriture(err?.takeRetainedValue().localizedDescription ?? final.path)
             }
         }
+    }
+
+    /// Réécrit les métadonnées d'une photo là où elle est (import, tampon ou dossier de travail de Lightroom),
+    /// sans toucher l'image : nouvelle version écrite à côté, puis remplacement.
+    static func reecrireMetadonnees(_ url: URL, motsCles: [String], codeOrigine: String, copyright: String?) throws {
+        try copierAvecIPTC(de: url, vers: url, motsCles: motsCles, codeOrigine: codeOrigine, copyright: copyright)
     }
 
     // MARK: - Outils

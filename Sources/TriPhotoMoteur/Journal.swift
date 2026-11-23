@@ -1,5 +1,6 @@
 import Foundation
 import SQLite3
+import TriPhotoCommun
 
 /// Où en est une photo dans le moteur.
 public enum EtatPhoto: String, CaseIterable, Sendable {
@@ -11,6 +12,9 @@ public enum EtatPhoto: String, CaseIterable, Sendable {
     case doublon        // même nom qu'une photo déjà envoyée : attend la décision de HUGO, rien n'est envoyé
     case ecartee        // doublon mis à la corbeille par HUGO
     case erreur         // problème (serveur absent…) : sera retentée
+    case aValider       // le chrono propose un autre code : attend la validation de HUGO, rien n'est envoyé
+    case photoCode      // photo de code (ciel, plafond) : jamais envoyée, sert à recoder les photos d'avant
+    case retiree        // supprimée dans Lightroom : sa copie a été retirée du serveur local
 }
 
 /// Une ligne du journal.
@@ -27,6 +31,33 @@ public struct FichePhoto: Identifiable, Sendable {
     public var erreur: String
     public var recue: Date
     public var maj: Date
+    // Étape 2 : codes et revue
+    public var proposition: String = ""   // code proposé d'après le chrono (« #11_14 »)
+    public var raison: String = ""        // pourquoi cette proposition
+    public var confiance: Int = 0         // indice de confiance de la proposition, en %
+    public var codeFinal: String = ""     // code validé par HUGO (prend le pas sur le Copyright)
+    public var serie: String = ""         // série « À valider » (mêmes boîtier, code et proposition, à la suite)
+    public var historique: String = ""    // « 15:03:12 · boîtier · #11_00 », une ligne par changement
+    public var scene: String = ""         // détection : « code », « sol » ou vide
+    public var nettete: Double = 0
+    public var classe: String = ""        // revue : « bonne », « floue », « sol », « code » (choix de HUGO)
+    public var chute = false              // mot-clé CHUTE
+    public var cavalier: String = ""      // d'après le code final et le fichier FFE
+    public var cheval: String = ""
+    public var drapeaux: String = ""      // décisions de HUGO déjà prises (« codeGarde », « pasPhotoCode »…)
+
+    public func a(_ d: String) -> Bool { drapeaux.split(separator: "|").contains { $0 == d } }
+    public mutating func marquer(_ d: String) { if !a(d) { drapeaux = drapeaux.isEmpty ? d : drapeaux + "|" + d } }
+    /// Ajoute une ligne à l'historique des codes : « 15:03:12 · boîtier · #11_00 ».
+    public mutating func noter(_ qui: String, _ quoi: String) {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        let l = "\(f.string(from: Date())) · \(qui) · \(quoi)"
+        historique = historique.isEmpty ? l : historique + "\n" + l
+    }
+
+    /// Le code qui part avec la photo : celui validé par HUGO, sinon celui du photographe.
+    public var codeRetenu: String { codeFinal.isEmpty ? code : codeFinal }
 }
 
 /// Journal du concours, une petite base SQLite sur le Mac. Chaque étape y est notée : après un plantage ou une
@@ -49,7 +80,11 @@ final class Journal {
             code TEXT NOT NULL, etat TEXT NOT NULL, chemin TEXT NOT NULL, copie TEXT NOT NULL,
             erreur TEXT NOT NULL, recue REAL NOT NULL, maj REAL NOT NULL)
         """)
+        // colonnes ajoutées à l'étape 2 (un journal plus ancien est complété, rien n'est perdu)
+        for (nom, type) in Journal.colonnesEtape2 { executer("ALTER TABLE photos ADD COLUMN \(nom) \(type)") }
         executer("CREATE INDEX IF NOT EXISTS photos_etat ON photos(etat)")
+        executer("CREATE INDEX IF NOT EXISTS photos_nom ON photos(nom)")
+        executer("CREATE INDEX IF NOT EXISTS photos_serie ON photos(serie)")
         executer("CREATE INDEX IF NOT EXISTS photos_chemin ON photos(chemin)")
     }
 
@@ -77,13 +112,44 @@ final class Journal {
         sqlite3_column_type(st, i) == SQLITE_NULL ? nil : Date(timeIntervalSince1970: sqlite3_column_double(st, i))
     }
 
-    private static let colonnes = "id, origine, nom, boitier, prise, code, etat, chemin, copie, erreur, recue, maj"
+    private static let colonnesEtape2: [(String, String)] = [
+        ("proposition", "TEXT NOT NULL DEFAULT ''"), ("raison", "TEXT NOT NULL DEFAULT ''"),
+        ("confiance", "INTEGER NOT NULL DEFAULT 0"), ("codeFinal", "TEXT NOT NULL DEFAULT ''"),
+        ("serie", "TEXT NOT NULL DEFAULT ''"), ("historique", "TEXT NOT NULL DEFAULT ''"),
+        ("scene", "TEXT NOT NULL DEFAULT ''"), ("nettete", "REAL NOT NULL DEFAULT 0"),
+        ("classe", "TEXT NOT NULL DEFAULT ''"), ("chute", "INTEGER NOT NULL DEFAULT 0"),
+        ("cavalier", "TEXT NOT NULL DEFAULT ''"), ("cheval", "TEXT NOT NULL DEFAULT ''"),
+        ("drapeaux", "TEXT NOT NULL DEFAULT ''"),
+    ]
+
+    private static let colonnes = "id, origine, nom, boitier, prise, code, etat, chemin, copie, erreur, recue, maj, "
+        + "proposition, raison, confiance, codeFinal, serie, historique, scene, nettete, classe, chute, cavalier, cheval, drapeaux"
 
     private func fiche(_ st: OpaquePointer?) -> FichePhoto {
-        FichePhoto(id: sqlite3_column_int64(st, 0), origine: texte(st, 1), nom: texte(st, 2), boitier: texte(st, 3),
-                   prise: date(st, 4), code: texte(st, 5), etat: EtatPhoto(rawValue: texte(st, 6)) ?? .erreur,
-                   chemin: texte(st, 7), copie: texte(st, 8), erreur: texte(st, 9),
-                   recue: date(st, 10) ?? Date(), maj: date(st, 11) ?? Date())
+        var f = FichePhoto(id: sqlite3_column_int64(st, 0), origine: texte(st, 1), nom: texte(st, 2), boitier: texte(st, 3),
+                           prise: date(st, 4), code: texte(st, 5), etat: EtatPhoto(rawValue: texte(st, 6)) ?? .erreur,
+                           chemin: texte(st, 7), copie: texte(st, 8), erreur: texte(st, 9),
+                           recue: date(st, 10) ?? Date(), maj: date(st, 11) ?? Date())
+        f.proposition = texte(st, 12)
+        f.raison = texte(st, 13)
+        f.confiance = Int(sqlite3_column_int(st, 14))
+        f.codeFinal = texte(st, 15)
+        f.serie = texte(st, 16)
+        f.historique = texte(st, 17)
+        f.scene = texte(st, 18)
+        f.nettete = sqlite3_column_double(st, 19)
+        f.classe = texte(st, 20)
+        f.chute = sqlite3_column_int(st, 21) != 0
+        f.cavalier = texte(st, 22)
+        f.cheval = texte(st, 23)
+        f.drapeaux = texte(st, 24)
+        return f
+    }
+
+    private func liste(_ st: OpaquePointer?) -> [FichePhoto] {
+        var l: [FichePhoto] = []
+        while sqlite3_step(st) == SQLITE_ROW { l.append(fiche(st)) }
+        return l
     }
 
     /// Ajoute une photo et renvoie son numéro.
@@ -98,11 +164,98 @@ final class Journal {
     }
 
     func mettreAJour(_ f: FichePhoto) {
-        let st = preparer("UPDATE photos SET nom=?, code=?, etat=?, chemin=?, copie=?, erreur=?, maj=? WHERE id=?")
+        let st = preparer("""
+        UPDATE photos SET nom=?, code=?, etat=?, chemin=?, copie=?, erreur=?, maj=?, boitier=?, prise=?,
+          proposition=?, raison=?, confiance=?, codeFinal=?, serie=?, historique=?, scene=?, nettete=?, classe=?,
+          chute=?, cavalier=?, cheval=?, drapeaux=? WHERE id=?
+        """)
         defer { sqlite3_finalize(st) }
         lier(st, 1, f.nom); lier(st, 2, f.code); lier(st, 3, f.etat.rawValue); lier(st, 4, f.chemin)
-        lier(st, 5, f.copie); lier(st, 6, f.erreur); lier(st, 7, Date()); sqlite3_bind_int64(st, 8, f.id)
+        lier(st, 5, f.copie); lier(st, 6, f.erreur); lier(st, 7, Date()); lier(st, 8, f.boitier); lier(st, 9, f.prise)
+        lier(st, 10, f.proposition); lier(st, 11, f.raison); sqlite3_bind_int(st, 12, Int32(f.confiance))
+        lier(st, 13, f.codeFinal); lier(st, 14, f.serie); lier(st, 15, f.historique); lier(st, 16, f.scene)
+        sqlite3_bind_double(st, 17, f.nettete); lier(st, 18, f.classe); sqlite3_bind_int(st, 19, f.chute ? 1 : 0)
+        lier(st, 20, f.cavalier); lier(st, 21, f.cheval); lier(st, 22, f.drapeaux)
+        sqlite3_bind_int64(st, 23, f.id)
         sqlite3_step(st)
+    }
+
+    func fiche(id: Int64) -> FichePhoto? {
+        let st = preparer("SELECT \(Journal.colonnes) FROM photos WHERE id=?")
+        defer { sqlite3_finalize(st) }
+        sqlite3_bind_int64(st, 1, id)
+        return sqlite3_step(st) == SQLITE_ROW ? fiche(st) : nil
+    }
+
+    /// La photo envoyée (ou au tampon) qui porte ce nom : pour suivre le dossier de travail de Lightroom.
+    func ficheEnvoyee(nom: String) -> FichePhoto? {
+        let st = preparer("SELECT \(Journal.colonnes) FROM photos WHERE nom=? COLLATE NOCASE AND etat IN ('envoyee','tampon') ORDER BY id DESC LIMIT 1")
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, nom)
+        return sqlite3_step(st) == SQLITE_ROW ? fiche(st) : nil
+    }
+
+    /// Les photos d'une série « À valider ».
+    func fiches(serie: String) -> [FichePhoto] {
+        let st = preparer("SELECT \(Journal.colonnes) FROM photos WHERE serie=? AND etat='aValider' ORDER BY prise, id")
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, serie)
+        return liste(st)
+    }
+
+    /// Les `n` photos d'un boîtier prises juste avant une heure (pour une photo de code : les 15 d'avant).
+    func precedentes(boitier: String, avant: Date, n: Int) -> [FichePhoto] {
+        let st = preparer("""
+        SELECT \(Journal.colonnes) FROM photos WHERE boitier=? AND prise<? AND prise>=?
+          AND etat NOT IN ('photoCode','ecartee','aRenvoyer','doublon','retiree') ORDER BY prise DESC LIMIT ?
+        """)
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, boitier); lier(st, 2, avant); lier(st, 3, avant.addingTimeInterval(-3600))
+        sqlite3_bind_int(st, 4, Int32(n))
+        return liste(st).reversed()
+    }
+
+    /// Photos parties aujourd'hui en _00 ou sans code (à attribuer).
+    func fiches00(depuis: Date, limite: Int = 300) -> [FichePhoto] {
+        let st = preparer("""
+        SELECT \(Journal.colonnes) FROM photos WHERE etat IN ('envoyee','tampon') AND recue>=?
+          AND ((codeFinal<>'' AND codeFinal LIKE '%\\_00' ESCAPE '\\') OR (codeFinal='' AND (code='' OR code LIKE '%\\_00' ESCAPE '\\')))
+          ORDER BY prise DESC LIMIT ?
+        """)
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, depuis)
+        sqlite3_bind_int(st, 2, Int32(limite))
+        return liste(st)
+    }
+
+    /// Nombre de photos par code retenu, pour une épreuve (courbe photos par cavalier).
+    func photosParCode(epreuve: String, depuis: Date) -> [(code: String, photos: Int)] {
+        let st = preparer("""
+        SELECT CASE WHEN codeFinal<>'' THEN codeFinal ELSE code END AS c, COUNT(*) FROM photos
+          WHERE etat IN ('envoyee','tampon','copiee') AND recue>=? GROUP BY c
+        """)
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, depuis)
+        var l: [(code: String, photos: Int)] = []
+        let e = CodePassage.cle(epreuve)
+        while sqlite3_step(st) == SQLITE_ROW {
+            let c = texte(st, 0)
+            if let k = CodePassage.lire(c), k.epreuve == e, k.special == nil { l.append((code: k.texte, photos: Int(sqlite3_column_int(st, 1)))) }
+        }
+        return l.sorted { $0.code.localizedStandardCompare($1.code) == .orderedAscending }
+    }
+
+    /// Photos envoyées dont le code (retenu) commence par cette épreuve, ou toutes (revue).
+    func fichesRevue(epreuve: String?, limite: Int = 5000) -> [FichePhoto] {
+        let st = preparer("""
+        SELECT \(Journal.colonnes) FROM photos WHERE etat IN ('envoyee','tampon','copiee') ORDER BY prise DESC, id DESC LIMIT ?
+        """)
+        defer { sqlite3_finalize(st) }
+        sqlite3_bind_int(st, 1, Int32(limite))
+        let l = liste(st)
+        guard let epreuve else { return l }
+        let e = CodePassage.cle(epreuve)
+        return l.filter { CodePassage.lire($0.codeRetenu)?.epreuve == e }
     }
 
     /// La fiche d'un fichier du dossier de réception, s'il est déjà connu.
@@ -136,18 +289,14 @@ final class Journal {
         defer { sqlite3_finalize(st) }
         lier(st, 1, etat.rawValue)
         sqlite3_bind_int(st, 2, Int32(limite))
-        var l: [FichePhoto] = []
-        while sqlite3_step(st) == SQLITE_ROW { l.append(fiche(st)) }
-        return l
+        return liste(st)
     }
 
     func dernieres(_ n: Int) -> [FichePhoto] {
         let st = preparer("SELECT \(Journal.colonnes) FROM photos ORDER BY id DESC LIMIT ?")
         defer { sqlite3_finalize(st) }
         sqlite3_bind_int(st, 1, Int32(n))
-        var l: [FichePhoto] = []
-        while sqlite3_step(st) == SQLITE_ROW { l.append(fiche(st)) }
-        return l
+        return liste(st)
     }
 
     /// Nombre de photos par état, depuis une heure donnée (début de la journée).

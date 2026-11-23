@@ -126,6 +126,14 @@ final class Etat: ObservableObject {
             }
             var cube: FichierCube?
             if !r.cubeServeur.isEmpty { cube = try FichierCube(fichier: URL(fileURLWithPath: r.cubeServeur)) }
+            var chrono: ConfigChrono?
+            if r.chronometrage == .hmTiming && (!r.adresseHM.isEmpty || !r.fichierPassagesEntrainement.isEmpty) {
+                chrono = ConfigChrono(adresse: r.adresseHM, codeRegie: r.codeRegieHM, codeTechnicien: r.codeTechHM,
+                                      apresArrivee: Double(r.finDeTourSecondes), latence: Double(r.latenceSecondes),
+                                      attenteMaxMinutes: Double(r.attenteChronoMinutes),
+                                      fichierPassages: r.fichierPassagesEntrainement.isEmpty ? nil
+                                          : URL(fileURLWithPath: r.fichierPassagesEntrainement))
+            }
             try moteur.demarrer(ConfigMoteur(reception: reception, importLightroom: importLR, tampon: tampon,
                                              serveur: serveur, cote: r.coteServeur, qualite: r.qualiteServeur,
                                              cube: cube, concours: concours, tailleLot: r.tailleLot,
@@ -133,7 +141,8 @@ final class Etat: ObservableObject {
                                              retarderSiOccupe: r.retarderSiLightroomOccupe,
                                              journal: Stockage.dossier.appendingPathComponent("journal.sqlite"),
                                              travailLightroom: r.dossierTravailLightroom.isEmpty ? nil
-                                                 : URL(fileURLWithPath: r.dossierTravailLightroom, isDirectory: true)))
+                                                 : URL(fileURLWithPath: r.dossierTravailLightroom, isDirectory: true),
+                                             chrono: chrono, attente00Minutes: Double(r.attente00Minutes)))
             erreurDemarrage = nil
             ecran = .accueil
         } catch {
@@ -180,7 +189,14 @@ final class Etat: ObservableObject {
         }
         let cubeOK = !reglages.cubeServeur.isEmpty && fm.isReadableFile(atPath: reglages.cubeServeur)
         v.append(.init(id: "Fichier .cube", ok: cubeOK, detail: cubeOK ? (reglages.cubeServeur as NSString).lastPathComponent : "À choisir"))
-        v.append(.init(id: "Chronométrage", ok: true, detail: reglages.chronometrage.rawValue))
+        switch reglages.chronometrage {
+        case .hmTiming:
+            let ok = !reglages.adresseHM.isEmpty || !reglages.fichierPassagesEntrainement.isEmpty
+            v.append(.init(id: "Chronométrage", ok: ok, detail: ok ? "HM Timing · \(reglages.adresseHM.isEmpty ? "fichier d'entraînement" : reglages.adresseHM)"
+                                                              : "Adresse de HM Timing à régler (sinon : codes du photographe gardés)"))
+        case .captureHorseComp:
+            v.append(.init(id: "Chronométrage", ok: false, detail: "Capture Horse & Comp : bientôt"))
+        }
         return v
     }
 }

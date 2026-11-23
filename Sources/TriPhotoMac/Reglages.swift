@@ -28,6 +28,16 @@ struct ReglagesConcours: Codable, Equatable {
     var chronometrage: Chronometrage = .hmTiming
     var pistes: [Piste] = [Piste(nom: "Piste 1", photographe: "")]
 
+    // 1b. Chrono (étape 2)
+    var adresseHM = ""                 // « 192.168.1.20:8080 »
+    var codeRegieHM = ""
+    var codeTechHM = ""
+    var finDeTourSecondes = 15         // la piste reste au couple tant de secondes après l'arrivée
+    var latenceSecondes = 5            // tolérée au changement de couple
+    var attenteChronoMinutes = 3       // au-delà, la photo part avec son code, marquée « sans vérification »
+    var attente00Minutes = 2           // une photo en _00 attend une photo de code ou le chrono
+    var fichierPassagesEntrainement = ""   // mode entraînement : passages d'un ancien concours (JSON)
+
     // 2. Dossiers
     var dossierReception = ""
     var dossierImportLightroom = ""
@@ -72,6 +82,14 @@ struct ReglagesConcours: Codable, Equatable {
         cheminFFE = lire(.cheminFFE, cheminFFE)
         chronometrage = lire(.chronometrage, chronometrage)
         pistes = lire(.pistes, pistes)
+        adresseHM = lire(.adresseHM, adresseHM)
+        codeRegieHM = lire(.codeRegieHM, codeRegieHM)
+        codeTechHM = lire(.codeTechHM, codeTechHM)
+        finDeTourSecondes = lire(.finDeTourSecondes, finDeTourSecondes)
+        latenceSecondes = lire(.latenceSecondes, latenceSecondes)
+        attenteChronoMinutes = lire(.attenteChronoMinutes, attenteChronoMinutes)
+        attente00Minutes = lire(.attente00Minutes, attente00Minutes)
+        fichierPassagesEntrainement = lire(.fichierPassagesEntrainement, fichierPassagesEntrainement)
         dossierReception = lire(.dossierReception, dossierReception)
         dossierImportLightroom = lire(.dossierImportLightroom, dossierImportLightroom)
         dossierTravailLightroom = lire(.dossierTravailLightroom, dossierTravailLightroom)

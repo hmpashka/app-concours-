@@ -31,7 +31,10 @@ struct AccueilView: View {
                         }
                     }
                     chiffres
+                    if !r.alertes.isEmpty { alertes }
+                    if r.chrono != nil { enPiste }
                     if !r.doublons.isEmpty { doublons }
+                    if !r.photosParCode.isEmpty { courbe }
                     boitiers
                     recentes
                 }
@@ -58,9 +61,72 @@ struct AccueilView: View {
             Tuile(titre: "Photos à renvoyer", valeur: "\(r.aRenvoyer.count)",
                   detail: r.aRenvoyer.isEmpty ? "Tout est bien arrivé" : r.aRenvoyer.prefix(3).map(\.origine).joined(separator: ", "),
                   alerte: !r.aRenvoyer.isEmpty)
+            Tuile(titre: "À valider", valeur: "\(r.aValider)",
+                  detail: r.series.isEmpty ? "Rien en attente" : "\(r.series.count) série\(r.series.count > 1 ? "s" : "")"
+                      + (r.enAttenteChrono > 0 ? " · \(r.enAttenteChrono) en attente du chrono" : ""),
+                  alerte: !r.series.isEmpty)
             if etat.reglages.tamponActif {
                 Tuile(titre: "Dossier tampon", valeur: "\(r.dansTampon)", detail: "en attente du lot pour Lightroom")
             }
+        }
+    }
+
+    // MARK: - Alertes, en piste, courbe
+
+    private var alertes: some View {
+        Carte(titre: "À regarder") {
+            ForEach(r.alertes, id: \.self) { a in
+                Text(a).font(.system(size: 12)).foregroundStyle(Theme.attention)
+            }
+        }
+    }
+
+    private var enPiste: some View {
+        Carte(titre: "En piste", sousTitre: chronoTexte) {
+            if r.enPiste.isEmpty {
+                Text("Aucun passage pour l'instant.").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+            }
+            ForEach(r.enPiste) { e in
+                HStack {
+                    Text(e.piste.isEmpty ? "Piste" : e.piste).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+                        .frame(width: 110, alignment: .leading)
+                    Text("Épreuve \(e.passage.epreuve) · n° \(e.passage.dossard)").font(.system(size: 13, weight: .semibold))
+                    Text([e.passage.cavalier, e.passage.cheval].filter { !$0.isEmpty }.joined(separator: " · "))
+                        .font(.system(size: 12)).foregroundStyle(Theme.texteDiscret).lineLimit(1)
+                    Spacer()
+                    Pastille(texte: e.termine ? "terminé" : "en piste", genre: e.termine ? .neutre : .ok)
+                }
+            }
+        }
+    }
+
+    private var chronoTexte: String {
+        guard let c = r.chrono else { return "" }
+        switch c.ok {
+        case .none: return "HM Timing : connexion…"
+        case .some(true): return "HM Timing connecté · \(c.passages) passages"
+        case .some(false): return c.erreur
+        }
+    }
+
+    private var courbe: some View {
+        let plusHaut = r.photosParCode.map { $0.photos }.max() ?? 1
+        let tri = r.photosParCode.map { $0.photos }.sorted()
+        let mediane = tri.isEmpty ? 0 : tri[tri.count / 2]
+        return Carte(titre: "Photos par cavalier · épreuve \(r.epreuveCourbe)",
+                     sousTitre: "Même nombre de photos à peu près pour chacun : tout va bien. Une barre orange : à regarder.") {
+            HStack(alignment: .bottom, spacing: 3) {
+                ForEach(r.photosParCode, id: \.code) { p in
+                    let ecart = mediane > 0 && (Double(p.photos) > Double(mediane) * 2 || Double(p.photos) < Double(mediane) / 2)
+                    VStack(spacing: 2) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(ecart ? Theme.orange : Theme.accent)
+                            .frame(width: 12, height: plusHaut > 0 ? CGFloat(p.photos) / CGFloat(plusHaut) * 70 + 2 : 2)
+                            .help("\(p.code) : \(p.photos) photos")
+                    }
+                }
+            }
+            .frame(height: 76, alignment: .bottom)
         }
     }
 
@@ -121,7 +187,7 @@ struct AccueilView: View {
                         .foregroundStyle(p.code.isEmpty ? Theme.attention : Theme.texte)
                     Spacer()
                     Text(p.boitier).font(.system(size: 11)).foregroundStyle(Theme.texteDiscret)
-                    Pastille(texte: Self.libelle(p.etat), genre: p.etat == .envoyee ? .ok : (p.etat == .erreur || p.etat == .aRenvoyer || p.etat == .doublon) ? .attention : .neutre)
+                    Pastille(texte: Self.libelle(p.etat), genre: p.etat == .envoyee ? .ok : [.erreur, .aRenvoyer, .doublon, .aValider].contains(p.etat) ? .attention : .neutre)
                 }
             }
         }
@@ -190,6 +256,9 @@ struct AccueilView: View {
         case .erreur: return "erreur"
         case .doublon: return "doublon"
         case .ecartee: return "jetée"
+        case .aValider: return "à valider"
+        case .photoCode: return "photo de code"
+        case .retiree: return "retirée"
         }
     }
 }
