@@ -2,7 +2,7 @@
 //
 //   swift run -c release essai-moteur <dossier de photos> [--cube fichier.cube] [--ffe fichier.xml]
 //                                     [--cadence photos-par-minute] [--tampon] [--max N]
-//                                     [--passages passages.json | --simuler-chrono]
+//                                     [--passages passages.json | --simuler-chrono [--erreurs N]]
 //
 // --simuler-chrono : fabrique un faux chrono d'après les codes des photos elles-mêmes (un passage par suite de
 // photos du même code), pour essayer les propositions « À valider », les photos de code et les _00.
@@ -43,6 +43,7 @@ let maxi = option("--max").flatMap(Int.init)
 let avecTampon = drapeau("--tampon")
 let cheminPassages = option("--passages")
 let simulerChrono = drapeau("--simuler-chrono")
+let erreursChrono = option("--erreurs").flatMap(Int.init) ?? 0   // 1 passage sur N avec un autre dossard
 guard let source = args.first else {
     quitter("Usage : essai-moteur <dossier de photos> [--cube f.cube] [--ffe f.xml] [--cadence N] [--tampon] [--max N]")
 }
@@ -93,7 +94,10 @@ func fauxChrono(_ photos: [URL]) -> URL {
     while i < vues.count {
         var k = i
         while k + 1 < vues.count && vues[k + 1].1 == vues[i].1 && vues[k + 1].0 - vues[k].0 < 300 { k += 1 }
-        passages.append(["source": "piste1", "epreuve": vues[i].1.epreuve, "dossard": vues[i].1.dossard,
+        // --erreurs N : un passage sur N porte un autre dossard, comme si le photographe s'était trompé de code
+        let faux = erreursChrono > 0 && passages.count % erreursChrono == erreursChrono - 1
+        let dossard = faux ? String((Int(vues[i].1.dossard) ?? 0) + 100) : vues[i].1.dossard
+        passages.append(["source": "piste1", "epreuve": vues[i].1.epreuve, "dossard": dossard,
                          "entree": vues[i].0 - 3, "depart": vues[i].0 - 1, "fin": vues[k].0 + 1])
         i = k + 1
     }

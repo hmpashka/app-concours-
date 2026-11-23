@@ -592,7 +592,9 @@ public final class Moteur: ObservableObject {
             }
             series[id]?.photos.append(f)
             series[id]?.preselection.insert(f.id)
-            series[id]?.confiance = min(series[id]?.confiance ?? 100, f.confiance)
+            // lecture d'abord dans une variable : lire et modifier « series » dans la même ligne est refusé
+            let confiance = series[id]?.confiance ?? 100
+            series[id]?.confiance = min(confiance, f.confiance)
         }
         for pc in j.fiches(etat: .photoCode, limite: 200) where !pc.serie.isEmpty {
             guard let prise = pc.prise else { continue }
