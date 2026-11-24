@@ -102,9 +102,10 @@ struct AccueilView: View {
 
     private var chronoTexte: String {
         guard let c = r.chrono else { return "" }
+        let nom = etat.reglages.chronometrage.rawValue
         switch c.ok {
-        case .none: return "HM Timing : connexion…"
-        case .some(true): return "HM Timing connecté · \(c.passages) passages"
+        case .none: return "\(nom) : en attente…"
+        case .some(true): return "\(nom) · \(c.passages) passages\(c.erreur.isEmpty ? "" : " · " + c.erreur)"
         case .some(false): return c.erreur
         }
     }

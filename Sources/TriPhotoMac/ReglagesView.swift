@@ -42,6 +42,7 @@ struct ReglagesView: View {
             }
         }
         .sheet(isPresented: $montrerEpreuves) { EpreuvesView(concours: etat.concours) }
+        .sheet(isPresented: $etat.montrerCapture) { CaptureView(capture: etat.capture).environmentObject(etat) }
     }
 
     // MARK: - Panneau de gauche
@@ -193,8 +194,22 @@ struct ReglagesView: View {
                 Text("Aucune correction n'est appliquée seule : chaque proposition du chrono va dans « À valider ».")
                     .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
             } else {
-                Text("Capture Horse & Comp : en préparation (je te pose une question avant de la construire).")
-                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(etat.reglages.urlIncrustation.isEmpty ? "Page d'incrustation à régler" : etat.reglages.urlIncrustation)
+                            .font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
+                        Text("Tri-photo lit qui est en piste sur la page de Horses & Competitions, comme HM Timing.")
+                            .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+                    }
+                    Spacer()
+                    Button("Régler la capture…") { etat.montrerCapture = true }.buttonStyle(BoutonStyle(principal: true))
+                }
+                Ligne("Fin de tour tolérée") {
+                    Stepper("\(etat.reglages.finDeTourSecondes) s après l'arrivée", value: $etat.reglages.finDeTourSecondes, in: 0...60, step: 5)
+                }
+                Ligne("Latence au changement") {
+                    Stepper("\(etat.reglages.latenceSecondes) s", value: $etat.reglages.latenceSecondes, in: 0...30)
+                }
             }
             Ligne("Photos en _00") {
                 Stepper("attendent \(etat.reglages.attente00Minutes) min une photo de code", value: $etat.reglages.attente00Minutes, in: 0...10)

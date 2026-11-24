@@ -32,11 +32,16 @@ final class Etat: ObservableObject {
     let moteur = Moteur()
     @Published var erreurDemarrage: String?
     let entrainement: Entrainement
+    let capture = CaptureHorseComp()
+    @Published var montrerCapture = false
 
     init() {
         reglages = Stockage.lire(ReglagesConcours.self, nom: "reglages.json") ?? ReglagesConcours()
         concours = Stockage.lire(Concours.self, nom: "concours.json")
         entrainement = Entrainement()
+        capture.zones = { [weak self] in self?.reglages.zonesIncrustation ?? [:] }
+        capture.concours = { [weak self] in self?.concours }
+        capture.epreuveForcee = { [weak self] in self?.reglages.epreuveForcee ?? "" }
         if !reglages.dossierReception.isEmpty {
             entrainement.dossierCible = URL(fileURLWithPath: reglages.dossierReception)
         }
@@ -127,7 +132,11 @@ final class Etat: ObservableObject {
             var cube: FichierCube?
             if !r.cubeServeur.isEmpty { cube = try FichierCube(fichier: URL(fileURLWithPath: r.cubeServeur)) }
             var chrono: ConfigChrono?
-            if r.chronometrage == .hmTiming && (!r.adresseHM.isEmpty || !r.fichierPassagesEntrainement.isEmpty) {
+            if r.chronometrage == .captureHorseComp {
+                chrono = ConfigChrono(adresse: "", codeRegie: "", codeTechnicien: "",
+                                      apresArrivee: Double(r.finDeTourSecondes), latence: Double(r.latenceSecondes),
+                                      attenteMaxMinutes: Double(r.attenteChronoMinutes), externe: true)
+            } else if r.chronometrage == .hmTiming && (!r.adresseHM.isEmpty || !r.fichierPassagesEntrainement.isEmpty) {
                 chrono = ConfigChrono(adresse: r.adresseHM, codeRegie: r.codeRegieHM, codeTechnicien: r.codeTechHM,
                                       apresArrivee: Double(r.finDeTourSecondes), latence: Double(r.latenceSecondes),
                                       attenteMaxMinutes: Double(r.attenteChronoMinutes),
@@ -143,6 +152,12 @@ final class Etat: ObservableObject {
                                              travailLightroom: r.dossierTravailLightroom.isEmpty ? nil
                                                  : URL(fileURLWithPath: r.dossierTravailLightroom, isDirectory: true),
                                              chrono: chrono, attente00Minutes: Double(r.attente00Minutes)))
+            if chrono?.externe == true {
+                let m = moteur
+                capture.envoyer = { p, e in m.passagesExternes(p, erreur: e) }
+                if !capture.ouverte && !r.urlIncrustation.isEmpty { capture.ouvrir(r.urlIncrustation) }
+                m.passagesExternes(capture.passages)
+            }
             erreurDemarrage = nil
             ecran = .accueil
         } catch {
@@ -195,7 +210,9 @@ final class Etat: ObservableObject {
             v.append(.init(id: "Chronométrage", ok: ok, detail: ok ? "HM Timing · \(reglages.adresseHM.isEmpty ? "fichier d'entraînement" : reglages.adresseHM)"
                                                               : "Adresse de HM Timing à régler (sinon : codes du photographe gardés)"))
         case .captureHorseComp:
-            v.append(.init(id: "Chronométrage", ok: false, detail: "Capture Horse & Comp : bientôt"))
+            let ok = !reglages.urlIncrustation.isEmpty && reglages.zonesIncrustation["dossard"] != nil
+            v.append(.init(id: "Chronométrage", ok: ok, detail: ok ? "Capture Horse & Comp · zones réglées"
+                                                              : "Capture Horse & Comp : adresse et zones à régler"))
         }
         return v
     }

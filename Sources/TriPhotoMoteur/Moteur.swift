@@ -773,6 +773,16 @@ public final class Moteur: ObservableObject {
         }
     }
 
+    // MARK: - Capture Horse & Comp
+
+    /// Les passages lus sur la page d'incrustation de Horses & Competitions (capture), envoyés par l'app.
+    public func passagesExternes(_ passages: [Passage], erreur: String = "") {
+        file.async { [weak self] in
+            guard let ch = self?.chrono, ch.config.externe else { return }
+            ch.recevoir(passages, erreur: erreur)
+        }
+    }
+
     // MARK: - Codes : décisions de HUGO (« À valider », photos de code, revue)
 
     /// Applique un code à des photos, où qu'elles en soient :

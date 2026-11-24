@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Fausse incrustation (essai de la capture Horse & Comp)</title>
+<style>
+ body{margin:0;width:1280px;height:720px;background:#0c1a3a;font-family:Helvetica,Arial,sans-serif;color:#fff}
+ .bloc{position:absolute;left:40px;top:470px;width:520px;background:#111c44;border-radius:10px;padding:14px}
+ .ep{background:#c8f03c;color:#111;font-weight:bold;padding:4px 10px;display:inline-block}
+ .dos{position:absolute;left:14px;top:52px;width:90px;height:90px;background:#c8f03c;color:#111;text-align:center;font-size:40px;font-weight:bold;line-height:90px}
+ .nom{position:absolute;left:120px;top:60px;font-size:26px;font-weight:bold}
+ .che{position:absolute;left:120px;top:100px;font-size:22px;font-style:italic}
+ .t{position:absolute;left:40px;top:180px;font-size:34px}.p{position:absolute;left:300px;top:180px;font-size:34px}
+</style></head><body>
+<!-- Essai : un nouveau couple toutes les 40 s, le temps compte pendant 30 s puis s'arrête. -->
+<div class="bloc" style="height:240px">
+ <div class="ep" id="ep">5 - Amateur 2 Grand Prix</div>
+ <div class="dos" id="dos">101</div>
+ <div class="nom" id="nom">A. CAVALIER</div><div class="che" id="che">CHEVAL UN</div>
+ <div class="t">TEMPS <span id="t">0</span></div><div class="p">POINTS <span id="p">0</span></div>
+</div>
+<script>
+ var d=101,t=0;
+ setInterval(function(){
+   t++; if(t<=30){document.getElementById('t').textContent=t;}
+   if(t>=40){t=0;d++;document.getElementById('dos').textContent=d;
+     document.getElementById('nom').textContent='C. CAVALIER '+d;document.getElementById('che').textContent='CHEVAL '+d;
+     document.getElementById('t').textContent='0';document.getElementById('p').textContent=(d%3)*4;}
+ },1000);
+</script></body></html>

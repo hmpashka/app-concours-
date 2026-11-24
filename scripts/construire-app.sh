@@ -55,6 +55,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>LSApplicationCategoryType</key><string>public.app-category.photography</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSHumanReadableCopyright</key><string>HUGO</string>
+    <!-- HM Timing (http sur le réseau du concours) et la page d'incrustation Horses & Competitions -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key><true/>
+        <key>NSAllowsLocalNetworking</key><true/>
+    </dict>
+    <key>NSLocalNetworkUsageDescription</key><string>Tri-photo lit le chrono HM Timing et les boîtiers sur le réseau du concours.</string>
 </dict>
 </plist>
 PLIST

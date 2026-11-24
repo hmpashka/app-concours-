@@ -15,9 +15,11 @@ public struct ConfigChrono: Sendable {
     public var attenteMaxMinutes: Double
     /// Pour le mode entraînement : passages lus dans un fichier JSON (même forme que la réponse de HM Timing).
     public var fichierPassages: URL?
+    /// Vrai : les passages viennent de la capture Horse & Comp (page d'incrustation lue par l'app), pas de HM Timing.
+    public var externe: Bool
 
     public init(adresse: String, codeRegie: String, codeTechnicien: String, apresArrivee: Double = 15,
-                latence: Double = 5, attenteMaxMinutes: Double = 3, fichierPassages: URL? = nil) {
+                latence: Double = 5, attenteMaxMinutes: Double = 3, fichierPassages: URL? = nil, externe: Bool = false) {
         self.adresse = adresse
         self.codeRegie = codeRegie
         self.codeTechnicien = codeTechnicien
@@ -25,6 +27,7 @@ public struct ConfigChrono: Sendable {
         self.latence = latence
         self.attenteMaxMinutes = attenteMaxMinutes
         self.fichierPassages = fichierPassages
+        self.externe = externe
     }
 }
 
@@ -64,6 +67,7 @@ final class Chrono {
 
     /// Demande les passages si le dernier appel date de plus de 8 s. Ne bloque jamais.
     func actualiserSiBesoin(depuis: Date) {
+        if config.externe { return }        // la capture Horse & Comp envoie ses passages elle-même
         verrou.lock()
         guard !enCours, Date().timeIntervalSince(dernierAppel) >= 8 else { verrou.unlock(); return }
         enCours = true
@@ -113,6 +117,16 @@ final class Chrono {
             let ecart = (d["maintenant"] as? NSNumber).map { $0.doubleValue - (t0 + t1) / 2 } ?? 0
             self.terminer(passages: liste, ecart: ecart, erreur: "")
         }.resume()
+    }
+
+    /// Passages venus de la capture Horse & Comp (heure du Mac : pas d'écart d'horloge).
+    func recevoir(_ passages: [Passage], erreur: String) {
+        if erreur.isEmpty || !passages.isEmpty {
+            terminer(passages: passages, ecart: 0, erreur: "")
+            if !erreur.isEmpty { verrou.lock(); _erreur = erreur; verrou.unlock() }
+        } else {
+            terminer(passages: nil, ecart: 0, erreur: erreur)
+        }
     }
 
     private func terminer(passages: [Passage]?, ecart: Double, erreur: String) {

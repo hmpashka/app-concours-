@@ -38,6 +38,11 @@ struct ReglagesConcours: Codable, Equatable {
     var attente00Minutes = 2           // une photo en _00 attend une photo de code ou le chrono
     var fichierPassagesEntrainement = ""   // mode entraînement : passages d'un ancien concours (JSON)
 
+    // 1c. Capture Horse & Comp (page d'incrustation lue par l'app)
+    var urlIncrustation = ""
+    var zonesIncrustation: [String: [Double]] = [:]   // zone → [x, y, largeur, hauteur] en fractions de la page
+    var epreuveForcee = ""                            // numéro d'épreuve choisi à la main (vide : lu sur la page)
+
     // 2. Dossiers
     var dossierReception = ""
     var dossierImportLightroom = ""
@@ -90,6 +95,9 @@ struct ReglagesConcours: Codable, Equatable {
         attenteChronoMinutes = lire(.attenteChronoMinutes, attenteChronoMinutes)
         attente00Minutes = lire(.attente00Minutes, attente00Minutes)
         fichierPassagesEntrainement = lire(.fichierPassagesEntrainement, fichierPassagesEntrainement)
+        urlIncrustation = lire(.urlIncrustation, urlIncrustation)
+        zonesIncrustation = lire(.zonesIncrustation, zonesIncrustation)
+        epreuveForcee = lire(.epreuveForcee, epreuveForcee)
         dossierReception = lire(.dossierReception, dossierReception)
         dossierImportLightroom = lire(.dossierImportLightroom, dossierImportLightroom)
         dossierTravailLightroom = lire(.dossierTravailLightroom, dossierTravailLightroom)
