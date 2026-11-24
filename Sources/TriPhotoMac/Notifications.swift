@@ -116,10 +116,15 @@ final class Notifieur {
     static let categorieMessage = "message-piste"
 
     private var possible: Bool { Bundle.main.bundleIdentifier != nil }
+    /// Erreur rendue par macOS à la demande d'autorisation (montrée dans Réglages 9).
+    var erreurAutorisation: String?
 
     func demanderAutorisation() {
         guard possible else { return }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, err in
+            let texte = err.map { "macOS refuse : \($0.localizedDescription)" }
+            Task { @MainActor in Notifieur.partage.erreurAutorisation = texte }
+        }
         // Répondre directement dans la bulle de notification d'un message (HUGO 24/11)
         let repondre = UNTextInputNotificationAction(identifier: "repondre", title: "Répondre", options: [],
                                                      textInputButtonTitle: "Envoyer", textInputPlaceholder: "Ta réponse…")
@@ -143,7 +148,7 @@ final class Notifieur {
                     ? "Les bulles de Groom Pix sont masquées. Dans Réglages Système › Notifications › Groom Pix, choisis le style « Bannières » ou « Alertes »."
                     : nil
             }
-            Task { @MainActor in fin(texte) }
+            Task { @MainActor in fin(Notifieur.partage.erreurAutorisation ?? texte) }
         }
     }
 

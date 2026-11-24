@@ -75,5 +75,9 @@ PLIST
 
 # Bureau synchronisé par iCloud : il ajoute des attributs Finder que codesign refuse (« detritus not allowed »).
 xattr -cr "$APP"
-codesign --force --deep --sign - "$APP"
+# Signée avec le certificat « Apple Development » de HUGO s'il est sur le Mac : macOS accepte alors les
+# notifications et le trousseau ne redemande pas l'accès à chaque nouvelle version. Sinon signature locale.
+IDENT="$(security find-identity -v -p codesigning 2>/dev/null | grep -m1 "Apple Development" | sed -E 's/.*"(.*)"/\1/' || true)"
+codesign --force --deep --sign "${IDENT:--}" "$APP"
+echo "Signée avec : ${IDENT:-signature locale}"
 echo "Prêt : $ICI/$APP"

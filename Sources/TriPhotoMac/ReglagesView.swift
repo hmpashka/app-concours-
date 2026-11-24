@@ -15,11 +15,12 @@ enum SectionReglages: String, CaseIterable, Identifiable {
     case commandes = "8. Commandes de pack photo"
     case apparence = "9. Apparence, son et notifications"
     case protection = "10. Licence et antivol"
+    case iphone = "11. Notifications iPhone"
     case raccourcis = "Raccourcis clavier"
     case modeles = "Modèles de concours"
     var id: String { rawValue }
 
-    static let debut: [SectionReglages] = [.concours, .dossiers, .copies, .lightroom, .envois, .cloture, .memoire, .commandes, .apparence, .protection]
+    static let debut: [SectionReglages] = [.concours, .dossiers, .copies, .lightroom, .envois, .cloture, .memoire, .commandes, .apparence, .protection, .iphone]
     static let preferences: [SectionReglages] = [.raccourcis, .modeles]
 }
 
@@ -128,6 +129,7 @@ struct ReglagesView: View {
                         carteCommandes.id(SectionReglages.commandes)
                         CarteApparence().id(SectionReglages.apparence)
                         CarteLicence().id(SectionReglages.protection)
+                        CarteNotificationsIphone().id(SectionReglages.iphone)
                     }
                     .padding(24)
                     .frame(maxWidth: 820, alignment: .leading)

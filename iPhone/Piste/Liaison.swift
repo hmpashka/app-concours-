@@ -21,7 +21,14 @@ final class Liaison: ObservableObject {
     @Published private(set) var etat = "Recherche du Mac Groom Pix sur le wifi…"
 
     @Published var nom: String { didSet { UserDefaults.standard.set(nom, forKey: "nom"); direBonjour() } }
-    @Published var piste: String { didSet { UserDefaults.standard.set(piste, forKey: "piste"); direct = nil; direBonjour() } }
+    @Published var piste: String {
+        didSet {
+            UserDefaults.standard.set(piste, forKey: "piste")
+            direct = nil
+            direBonjour()
+            SuiviEcran.partage.pisteChangee(nom: nom, piste: piste)
+        }
+    }
     /// Écran gardé allumé pendant le concours (les alertes s'affichent tout de suite). Réglable dans le menu.
     @Published var ecranAllume: Bool {
         didSet {
@@ -45,6 +52,7 @@ final class Liaison: ObservableObject {
         luJusqua = UserDefaults.standard.double(forKey: "luJusqua")
         ecranAllume = UserDefaults.standard.object(forKey: "ecranAllume") as? Bool ?? true
         macChoisi = UserDefaults.standard.string(forKey: "mac") ?? ""
+        Liaison.courante = self
     }
 
     var nonLus: Int { messages.filter { $0.qui != nom && $0.heure > luJusqua }.count }
@@ -137,7 +145,11 @@ final class Liaison: ObservableObject {
     private func recevoir(_ m: VersPiste) {
         switch m {
         case .accueil(let a): accueil = a
-        case .direct(let d): if d.piste == piste { direct = d }
+        case .direct(let d):
+            if d.piste == piste {
+                direct = d
+                SuiviEcran.partage.mettreAJour(d)
+            }
         case .messages(let l):
             NotifsPiste.partage.nouveaux(l, avant: messages, moi: nom)
             messages = l
@@ -150,7 +162,25 @@ final class Liaison: ObservableObject {
 
     private func direBonjour() {
         canal?.envoyer(.bonjour(nom: nom, piste: piste, appareil: UIDevice.current.name, version: LienPiste.version))
+        // les jetons du service d'Apple, redonnés à chaque connexion (le Mac a pu redémarrer)
+        for (sorte, valeur) in jetons { canal?.envoyer(.jeton(sorte: sorte, valeur: valeur, production: Liaison.production)) }
     }
+
+    /// Jetons du service d'Apple (bulles, écran verrouillé) à donner au Mac.
+    private var jetons: [String: String] = [:]
+    #if DEBUG
+    static let production = false        // app installée depuis le Mac : serveur d'essai d'Apple
+    #else
+    static let production = true         // TestFlight / App Store
+    #endif
+
+    func envoyerJeton(_ sorte: String, _ valeur: String) {
+        if sorte == "fin" { jetons["activite"] = nil } else { jetons[sorte] = valeur }
+        if connecte, let canal { canal.envoyer(.jeton(sorte: sorte, valeur: valeur, production: Liaison.production)) }
+    }
+
+    /// Liaison de l'app, pour le délégué (jeton des notifications) et l'écran verrouillé.
+    static weak var courante: Liaison?
 
     func envoyer(message texte: String, pour: String = "") {
         let t = texte.trimmingCharacters(in: .whitespacesAndNewlines)

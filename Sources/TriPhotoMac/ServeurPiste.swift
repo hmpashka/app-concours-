@@ -125,6 +125,7 @@ final class ServeurPiste: ObservableObject {
             connectes[i].derniersMessages = nil
             connectes[i].dernieresCommandes = nil
             connectes[i].canal.envoyer(.theme(ChoixTheme.courant.code))
+            APNs.partage.misAJour(nom: nom, appareil: appareil, piste: piste)
             if !nom.isEmpty && !personnes.contains(nom) {
                 personnes.append(nom)
                 Stockage.ecrire(personnes, nom: "personnes-piste.json")
@@ -144,6 +145,11 @@ final class ServeurPiste: ObservableObject {
             alerteVue?(boitier)
         case .chercherClient(let texte):
             connectes[i].canal.envoyer(.clients(texte: texte, chercherClients(texte)))
+        case .jeton(let sorte, let valeur, let production):
+            let c = connectes[i]
+            APNs.partage.enregistrer(sorte: sorte, valeur: valeur, production: production,
+                                     nom: c.nom, appareil: c.appareil, piste: c.piste)
+            actualiser()
         case .commande(var k):
             if k.par.isEmpty { k.par = connectes[i].nom.isEmpty ? "iPhone" : connectes[i].nom }
             enregistrerCommande?(k)
@@ -168,6 +174,12 @@ final class ServeurPiste: ObservableObject {
         messages.append(m)
         if messages.count > 2000 { messages.removeFirst(messages.count - 2000) }
         Stockage.ecrire(messages, nom: fichierMessages)
+        // iPhone pas connecté (app fermée, iPhone verrouillé) : bulle par le service d'Apple
+        let presents = Set(connectes.map(\.appareil))
+        APNs.partage.bulle(titre: m.incident ? "Incident · \(m.qui)" : m.qui + (m.pour.isEmpty ? " · à tous" : ""),
+                           texte: m.texte,
+                           pour: { p in !presents.contains(p.appareil) && p.nom != m.qui && m.pourPersonne(p.nom) },
+                           urgent: m.incident)
         if m.qui != "Stand" {
             let conv = ServeurPiste.conversation(de: m)
             if !surMessages() || NSApp.isActive == false {
@@ -252,7 +264,25 @@ final class ServeurPiste: ObservableObject {
                 connectes[i].derniersMessages = ms
             }
         }
+        // écrans verrouillés : chaque piste suivie, iPhone connecté ou non
+        let apns = APNs.partage
+        guard apns.pret else { return }
+        let presents = Set(connectes.map(\.appareil))
+        for piste in Set(apns.iphones.filter { !$0.activite.isEmpty }.map(\.piste)) where !piste.isEmpty {
+            let d = fabriquerDirect(piste: piste, r, reg)
+            apns.ecranVerrouille(piste: piste, etat: EcranVerrouille(d))
+            // CHANGE TON CODE : bulle urgente sur les iPhone de la piste qui ne sont pas devant l'app
+            if let a = d.alerte, alertesPoussees[piste] != a {
+                alertesPoussees[piste] = a
+                apns.bulle(titre: "CHANGE TON CODE", texte: "Boîtier \(a.boitier) : mets \(a.attendu) (encore \(a.ancien))",
+                           pour: { $0.piste == piste && !presents.contains($0.appareil) && $0.activite.isEmpty }, urgent: true)
+            } else if d.alerte == nil {
+                alertesPoussees[piste] = nil
+            }
+        }
     }
+
+    private var alertesPoussees: [String: AlerteCodePiste] = [:]
 
     /// Piste du chrono qui correspond à une piste des réglages.
     static func source(pour piste: String, reglages: ReglagesConcours, sources: [String]) -> String? {
