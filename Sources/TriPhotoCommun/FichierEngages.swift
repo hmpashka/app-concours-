@@ -141,10 +141,10 @@ public enum FichierEngages {
         return sortie
     }
 
-    /// Nom proposé pour le fichier : « 26-11-20_LAMOTTE INDOOR.csv » (aa-mm-jj du premier jour, puis le concours).
-    public static func nomFichier(concours: String, premierJour: Date?, suffixe: String = "") -> String {
+    /// Nom du fichier, comme HUGO le fait : « 26-11-22_LAMOTTE INDOOR.csv » (aa-mm-jj du DERNIER jour du concours).
+    public static func nomFichier(concours: String, dernierJour: Date?, suffixe: String = "") -> String {
         var debut = ""
-        if let d = premierJour {
+        if let d = dernierJour {
             let f = DateFormatter()
             f.locale = Locale(identifier: "fr_FR")
             f.dateFormat = "yy-MM-dd"

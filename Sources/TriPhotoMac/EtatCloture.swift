@@ -30,6 +30,13 @@ extension Etat {
         return Calendar.current.date(byAdding: .day, value: -(max(1, reglages.nombreJours) - 1), to: aujourdhui) ?? aujourdhui
     }
 
+    /// Dernier jour du concours (fichier FFE), sinon le premier jour plus les jours du concours.
+    var finConcours: Date {
+        let jours = (concours?.epreuves ?? []).compactMap { FichierEngages.dateISO($0.date) }
+        if let d = jours.max() { return Calendar.current.startOfDay(for: d) }
+        return Calendar.current.date(byAdding: .day, value: max(1, reglages.nombreJours) - 1, to: debutConcours) ?? debutConcours
+    }
+
     private var cleConcours: String {
         let n = concours?.numero ?? ""
         return NomDossier.nettoyer(n.isEmpty ? (reglages.nomConcours.isEmpty ? "concours" : reglages.nomConcours) : n)
@@ -110,11 +117,11 @@ extension Etat {
     private var nomConcoursFichier: String { reglages.nomConcours.isEmpty ? (concours?.nom ?? "") : reglages.nomConcours }
 
     var fichierDebut: URL {
-        dossierAttribution.appendingPathComponent(FichierEngages.nomFichier(concours: nomConcoursFichier, premierJour: debutConcours))
+        dossierAttribution.appendingPathComponent(FichierEngages.nomFichier(concours: nomConcoursFichier, dernierJour: finConcours))
     }
 
     var fichierFin: URL {
-        dossierAttribution.appendingPathComponent(FichierEngages.nomFichier(concours: nomConcoursFichier, premierJour: debutConcours,
+        dossierAttribution.appendingPathComponent(FichierEngages.nomFichier(concours: nomConcoursFichier, dernierJour: finConcours,
                                                                             suffixe: " fin"))
     }
 

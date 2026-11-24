@@ -65,7 +65,7 @@ final class FichierEngagesTests: XCTestCase {
     }
 
     func testNomDuFichier() {
-        let d = FichierEngages.dateISO("2026-11-20")
-        XCTAssertEqual(FichierEngages.nomFichier(concours: "Lamotte Indoor", premierJour: d), "26-11-20_LAMOTTE INDOOR.csv")
+        let d = FichierEngages.dateISO("2026-11-22")
+        XCTAssertEqual(FichierEngages.nomFichier(concours: "Lamotte Indoor", dernierJour: d), "26-11-22_LAMOTTE INDOOR.csv")
     }
 }
