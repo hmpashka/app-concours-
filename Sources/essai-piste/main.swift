@@ -40,6 +40,10 @@ chercheur.browseResultsChangedHandler = { resultats, _ in
             print("DIRECT \(d.piste) · épreuve \(d.epreuve) \(d.nomEpreuve) · \(d.partis)/\(d.engages) · en piste \(d.enPiste?.code ?? "—") \(d.enPiste?.cavalier ?? "") · précédent \(d.precedent?.code ?? "—") (\(d.precedent?.photos ?? 0) photos) · suivant \(d.suivant?.code ?? "—") · fin \(d.finEstimee.map { Date(timeIntervalSince1970: $0).formatted(date: .omitted, time: .shortened) } ?? "—") · à renvoyer \(d.aRenvoyer.count) · mes photos \(d.mesPhotos) · alerte \(d.alerte.map { "\($0.ancien) → \($0.attendu)" } ?? "aucune")")
         case .messages(let l):
             print("MESSAGES (\(l.count)) · dernier : \(l.last.map { "\($0.qui) : \($0.texte)" } ?? "—")")
+        case .clients(let texte, let l):
+            print("CLIENTS « \(texte) » : \(l.map { "\($0.nom) \($0.prenom)" }.joined(separator: ", "))")
+        case .commandes(let l):
+            print("COMMANDES (\(l.count))")
         }
     }
     c.demarrer()

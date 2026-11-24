@@ -15,7 +15,7 @@ final class Archives: ObservableObject {
     private(set) var dossier: URL
     private var derniereLecture = Date.distantPast
 
-    static var dossierParDefaut: URL {
+    nonisolated static var dossierParDefaut: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs/Tri-photo Listings", isDirectory: true)
     }
