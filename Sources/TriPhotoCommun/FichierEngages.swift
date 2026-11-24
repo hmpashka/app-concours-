@@ -126,7 +126,7 @@ public enum FichierEngages {
             var engages = e.engages
             for t in parEpreuve[CodePassage.cle(e.numero)] ?? [] {
                 // Un dossard déjà dans le fichier FFE n'est pas ajouté une deuxième fois.
-                if engages.contains(where: { CodePassage.cle($0.dossard) == CodePassage.cle(t.dossard) }) { continue }
+                if engages.contains(where: { CodePassage.cle($0.dossard.replacingOccurrences(of: " HC", with: "")) == CodePassage.cle(t.dossard) }) { continue }
                 engages.append(LigneEngage(epreuve: e.numero, nomEpreuve: e.nom, date: e.date, dossard: t.dossard,
                                            nom: t.nom.uppercased(), prenom: prenomPropre(t.prenom), role: "Cavalier",
                                            cheval: t.cheval.uppercased(), titulaire: "Cheval / Poney Titulaire"))
@@ -156,12 +156,12 @@ public enum FichierEngages {
 
     // MARK: - Nettoyage (repris de l'ancien script)
 
-    /// Sans ( ) , ni « SO - » ni « - » entre deux mots (« Amateur 1 - Grand Prix » → « Amateur 1 Grand Prix »), sans accents (le fichier est lu par des logiciels qui ne les aiment pas), et sans
+    /// Sans ( ) , ni « SO - », sans accents (le fichier est lu par des logiciels qui ne les aiment pas), et sans
     /// « ; » ni retour à la ligne qui casseraient les colonnes.
     public static func nettoyer(_ s: String) -> String {
         var t = s.replacingOccurrences(of: "(HC)", with: "")
         for c in ["(", ")", ",", ";", "\r", "\n", "\t"] { t = t.replacingOccurrences(of: c, with: c == "\n" || c == "\t" ? " " : "") }
-        t = t.replacingOccurrences(of: "SO -", with: "").replacingOccurrences(of: " - ", with: " ")
+        t = t.replacingOccurrences(of: "SO -", with: "")
         t = t.folding(options: [.diacriticInsensitive], locale: Locale(identifier: "fr_FR"))
         t = t.replacingOccurrences(of: "œ", with: "oe").replacingOccurrences(of: "Œ", with: "OE")
             .replacingOccurrences(of: "æ", with: "ae").replacingOccurrences(of: "’", with: "'")
@@ -262,15 +262,18 @@ private final class LecteurEngages: NSObject, XMLParserDelegate {
         case ("epreuve", "concours"?):
             dateIso = propre(a["date"])
             let nomBrut = propre(a["nom_categorie"]).isEmpty ? propre(a["nom_epreuve"]) : propre(a["nom_categorie"])
-            var nom = FichierEngages.nettoyer(nomBrut)
+            // comme l'Excel : « Amateur 1 - Grand Prix (1,20 m) » → « Amateur 1 Grand Prix 120 m »
+            var nom = FichierEngages.nettoyer(nomBrut.replacingOccurrences(of: " - ", with: " "))
             let j = FichierEngages.jour(dateIso)
             if !j.isEmpty && !nom.hasSuffix(" " + j) { nom += " " + j }
             epreuve = EpreuveEngages(numero: propre(a["num"]), nom: nom, date: FichierEngages.dateFR(dateIso), engages: [])
         case ("engagement", "epreuve"?) where epreuve != nil:
             vuClubCavalier = false
             let role = propre(a["role"])
+            // hors classement : « 12 HC », comme dans l'Excel des engagés
+            let hc = a["hors_classement"] == "1" && !propre(a["dossard"]).isEmpty
             ligne = LigneEngage(epreuve: epreuve!.numero, nomEpreuve: epreuve!.nom, date: epreuve!.date,
-                                dossard: propre(a["dossard"]), nom: "", prenom: "",
+                                dossard: propre(a["dossard"]) + (hc ? " HC" : ""), nom: "", prenom: "",
                                 role: role.isEmpty ? "Cavalier" : role, titulaire: "Cheval / Poney Titulaire")
         case ("cavalier", "engagement"?) where ligne != nil:
             ligne?.nom = propre(a["nom"]).uppercased()

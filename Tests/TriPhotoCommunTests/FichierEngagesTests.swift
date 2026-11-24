@@ -14,6 +14,7 @@ final class FichierEngagesTests: XCTestCase {
             <equide nom="HELLO BOY D'ESSAI" equide_age="9" code_race="SF." robe="BAI" sexe="Hongre"/></engagement>
         </epreuve>
         <epreuve num="17" date="2026-11-22" nom_categorie="Amateur 1 - Grand Prix (1,20 m)">
+          <engagement id="4" dossard="12" hors_classement="1"><cavalier nom="HC" prenom="a" nom_club="ECURIE X - EARL"/><equide nom="Y"/></engagement>
           <engagement id="3" dossard="10"><cavalier nom="UN" prenom="jean-paul"/><equide nom="X" dnaiss="2016-04-01" sexe="F"/></engagement>
         </epreuve>
         <epreuve num="18" date="2026-11-22" nom_categorie="Vide"/>
@@ -33,8 +34,10 @@ final class FichierEngagesTests: XCTestCase {
         XCTAssertEqual(lignes[4], "1;Preparatoire 110 m VEN;20/11/2026;99;Remise des prix Preparatoire 110 m VEN;;;;;;;;;;;;;")
         // SIF : âge calculé, sexe en toutes lettres, prénom composé
         XCTAssertEqual(lignes[6], "17;Amateur 1 Grand Prix 120 m DIM;22/11/2026;10;UN;Jean-Paul;Cavalier;;;;X;Cheval / Poney Titulaire;;10 ans;Jument;;;")
+        // hors classement : « 12 HC » ; le « - » d'un club est gardé
+        XCTAssertTrue(lignes[7].hasPrefix("17;Amateur 1 Grand Prix 120 m DIM;22/11/2026;12 HC;HC;A;Cavalier;;;ECURIE X - EARL;Y;"))
         // épreuve sans engagé : absente, comme dans l'Excel
-        XCTAssertEqual(lignes.count, 8)
+        XCTAssertEqual(lignes.count, 9)
         XCTAssertTrue(lignes.allSatisfy { $0.split(separator: ";", omittingEmptySubsequences: false).count == 18 })
         XCTAssertTrue(texte.allSatisfy(\.isASCII))
     }
