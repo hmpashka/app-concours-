@@ -19,13 +19,33 @@ struct RevueView: View {
     @State private var corrections: [String] = []
     @State private var supprimees: [FichePhoto] = []     // pour « Annuler la suppression »
 
+    /// Les filtres, en trois groupes bien séparés (HUGO 24/11) : tout voir, les photos À TRAITER (les seules où
+    /// « Supprimer » est possible) et les BONNES photos (réseaux, meilleures), où rien ne peut être supprimé.
     enum Ordre: String, CaseIterable, Identifiable {
-        case douteuses = "Détection incertaine d'abord"
-        case aTrier = "Seulement sol, floues, code (à trier)"
-        case belles = "Plus belles par couple d'abord"
-        case heure = "Par heure"
+        case douteuses = "Toutes, détection incertaine d'abord"
+        case heure = "Toutes, par heure"
+        case aTrier = "À traiter : sol, floues et code"
+        case sol = "À traiter : sol"
+        case floues = "À traiter : floues"
+        case code = "À traiter : photos de code"
+        case belles = "Bonnes : la plus belle de chaque couple"
+        case meilleures = "Bonnes : meilleures (M)"
+        case reseaux = "Bonnes : réseaux sociaux (R)"
         var id: String { rawValue }
+
+        enum Groupe { case toutes, aTraiter, bonnes }
+        var groupe: Groupe {
+            switch self {
+            case .douteuses, .heure: return .toutes
+            case .aTrier, .sol, .floues, .code: return .aTraiter
+            case .belles, .meilleures, .reseaux: return .bonnes
+            }
+        }
+        static func du(_ g: Groupe) -> [Ordre] { allCases.filter { $0.groupe == g } }
     }
+
+    /// « Supprimer » n'existe que dans les filtres « À traiter » : jamais sur les bonnes photos.
+    private var suppressionPermise: Bool { ordre.groupe == .aTraiter }
 
     private struct Classe: Identifiable {
         var id: String { cle }
@@ -101,7 +121,7 @@ struct RevueView: View {
     }
 
     /// La plus belle photo de chaque couple d'abord (la meilleure en tête), puis toutes les autres.
-    static func bellesDabord(_ l: [FichePhoto]) -> [FichePhoto] {
+    static func bellesDabord(_ l: [FichePhoto], seulementLesTetes: Bool = false) -> [FichePhoto] {
         let nmax = l.map(\.nettete).max() ?? 0
         let parCouple = Dictionary(grouping: l.filter { !$0.codeRetenu.isEmpty }, by: \.codeRetenu)
         let tetes = parCouple.values.compactMap { groupe in
@@ -109,6 +129,7 @@ struct RevueView: View {
         }
             .filter { noteBelle($0, netteteMax: nmax) >= 0 }
             .sorted { noteBelle($0, netteteMax: nmax) > noteBelle($1, netteteMax: nmax) }
+        if seulementLesTetes { return tetes }
         let ids = Set(tetes.map(\.id))
         return tetes + l.filter { !ids.contains($0.id) }
     }
@@ -134,6 +155,36 @@ struct RevueView: View {
         return marques
     }
 
+    /// Photos à traiter et leur catégorie (« sol », « floue », « code ») : classement de HUGO d'abord, sinon la
+    /// mémoire, sinon l'analyse rapide (comme la v00 : scène vide, ou nettement moins nette que sa rafale).
+    /// Une photo classée « bonne » par HUGO n'est jamais à traiter.
+    static func aTraiter(_ l: [FichePhoto]) -> [Int64: String] {
+        let mauvaises: Set<String> = ["sol", "floue", "code"]
+        var r: [Int64: String] = [:]
+        var floues: Set<Int64> = []
+        for (_, liste) in Dictionary(grouping: l.filter { $0.prise != nil && $0.nettete > 0 }, by: \.boitier) {
+            let t = liste.sorted { $0.prise! < $1.prise! }
+            var debut = 0
+            for (i, f) in t.enumerated() {
+                while t[debut].prise!.timeIntervalSince(f.prise!) < -1.5 { debut += 1 }
+                var fin = i
+                while fin + 1 < t.count && t[fin + 1].prise!.timeIntervalSince(f.prise!) < 1.5 { fin += 1 }
+                let meilleure = t[debut...fin].map(\.nettete).max() ?? 0
+                if fin > debut, meilleure > 0, f.nettete < 0.3 * meilleure { floues.insert(f.id) }
+            }
+        }
+        for f in l {
+            if !f.classe.isEmpty {
+                if mauvaises.contains(f.classe) { r[f.id] = f.classe }
+                continue
+            }
+            if let d = f.detection.split(separator: "|").first.map(String.init), mauvaises.contains(d) { r[f.id] = d; continue }
+            if f.scene == "code" || f.scene == "sol" { r[f.id] = f.scene; continue }
+            if floues.contains(f.id) { r[f.id] = "floue" }
+        }
+        return r
+    }
+
     private func charger() {
         let ep = epreuve.isEmpty ? nil : epreuve
         let b = boitier
@@ -147,11 +198,16 @@ struct RevueView: View {
             case .douteuses:
                 let marques = RevueView.douteuses(l)
                 l = l.filter { marques.contains($0.id) } + l.filter { !marques.contains($0.id) }
-            case .aTrier:
-                let marques = RevueView.douteuses(l)
-                l = l.filter { marques.contains($0.id) }
+            case .aTrier, .sol, .floues, .code:
+                let cats = RevueView.aTraiter(l)
+                let voulue: String? = tri == .sol ? "sol" : tri == .floues ? "floue" : tri == .code ? "code" : nil
+                l = l.filter { f in cats[f.id].map { voulue == nil || $0 == voulue } ?? false }
             case .belles:
-                l = RevueView.bellesDabord(l)
+                l = RevueView.bellesDabord(l, seulementLesTetes: true)
+            case .meilleures:
+                l = l.filter { $0.a("meilleure") || $0.detection.split(separator: "|").contains("meilleure") }
+            case .reseaux:
+                l = l.filter { $0.a("reseaux") || $0.detection.split(separator: "|").contains("reseaux") }
             case .heure:
                 break
             }
@@ -203,11 +259,17 @@ struct RevueView: View {
                 ForEach(moteur.resume.boitiers) { b in Text(b.nom).tag(b.nom) }
             }
             .labelsHidden()
-            Text("Ordre").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+            Text("Filtre").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
             Picker("", selection: $ordre) {
-                ForEach(Ordre.allCases) { Text($0.rawValue).tag($0) }
+                Section("Toutes les photos") { ForEach(Ordre.du(.toutes)) { Text($0.rawValue).tag($0) } }
+                Section("Photos à traiter (suppression possible)") { ForEach(Ordre.du(.aTraiter)) { Text($0.rawValue).tag($0) } }
+                Section("Bonnes photos (jamais supprimées ici)") { ForEach(Ordre.du(.bonnes)) { Text($0.rawValue).tag($0) } }
             }
             .labelsHidden()
+            Text(ordre.groupe == .aTraiter ? "À traiter : ⌫ supprime (serveur, galerie en ligne, original à la Corbeille), ⌘Z annule."
+                 : ordre.groupe == .bonnes ? "Bonnes photos : la suppression est désactivée dans ce filtre."
+                 : "Pour supprimer, passe par un filtre « À traiter ».")
+                .font(.system(size: 11)).foregroundStyle(ordre.groupe == .aTraiter ? Theme.attention : Theme.texteTresDiscret)
             if ordre == .belles {
                 Text("Pour les réseaux sociaux : la plus belle photo de chaque couple, d'après la mémoire (catégorie « Meilleures ») et la netteté.")
                     .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
@@ -253,9 +315,11 @@ struct RevueView: View {
                     if !supprimees.isEmpty {
                         Button("Annuler la suppression (⌘Z)") { annulerSuppression() }.buttonStyle(BoutonStyle())
                     }
-                    Button("Supprimer (⌫)") { supprimer() }
-                        .buttonStyle(BoutonStyle())
-                        .help("Retire la copie du serveur local et de la galerie en ligne, et met l'original à la Corbeille. Dans Lightroom, elle apparaît manquante : clic droit sur le dossier › Synchroniser le dossier.")
+                    if suppressionPermise {
+                        Button("Supprimer (⌫)") { supprimer() }
+                            .buttonStyle(BoutonStyle())
+                            .help("Retire la copie du serveur local et de la galerie en ligne, et met l'original à la Corbeille. Dans Lightroom, elle apparaît manquante : clic droit sur le dossier › Synchroniser le dossier.")
+                    }
                     Button("Changer le code…") { nouveauCode = f.codeRetenu; changerCode = true }
                         .buttonStyle(BoutonStyle())
                 }
@@ -386,7 +450,7 @@ struct RevueView: View {
 
     /// Supprimer la photo affichée : copie retirée du serveur (et de la galerie en ligne), original à la Corbeille.
     private func supprimer() {
-        guard let f = courante else { return }
+        guard suppressionPermise, let f = courante else { return }
         moteur.supprimer([f.id])
         supprimees.append(f)
         corrections.insert("\(f.origine) : supprimée", at: 0)
