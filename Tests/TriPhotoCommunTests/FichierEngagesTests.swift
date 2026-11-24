@@ -34,8 +34,9 @@ final class FichierEngagesTests: XCTestCase {
         XCTAssertEqual(lignes[4], "1;Preparatoire 110 m VEN;20/11/2026;99;Remise des prix Preparatoire 110 m VEN;;;;;;;;;;;;;")
         // SIF : âge calculé, sexe en toutes lettres, prénom composé
         XCTAssertEqual(lignes[6], "17;Amateur 1 Grand Prix 120 m DIM;22/11/2026;10;UN;Jean-Paul;Cavalier;;;;X;Cheval / Poney Titulaire;;10 ans;Jument;;;")
-        // hors classement : « 12 HC » ; le « - » d'un club est gardé
-        XCTAssertTrue(lignes[7].hasPrefix("17;Amateur 1 Grand Prix 120 m DIM;22/11/2026;12 HC;HC;A;Cavalier;;;ECURIE X - EARL;Y;"))
+        // hors classement : ni « HC » ni « (HC) » ; le « - » d'un club est gardé ; ni accent ni tréma
+        XCTAssertTrue(lignes[7].hasPrefix("17;Amateur 1 Grand Prix 120 m DIM;22/11/2026;12;HC;A;Cavalier;;;ECURIE X - EARL;Y;"))
+        XCTAssertEqual(FichierEngages.nettoyer("Zoë Müller (HC) ç œ ß"), "Zoe Muller c oe")
         // épreuve sans engagé : absente, comme dans l'Excel
         XCTAssertEqual(lignes.count, 9)
         XCTAssertTrue(lignes.allSatisfy { $0.split(separator: ";", omittingEmptySubsequences: false).count == 18 })

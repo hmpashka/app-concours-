@@ -126,7 +126,7 @@ public enum FichierEngages {
             var engages = e.engages
             for t in parEpreuve[CodePassage.cle(e.numero)] ?? [] {
                 // Un dossard déjà dans le fichier FFE n'est pas ajouté une deuxième fois.
-                if engages.contains(where: { CodePassage.cle($0.dossard.replacingOccurrences(of: " HC", with: "")) == CodePassage.cle(t.dossard) }) { continue }
+                if engages.contains(where: { CodePassage.cle($0.dossard) == CodePassage.cle(t.dossard) }) { continue }
                 engages.append(LigneEngage(epreuve: e.numero, nomEpreuve: e.nom, date: e.date, dossard: t.dossard,
                                            nom: t.nom.uppercased(), prenom: prenomPropre(t.prenom), role: "Cavalier",
                                            cheval: t.cheval.uppercased(), titulaire: "Cheval / Poney Titulaire"))
@@ -165,6 +165,10 @@ public enum FichierEngages {
         t = t.folding(options: [.diacriticInsensitive], locale: Locale(identifier: "fr_FR"))
         t = t.replacingOccurrences(of: "œ", with: "oe").replacingOccurrences(of: "Œ", with: "OE")
             .replacingOccurrences(of: "æ", with: "ae").replacingOccurrences(of: "’", with: "'")
+        // aucun caractère spécial : seulement les lettres, chiffres et signes simples (ASCII)
+        t = String(t.unicodeScalars.filter { $0.isASCII && $0.value >= 32 }.map(Character.init))
+        t = t.replacingOccurrences(of: " HC", with: "", options: [.anchored, .backwards])
+        while t.contains("  ") { t = t.replacingOccurrences(of: "  ", with: " ") }
         return t.trimmingCharacters(in: .whitespaces)
     }
 
@@ -270,10 +274,9 @@ private final class LecteurEngages: NSObject, XMLParserDelegate {
         case ("engagement", "epreuve"?) where epreuve != nil:
             vuClubCavalier = false
             let role = propre(a["role"])
-            // hors classement : « 12 HC », comme dans l'Excel des engagés
-            let hc = a["hors_classement"] == "1" && !propre(a["dossard"]).isEmpty
+            // hors classement : jamais « HC » ni « (HC) » dans le fichier (HUGO), le dossard seul
             ligne = LigneEngage(epreuve: epreuve!.numero, nomEpreuve: epreuve!.nom, date: epreuve!.date,
-                                dossard: propre(a["dossard"]) + (hc ? " HC" : ""), nom: "", prenom: "",
+                                dossard: propre(a["dossard"]), nom: "", prenom: "",
                                 role: role.isEmpty ? "Cavalier" : role, titulaire: "Cheval / Poney Titulaire")
         case ("cavalier", "engagement"?) where ligne != nil:
             ligne?.nom = propre(a["nom"]).uppercased()
