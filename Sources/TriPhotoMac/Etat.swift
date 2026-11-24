@@ -70,7 +70,7 @@ final class Etat: ObservableObject {
     /// Retour à l'ancien dossier de la mémoire après un choix refusé (rien à déplacer).
     var retourMemoire = false
     /// La mémoire partagée (dossier iCloud des stands).
-    @Published private(set) var memoire: Memoire
+    @Published var memoire: Memoire
     let acces = AccesDistance()
     @Published var etatAccesDistance = ""
     /// « Voir les photos de ce moment » (incident d'un iPhone) : la revue montre les photos autour de cette heure.
