@@ -12,6 +12,14 @@ extension Etat {
     /// Nouvel emplacement de la mémoire : tout ce qu'il y a dans l'ancien dossier y est déplacé (en arrière-plan).
     func changerDossierMemoire(depuis ancien: ReglagesConcours) {
         let avant = memoire
+        let pa = Etat.dossierMemoire(ancien).standardizedFileURL.path + "/"
+        let pb = Etat.dossierMemoire(reglages).standardizedFileURL.path + "/"
+        if pa.hasPrefix(pb) || pb.hasPrefix(pa) {
+            messageMemoire = "Dossier refusé : il ne doit être ni dans la mémoire actuelle, ni au-dessus d'elle. La mémoire n'a pas bougé."
+            retourMemoire = true
+            reglages.dossierMemoire = ancien.dossierMemoire
+            return
+        }
         let neuve = Memoire(dossier: Etat.dossierMemoire(reglages))
         memoire = neuve
         moteur.reglerMemoire(reglages.detectionsActives ? neuve : nil)

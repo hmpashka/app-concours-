@@ -31,7 +31,9 @@ final class Etat: ObservableObject {
             if reglages.accesDistance != oldValue.accesDistance || reglages.portAccesDistance != oldValue.portAccesDistance {
                 reglerAccesDistance()
             }
-            if reglages.dossierMemoire != oldValue.dossierMemoire { changerDossierMemoire(depuis: oldValue) }
+            if reglages.dossierMemoire != oldValue.dossierMemoire {
+                if retourMemoire { retourMemoire = false } else { changerDossierMemoire(depuis: oldValue) }
+            }
         }
     }
     @Published private(set) var concours: Concours?
@@ -65,6 +67,8 @@ final class Etat: ObservableObject {
     @Published var messageMemoire = ""
     /// Ancien dossier de la mémoire, s'il y reste des vignettes pas encore téléchargées d'iCloud.
     @Published var ancienDossierMemoire: URL?
+    /// Retour à l'ancien dossier de la mémoire après un choix refusé (rien à déplacer).
+    var retourMemoire = false
     /// La mémoire partagée (dossier iCloud des stands).
     @Published private(set) var memoire: Memoire
     let acces = AccesDistance()
