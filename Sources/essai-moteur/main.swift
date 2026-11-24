@@ -89,6 +89,14 @@ if let dossier = option("--memoire-ajouter") {
     print("\(ok) vignettes ajoutées à « \(cat) »")
     exit(0)
 }
+// --memoire-deplacer ancien nouveau : déplace toute la mémoire (comme un changement de dossier dans les réglages).
+if let ancien = option("--memoire-deplacer") {
+    guard let nouveau = args.first else { quitter("Usage : essai-moteur --memoire-deplacer ancien nouveau") }
+    let m = Memoire(dossier: URL(fileURLWithPath: (ancien as NSString).expandingTildeInPath, isDirectory: true))
+    let r = m.toutDeplacer(vers: URL(fileURLWithPath: (nouveau as NSString).expandingTildeInPath, isDirectory: true))
+    print(r.deplaces < 0 ? "Refusé : un dossier est dans l'autre." : "\(r.deplaces) fichiers déplacés, \(r.restes) restés")
+    exit(0)
+}
 if let dossier = option("--memoire") {
     let m = Memoire(dossier: URL(fileURLWithPath: (dossier as NSString).expandingTildeInPath, isDirectory: true))
     let cache = FileManager.default.temporaryDirectory.appendingPathComponent("essai-empreintes", isDirectory: true)
