@@ -78,6 +78,13 @@ xattr -cr "$APP"
 # Signée avec le certificat « Apple Development » de HUGO s'il est sur le Mac : macOS accepte alors les
 # notifications et le trousseau ne redemande pas l'accès à chaque nouvelle version. Sinon signature locale.
 IDENT="$(security find-identity -v -p codesigning 2>/dev/null | grep -m1 "Apple Development" | sed -E 's/.*"(.*)"/\1/' || true)"
-codesign --force --deep --sign "${IDENT:--}" "$APP"
+# signée hors du Bureau (iCloud y remet des attributs Finder que codesign refuse), puis recopiée
+T="$(mktemp -d)"
+ditto --noextattr "$APP" "$T/app.app"
+xattr -cr "$T/app.app"
+codesign --force --deep --sign "${IDENT:--}" "$T/app.app"
+rm -rf "$APP"
+ditto "$T/app.app" "$APP"
+rm -rf "$T"
 echo "Signée avec : ${IDENT:-signature locale}"
 echo "Prêt : $ICI/$APP"

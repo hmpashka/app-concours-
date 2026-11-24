@@ -21,13 +21,16 @@ if [ -z "$XG" ]; then
   fi
 fi
 
+# hors du Bureau : iCloud y remet des attributs Finder que la signature refuse
+DD="$HOME/Library/Developer/Xcode/DerivedData/GroomPixPiste"
 cd iPhone
 "$XG" generate --quiet
 xcodebuild -project GroomPixPiste.xcodeproj -scheme GroomPixPiste -configuration Debug \
-  -destination 'generic/platform=iOS' -derivedDataPath "$ICI/build/iphone" -allowProvisioningUpdates build \
-  | grep -E "error:|warning: .*(Sendable|deprecated)|BUILD (SUCCEEDED|FAILED)" || true
+  -destination 'generic/platform=iOS' -derivedDataPath "$DD" -allowProvisioningUpdates build \
+  > "$ICI/build/iphone.log" 2>&1 || { grep -E "error:" "$ICI/build/iphone.log" | sort -u; echo "BUILD FAILED (journal : build/iphone.log)"; exit 1; }
+echo "BUILD SUCCEEDED"
 
-APP="$ICI/build/iphone/Build/Products/Debug-iphoneos/Groom Pix Piste.app"
+APP="$DD/Build/Products/Debug-iphoneos/Groom Pix Piste.app"
 [ -d "$APP" ] || { echo "Construction ratée."; exit 1; }
 echo "Prêt : $APP"
 
