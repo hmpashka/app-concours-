@@ -36,7 +36,7 @@ let package = Package(
             name: "AppModule",
             dependencies: [.product(name: "TriPhotoCommun", package: "app-concours-")],
             path: ".",
-            resources: [.copy("Polices"), .process("Assets.xcassets")]
+            resources: [.copy("Polices")]
         )
     ]
 )
