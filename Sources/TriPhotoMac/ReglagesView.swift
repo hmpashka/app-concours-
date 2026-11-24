@@ -228,6 +228,12 @@ struct ReglagesView: View {
             Ligne("Photos en _00") {
                 Stepper("attendent \(etat.reglages.attente00Minutes) min une photo de code", value: $etat.reglages.attente00Minutes, in: 0...10)
             }
+            Ligne("Rush automatique") {
+                Stepper(etat.reglages.rushAutoPhotos == 0 ? "jamais tout seul (bouton « Rush » seulement)"
+                        : "dès \(etat.reglages.rushAutoPhotos) photos à valider, tout part avec le code du photographe",
+                        value: $etat.reglages.rushAutoPhotos, in: 0...200, step: 10)
+                    .help("Les propositions du chrono restent dans « À valider › À reprendre au calme ».")
+            }
             Divider().overlay(Theme.bordure)
             Text("Pistes et photographes").font(.system(size: 13, weight: .semibold))
             ForEach($etat.reglages.pistes) { $piste in
@@ -427,7 +433,9 @@ struct ReglagesView: View {
             Divider().overlay(Theme.bordure)
             Toggle("Sauvegarde des originaux sur un 2e disque (option)", isOn: $etat.reglages.sauvegardeActive)
             if etat.reglages.sauvegardeActive {
-                ChoixChemin(titre: "Disque de sauvegarde", aide: nil, chemin: $etat.reglages.dossierSauvegarde)
+                ChoixChemin(titre: "Disque de sauvegarde",
+                            aide: "Chaque original, tel qu'il arrive du boîtier, y est copié sous son nouveau nom, dans un dossier par jour.",
+                            chemin: $etat.reglages.dossierSauvegarde)
             }
         }
     }

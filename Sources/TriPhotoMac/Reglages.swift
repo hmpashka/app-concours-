@@ -53,6 +53,7 @@ struct ReglagesConcours: Codable, Equatable {
     var latenceSecondes = 5            // tolérée au changement de couple
     var attenteChronoMinutes = 3       // au-delà, la photo part avec son code, marquée « sans vérification »
     var attente00Minutes = 2           // une photo en _00 attend une photo de code ou le chrono
+    var rushAutoPhotos = 40            // rush : au-delà, tout part avec le code du photographe (0 : jamais tout seul)
     var fichierPassagesEntrainement = ""   // mode entraînement : passages d'un ancien concours (JSON)
 
     // 1c. Capture Horse & Comp (page d'incrustation lue par l'app)
@@ -147,6 +148,7 @@ struct ReglagesConcours: Codable, Equatable {
         latenceSecondes = lire(.latenceSecondes, latenceSecondes)
         attenteChronoMinutes = lire(.attenteChronoMinutes, attenteChronoMinutes)
         attente00Minutes = lire(.attente00Minutes, attente00Minutes)
+        rushAutoPhotos = lire(.rushAutoPhotos, rushAutoPhotos)
         fichierPassagesEntrainement = lire(.fichierPassagesEntrainement, fichierPassagesEntrainement)
         urlIncrustation = lire(.urlIncrustation, urlIncrustation)
         zonesIncrustation = lire(.zonesIncrustation, zonesIncrustation)

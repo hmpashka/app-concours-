@@ -30,13 +30,18 @@ public struct ConfigMoteur {
     public var memoire: Memoire?
     /// Remises des prix (_99) : les meilleures photos copiées dans un dossier Google Drive. nil : pas de copie.
     public var remises: ConfigRemises?
+    /// Sauvegarde des originaux sur un 2e disque (option) : dossier racine, un sous-dossier par jour. nil : pas de sauvegarde.
+    public var sauvegarde: URL?
+    /// Rush : dès que tant de photos attendent dans « À valider », tout part avec le code du photographe et reste
+    /// « à reprendre au calme ». 0 : jamais automatique (bouton seulement).
+    public var rushAuto: Int
 
     public init(reception: URL, importLightroom: URL, tampon: URL?, serveur: URL, cote: Int, qualite: Int,
                 cube: FichierCube?, concours: Concours?, tailleLot: Int, silenceMinutes: Int,
                 retarderSiOccupe: Bool, journal: URL, travailLightroom: URL? = nil, chrono: ConfigChrono? = nil,
                 attente00Minutes: Double = 2, galerie: ConfigGalerie? = nil,
                 galerieEnLigne: ConfigGalerieEnLigne? = nil, fichierTerrain: URL? = nil,
-                memoire: Memoire? = nil, remises: ConfigRemises? = nil) {
+                memoire: Memoire? = nil, remises: ConfigRemises? = nil, sauvegarde: URL? = nil, rushAuto: Int = 0) {
         self.reception = reception
         self.importLightroom = importLightroom
         self.tampon = tampon
@@ -57,6 +62,8 @@ public struct ConfigMoteur {
         self.fichierTerrain = fichierTerrain
         self.memoire = memoire
         self.remises = remises
+        self.sauvegarde = sauvegarde
+        self.rushAuto = rushAuto
     }
 }
 
@@ -97,7 +104,9 @@ public struct ResumeMoteur {
     // Étape 2
     public var series: [SerieAValider] = []
     /// Photos mises de côté en attente de validation (les photos de code comptent pour une).
-    public var aValider: Int { series.reduce(0) { $0 + ($1.genre == .photoCode ? 1 : $1.photos.count) } }
+    public var aValider: Int { series.reduce(0) { $0 + ($1.genre == .photoCode ? 1 : $1.genre == .rush ? 0 : $1.photos.count) } }
+    /// Photos envoyées en rush avec le code du photographe, dont la proposition du chrono reste à reprendre au calme.
+    public var aReprendre: Int { series.reduce(0) { $0 + ($1.genre == .rush ? $1.photos.count : 0) } }
     public var enAttenteChrono = 0
     public var chrono: EtatChrono?
     public var enPiste: [EnPiste] = []
@@ -165,7 +174,7 @@ public struct EnPiste: Identifiable, Sendable {
 /// Une série « À valider » : photos qui se suivent, même boîtier, même code, même proposition.
 /// Ou une photo de code, avec les photos d'avant parmi lesquelles choisir.
 public struct SerieAValider: Identifiable, Sendable {
-    public enum Genre: Sendable { case chrono, photoCode }
+    public enum Genre: Sendable { case chrono, photoCode, rush }
     public var id: String
     public var genre: Genre
     public var boitier: String
@@ -210,6 +219,7 @@ public final class Moteur: ObservableObject {
     private var charge = 0.0
     private var debutJournee = Calendar.current.startOfDay(for: Date())
     private var message = ""
+    private var alerteSauvegarde = ""
     private var chrono: Chrono?
     private var enAttenteChrono: [String: Date] = [:]           // photos gardées en réception (chrono, _00)
     private var pisteDuBoitier: [String: String] = [:]          // apprise sur les photos conformes
@@ -263,6 +273,7 @@ public final class Moteur: ObservableObject {
     static let codeGarde = "Code du photographe gardé par HUGO"
     static let pasPhotoCode = "Pas une photo de code (HUGO)"
     static let sansChrono = "Partie sans vérification du chrono"
+    static let aReprendre = "Envoyée en rush, à reprendre"
     public static let bienArrivee = "Renvoyée : bien arrivée"
 
     // MARK: - Démarrer / arrêter
@@ -606,6 +617,9 @@ public final class Moteur: ObservableObject {
             // L'original n'est retiré de la réception qu'une fois sa copie complète vérifiée à destination.
             let tailleFinale = (try? FileManager.default.attributesOfItem(atPath: final.path)[.size] as? UInt64) ?? 0
             guard tailleFinale > 0 else { throw TraitementPhoto.Erreur.ecriture(final.path) }
+            // Sauvegarde (option) : l'original tel qu'il est arrivé du boîtier, sous son nouveau nom, sur le 2e disque.
+            // Un disque absent ou plein ne bloque jamais le tri : alerte sur l'accueil.
+            if let s = c.sauvegarde { sauvegarder(url, nom: fiche.nom, dans: s) }
             try FileManager.default.removeItem(at: url)
             fiche.chemin = final.path
             fiche.etat = c.tampon == nil ? .envoyee : .tampon
@@ -623,6 +637,26 @@ public final class Moteur: ObservableObject {
                 enCours.remove(chemin)
                 tailles[chemin] = nil
             }
+        }
+    }
+
+    /// Copie de l'original sur le disque de sauvegarde, dans un dossier par jour (« 2026-11-29 »).
+    private func sauvegarder(_ source: URL, nom: String, dans racine: URL) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: racine.path) else {
+            file.sync { alerteSauvegarde = "Disque de sauvegarde absent (\(racine.path)) : les originaux ne sont pas sauvegardés." }
+            return
+        }
+        let j = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        let dossier = racine.appendingPathComponent(String(format: "%04d-%02d-%02d", j.year ?? 0, j.month ?? 0, j.day ?? 0),
+                                                    isDirectory: true)
+        do {
+            try fm.createDirectory(at: dossier, withIntermediateDirectories: true)
+            let cible = dossier.appendingPathComponent(nom)
+            if !fm.fileExists(atPath: cible.path) { try fm.copyItem(at: source, to: cible) }
+            file.sync { alerteSauvegarde = "" }
+        } catch {
+            file.sync { alerteSauvegarde = "Sauvegarde impossible sur le 2e disque : \(error.localizedDescription)" }
         }
     }
 
@@ -805,6 +839,33 @@ public final class Moteur: ObservableObject {
                                              preselection: coches)
         }
         r.series = ordre.compactMap { series[$0] }
+        // Rush automatique : trop de photos attendent, tout part avec le code du photographe (à reprendre au calme).
+        let enAttenteChronoSeries = r.series.reduce(0) { $0 + ($1.genre == .chrono ? $1.photos.count : 0) }
+        if let c = config, c.rushAuto > 0, enAttenteChronoSeries >= c.rushAuto {
+            rushSurFile(qui: "rush automatique")
+            r.series.removeAll { $0.genre == .chrono }
+        }
+        // Envoyées en rush : la proposition du chrono reste à reprendre, série par série, quand c'est calme.
+        var rushs: [SerieAValider] = []
+        var prec: FichePhoto?
+        for f in j.fiches(drapeau: Moteur.aReprendre).sorted(by: { ($0.boitier, $0.prise ?? $0.recue) < ($1.boitier, $1.prise ?? $1.recue) }) {
+            let meme = prec.map { p in
+                p.boitier == f.boitier && p.code == f.code && p.proposition == f.proposition
+                    && (f.prise ?? f.recue).timeIntervalSince(p.prise ?? p.recue) < 60
+            } ?? false
+            if meme, !rushs.isEmpty {
+                rushs[rushs.count - 1].photos.append(f)
+                rushs[rushs.count - 1].preselection.insert(f.id)
+                let confiance = rushs[rushs.count - 1].confiance
+                rushs[rushs.count - 1].confiance = min(confiance, f.confiance)
+            } else {
+                rushs.append(SerieAValider(id: "rush-\(f.id)", genre: .rush, boitier: f.boitier, photos: [f], photoCode: nil,
+                                           code: f.code, proposition: f.proposition, raison: f.raison,
+                                           confiance: f.confiance, preselection: [f.id]))
+            }
+            prec = f
+        }
+        r.series += rushs
         if let ch = chrono {
             r.chrono = EtatChrono(ok: ch.ok, erreur: ch.erreur, vu: ch.vu, passages: ch.passages.count)
             let ps = ch.passages
@@ -841,6 +902,7 @@ public final class Moteur: ObservableObject {
                 r.alertes.append("\(b.nom) : pas de photo de synchro (heure du boîtier non vérifiée).")
             }
         }
+        if !alerteSauvegarde.isEmpty { r.alertes.append(alerteSauvegarde) }
         if let g = r.galerie, g.ok == false { r.alertes.append(g.message) }
         if let g = r.galerieEnLigne, g.ok == false { r.alertes.append(g.message) }
         DispatchQueue.main.async { self.resume = r }
@@ -1126,6 +1188,7 @@ public final class Moteur: ObservableObject {
         for id in ids {
             guard var f = j.fiche(id: id) else { continue }
             if enCours.contains(f.chemin) { plusTard.append(id); continue }    // en plein traitement : juste après
+            if f.a(Moteur.aReprendre) { f.retirer(Moteur.aReprendre); j.mettreAJour(f) }   // repris au calme
             switch f.etat {
             case .aValider, .recue, .erreur:
                 f.codeFinal = code.texte
@@ -1156,7 +1219,14 @@ public final class Moteur: ObservableObject {
         file.async { [weak self] in
             guard let self, let c = self.config, let j = self.journal else { return }
             for id in ids {
-                guard var f = j.fiche(id: id), f.etat == .aValider else { continue }
+                guard var f = j.fiche(id: id) else { continue }
+                if f.etat != .aValider, f.a(Moteur.aReprendre) {        // envoyée en rush : le code du photographe reste
+                    f.retirer(Moteur.aReprendre)
+                    f.noter("HUGO", "repris au calme : \(f.code.isEmpty ? "sans code" : f.code) gardé")
+                    j.mettreAJour(f)
+                    continue
+                }
+                guard f.etat == .aValider else { continue }
                 f.marquer(Moteur.codeGarde)
                 f.noter("HUGO", "proposition \(f.proposition) refusée, \(f.code.isEmpty ? "sans code" : f.code) gardé")
                 f.serie = ""
@@ -1165,6 +1235,30 @@ public final class Moteur: ObservableObject {
                 j.mettreAJour(f)
             }
         }
+    }
+
+    /// Rush : toutes les photos « À valider » partent tout de suite avec le code du photographe. La proposition du
+    /// chrono est gardée : elles restent dans « À valider », rubrique « À reprendre au calme », pour corriger plus tard
+    /// (la copie du serveur et les métadonnées de l'original sont alors refaites, comme dans la revue).
+    public func rushToutEnvoyer() {
+        file.async { [weak self] in self?.rushSurFile(qui: "HUGO (rush)") }
+    }
+
+    private func rushSurFile(qui: String) {
+        guard let c = config, let j = journal else { return }
+        var n = 0
+        for var f in j.fiches(etat: .aValider, limite: 5000) {
+            f.marquer(Moteur.codeGarde)
+            if !f.proposition.isEmpty { f.marquer(Moteur.aReprendre) }
+            f.noter(qui, "envoyée avec \(f.code.isEmpty ? "sans code" : f.code), proposition \(f.proposition) à reprendre")
+            f.serie = ""
+            remettreEnReception(&f, config: c)
+            f.etat = .recue
+            j.mettreAJour(f)
+            reessayerApres[f.chemin] = nil
+            n += 1
+        }
+        if n > 0 { message = "Rush : \(n) photo\(n > 1 ? "s" : "") envoyée\(n > 1 ? "s" : "") avec le code du photographe, à reprendre au calme." }
     }
 
     /// Photo de code utilisée : son code est appliqué aux photos choisies, et elle sort de « À valider ».

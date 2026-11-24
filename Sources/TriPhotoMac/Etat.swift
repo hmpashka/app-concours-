@@ -258,7 +258,10 @@ final class Etat: ObservableObject {
                                              galerieEnLigne: configGalerieEnLigne(),
                                              fichierTerrain: fichierTerrain,
                                              memoire: r.detectionsActives ? memoire : nil,
-                                             remises: configRemises()))
+                                             remises: configRemises(),
+                                             sauvegarde: r.sauvegardeActive && !r.dossierSauvegarde.isEmpty
+                                                 ? URL(fileURLWithPath: r.dossierSauvegarde, isDirectory: true) : nil,
+                                             rushAuto: r.rushAutoPhotos))
             if !fichierDebutExiste { creerFichierDebut(silencieux: true) }
             garderListing()
             if chrono?.externe == true {

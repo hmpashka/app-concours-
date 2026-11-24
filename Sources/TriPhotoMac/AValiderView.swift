@@ -61,16 +61,32 @@ struct AValiderView: View {
 
     private var listeSeries: some View {
         VStack(alignment: .leading, spacing: 8) {
+            let normales = r.series.filter { $0.genre != .rush }
+            let rushs = r.series.filter { $0.genre == .rush }
             HStack {
                 Text("Séries à valider").font(.system(size: 14, weight: .semibold))
                 Spacer()
-                Pastille(texte: "\(r.series.count) en attente", genre: r.series.isEmpty ? .neutre : .attention)
+                Pastille(texte: "\(normales.count) en attente", genre: normales.isEmpty ? .neutre : .attention)
+            }
+            if r.aValider > 0 {
+                Button("Rush : tout envoyer, je reprends au calme") { moteur.rushToutEnvoyer() }
+                    .buttonStyle(BoutonStyle())
+                    .help("Toutes les photos partent tout de suite au serveur avec le code du photographe. Les propositions du chrono restent ci-dessous, à reprendre plus tard.")
             }
             ScrollView {
-                VStack(spacing: 6) {
-                    ForEach(r.series) { s in
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(normales) { s in
                         Button { choisie = s.id } label: { ligneSerie(s, active: s.id == serie?.id) }
                             .buttonStyle(.plain)
+                    }
+                    if !rushs.isEmpty {
+                        Text("À reprendre au calme (\(r.aReprendre) photo\(r.aReprendre > 1 ? "s" : ""), déjà envoyées)")
+                            .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.texteDiscret)
+                            .padding(.top, 10)
+                        ForEach(rushs) { s in
+                            Button { choisie = s.id } label: { ligneSerie(s, active: s.id == serie?.id) }
+                                .buttonStyle(.plain)
+                        }
                     }
                 }
             }
@@ -105,7 +121,8 @@ struct AValiderView: View {
     private func detail(_ s: SerieAValider) -> some View {
         let couple = CodePassage.lire(s.proposition).flatMap { etat.concours?.couple(pour: $0) }
         Carte(titre: s.genre == .photoCode ? "Photo de code \(s.proposition) · \(s.boitier)"
-                                           : "\(s.photos.count) photo\(s.photos.count > 1 ? "s" : "") · \(s.boitier)") {
+                                           : "\(s.photos.count) photo\(s.photos.count > 1 ? "s" : "")\(s.genre == .rush ? " envoyée\(s.photos.count > 1 ? "s" : "") en rush" : "") · \(s.boitier)",
+              sousTitre: s.genre == .rush ? "Déjà sur le serveur avec le code du photographe. Valider refait la copie et les métadonnées avec le bon code." : nil) {
             HStack(alignment: .top, spacing: 16) {
                 if s.genre == .photoCode, let pc = s.photoCode {
                     VignettePhoto(chemins: [pc.chemin], cote: 400).frame(width: 220, height: 146)

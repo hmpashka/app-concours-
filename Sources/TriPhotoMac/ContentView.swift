@@ -49,7 +49,9 @@ struct Bandeau: View {
 
     private func badge(_ e: Ecran) -> (Int, Color)? {
         switch e {
-        case .aValider: return moteur.resume.series.isEmpty ? nil : (moteur.resume.series.count, Theme.orange)
+        case .aValider:
+            let n = moteur.resume.series.filter { $0.genre != .rush }.count
+            return n == 0 ? nil : (n, Theme.orange)
         case .messages:
             let n = serveur.nonLus.values.reduce(0, +)
             return n == 0 ? nil : (n, Theme.accent)

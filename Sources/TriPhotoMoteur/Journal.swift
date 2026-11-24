@@ -54,6 +54,7 @@ public struct FichePhoto: Identifiable, Sendable {
 
     public func a(_ d: String) -> Bool { drapeaux.split(separator: "|").contains { $0 == d } }
     public mutating func marquer(_ d: String) { if !a(d) { drapeaux = drapeaux.isEmpty ? d : drapeaux + "|" + d } }
+    public mutating func retirer(_ d: String) { drapeaux = drapeaux.split(separator: "|").filter { $0 != d }.joined(separator: "|") }
     /// Ajoute une ligne à l'historique des codes : « 15:03:12 · boîtier · #11_00 ».
     public mutating func noter(_ qui: String, _ quoi: String) {
         let f = DateFormatter()
@@ -330,6 +331,15 @@ final class Journal {
         lier(st, 1, etat.rawValue)
         sqlite3_bind_int(st, 2, Int32(limite))
         return liste(st)
+    }
+
+    /// Photos qui portent une décision (drapeau), parties vers le serveur.
+    func fiches(drapeau: String, limite: Int = 2000) -> [FichePhoto] {
+        let st = preparer("SELECT \(Journal.colonnes) FROM photos WHERE instr(drapeaux, ?) > 0 AND etat IN ('copiee','tampon','envoyee') ORDER BY id LIMIT ?")
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, drapeau)
+        sqlite3_bind_int(st, 2, Int32(limite))
+        return liste(st).filter { $0.a(drapeau) }
     }
 
     /// Photos qui ont une copie sur le serveur local (donc à mettre en ligne), reçues depuis le début du concours.
