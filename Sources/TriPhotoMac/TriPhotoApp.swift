@@ -28,7 +28,17 @@ final class Delegue: NSObject, NSApplicationDelegate, UNUserNotificationCenterDe
     /// Clic sur une notification (message ou incident d'un iPhone) : Groom Pix s'ouvre sur l'onglet Messages.
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler fin: @escaping () -> Void) {
-        let ecran = (response.notification.request.content.userInfo["ecran"] as? String).flatMap(Ecran.init(rawValue:)) ?? .messages
+        let info = response.notification.request.content.userInfo
+        // Réponse tapée dans la bulle : envoyée à l'auteur (ou à tout le monde si son message était pour tous)
+        if let r = response as? UNTextInputNotificationResponse {
+            let texte = r.userText
+            let qui = info["qui"] as? String ?? ""
+            let pour = (info["pour"] as? String ?? "").isEmpty ? "" : qui
+            DispatchQueue.main.async { Etat.courant?.serveur.envoyerDuStand(texte, pour: pour) }
+            fin()
+            return
+        }
+        let ecran = (info["ecran"] as? String).flatMap(Ecran.init(rawValue:)) ?? .messages
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
             Etat.courant?.ecran = ecran

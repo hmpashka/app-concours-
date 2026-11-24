@@ -58,7 +58,7 @@ struct MessagesView: View {
             .background(conv == c ? Theme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 6))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BoutonPlat())
     }
 
     // MARK: - Fil

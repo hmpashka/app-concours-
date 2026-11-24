@@ -96,6 +96,13 @@ extension Etat {
             if let i = terrainHorsTri.firstIndex(where: { $0.id == e.id }) { terrainHorsTri[i] = e } else { terrainHorsTri.append(e) }
             sauverTerrainHorsTri()
         }
+        mettreAJourFichierFinBientot()
+    }
+
+    /// Engagé terrain ajouté, corrigé ou retiré pendant le concours (HUGO 24/11) : le fichier de fin est réécrit tout
+    /// de suite, sans attendre la clôture (le moteur met une seconde à prendre le changement en compte).
+    private func mettreAJourFichierFinBientot() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.creerFichierFin(enDirect: true) }
     }
 
     func retirerEngageTerrain(_ e: EngageTerrain) {
@@ -105,6 +112,7 @@ extension Etat {
             terrainHorsTri.removeAll { $0.id == e.id }
             sauverTerrainHorsTri()
         }
+        mettreAJourFichierFinBientot()
     }
 
     private func sauverTerrainHorsTri() {
@@ -117,10 +125,14 @@ extension Etat {
 
     // MARK: - Fichiers d'attribution
 
-    /// Dossier des fichiers d'attribution : celui des réglages, sinon le dossier « Clôtures » de l'app.
+    /// Dossier des fichiers créés pour un concours (HUGO 24/11 : tout groupé, début et fin ensemble) :
+    /// un sous-dossier au nom du concours (« 26-11-29_LAMOTTE INDOOR ») dans celui des réglages, sinon dans le
+    /// dossier « Clôtures » de l'app. Fichier du début, fichier de fin, statistiques et collections Lightroom y vont.
     var dossierAttribution: URL {
-        if !reglages.dossierClotures.isEmpty { return URL(fileURLWithPath: reglages.dossierClotures, isDirectory: true) }
-        let d = Stockage.dossier.appendingPathComponent("Clôtures", isDirectory: true)
+        let racine = reglages.dossierClotures.isEmpty ? Stockage.dossier.appendingPathComponent("Clôtures", isDirectory: true)
+                                                      : URL(fileURLWithPath: reglages.dossierClotures, isDirectory: true)
+        let nom = (FichierEngages.nomFichier(concours: nomConcoursFichier, dernierJour: finConcours) as NSString).deletingPathExtension
+        let d = nom.isEmpty ? racine : racine.appendingPathComponent(nom, isDirectory: true)
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }
@@ -163,11 +175,16 @@ extension Etat {
 
     /// Fichier d'attribution de fin (format HMV), avec les engagés terrain.
     @discardableResult
-    func creerFichierFin() -> URL? {
+    func creerFichierFin(enDirect: Bool = false) -> URL? {
         do {
             let texte = FichierEngages.cloture(try epreuvesEngages(), terrain: engagesTerrain)
             let url = fichierFin
-            try ecrireEnGardantLAncien(texte, vers: url)
+            if enDirect {       // mise à jour pendant le concours : remplacé sur place, sans remplir la Corbeille
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data(texte.utf8).write(to: url, options: .atomic)
+            } else {
+                try ecrireEnGardantLAncien(texte, vers: url)
+            }
             messageAttribution = "Fichier de fin écrit : \(url.lastPathComponent) (\(engagesTerrain.count) engagés terrain)"
             garderListing()
             return url

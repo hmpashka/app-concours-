@@ -159,6 +159,7 @@ struct AccueilView: View {
     private var boitiers: some View {
         Carte(titre: "Boîtiers", sousTitre: "\(r.boitiers.count) boîtier\(r.boitiers.count > 1 ? "s" : "") aujourd'hui") {
             Button("Synchroniser les boîtiers (photo du QR)…") { etat.montrerSynchro = true }.buttonStyle(BoutonStyle())
+            Button("Ajouter un engagé terrain…") { etat.montrerTerrain = true }.buttonStyle(BoutonStyle())
             if r.boitiers.isEmpty {
                 Text("Aucune photo reçue pour l'instant.").font(.system(size: 13)).foregroundStyle(Theme.texteDiscret)
             }

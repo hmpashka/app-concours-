@@ -278,7 +278,7 @@ struct CarteApparence: View {
                             }
                             .labelsHidden().frame(width: 110)
                             Button { Notifieur.partage.jouer(prefs.reglage(e).son) } label: { Image(systemName: "play.fill") }
-                                .buttonStyle(.plain).foregroundStyle(Theme.accent).disabled(prefs.reglage(e).son.isEmpty)
+                                .buttonStyle(BoutonPlat()).foregroundStyle(Theme.accent).disabled(prefs.reglage(e).son.isEmpty)
                         }
                         Toggle("", isOn: lien(e, \.enRush)).labelsHidden()
                     }

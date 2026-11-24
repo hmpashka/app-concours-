@@ -173,6 +173,9 @@ final class ServeurPiste: ObservableObject {
             if !surMessages() || NSApp.isActive == false {
                 nonLus[conv, default: 0] += 1
                 notifier(m)
+            } else {
+                // déjà sur l'onglet Messages : pas de bulle, mais le son quand même
+                Notifieur.partage.jouer(Preferences.partagees.reglage(m.incident ? .incident : .message).son)
             }
         }
         actualiser()
@@ -215,7 +218,7 @@ final class ServeurPiste: ObservableObject {
         // affichage et son selon Réglages › Son et notifications
         Notifieur.partage.signaler(m.incident ? .incident : .message,
                                    titre: m.incident ? "Incident · \(m.qui)" : m.qui + (m.piste.isEmpty ? "" : " · \(m.piste)"),
-                                   texte: m.texte, id: m.id, infos: ["message": m.id])
+                                   texte: m.texte, id: m.id, infos: ["message": m.id, "qui": m.qui, "pour": m.pour])
     }
 
     // MARK: - Envoi aux iPhone (toutes les 2 s, seulement ce qui a changé)

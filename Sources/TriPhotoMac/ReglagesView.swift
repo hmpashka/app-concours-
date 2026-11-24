@@ -97,7 +97,7 @@ struct ReglagesView: View {
             .contentShape(Rectangle())
             .background(section == s ? Theme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 4))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BoutonPlat())
     }
 
     // MARK: - Centre

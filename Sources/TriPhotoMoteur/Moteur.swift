@@ -716,12 +716,13 @@ public final class Moteur: ObservableObject {
     }
 
     /// Mots-clés IPTC : cavalier, cheval, épreuve, et CHUTE si HUGO l'a marquée.
+    /// Mots-clés écrits dans l'original : cavalier et cheval seulement, comme « modif mots cles v3.py » (HUGO 24/11 :
+    /// pas le nom de l'épreuve), plus CHUTE si besoin.
     static func motsCles(_ f: FichePhoto, code: CodePassage?, config c: ConfigMoteur) -> [String] {
         var m: [String] = []
         if let code, let couple = c.concours?.couple(pour: code) {
             m += [couple.cavalier, couple.cheval].filter { !$0.isEmpty }
         }
-        if let code, let ep = c.concours?.epreuve(numero: code.epreuve) { m.append("Épreuve \(ep.nomDossier)") }
         if f.chute { m.append("CHUTE") }
         return m
     }
@@ -1146,7 +1147,6 @@ public final class Moteur: ObservableObject {
                 if let code, let couple = c.concours?.couple(pour: code) {
                     motsCles += [couple.cavalier, couple.cheval].filter { !$0.isEmpty }
                 }
-                if let code, let ep = c.concours?.epreuve(numero: code.epreuve) { motsCles.append("Épreuve \(ep.nomDossier)") }
                 // la nouvelle version est d'abord écrite à côté, puis l'ancienne part à la corbeille
                 let provisoire = cible.deletingLastPathComponent().appendingPathComponent(".remplacement-\(cible.lastPathComponent)")
                 try TraitementPhoto.copierAvecIPTC(de: nouvelle, vers: provisoire, motsCles: motsCles, codeOrigine: code?.texte ?? "")

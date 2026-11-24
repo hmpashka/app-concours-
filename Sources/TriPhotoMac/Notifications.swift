@@ -112,20 +112,30 @@ final class Notifieur {
     private var avant = ResumeMoteur()
     private var silencieuxVus: Set<String> = []
     private var dernierSon = Date.distantPast
+    private var sonEnCours: NSSound?         // gardé tant qu'il joue (sinon il peut s'arrêter tout de suite)
+    static let categorieMessage = "message-piste"
 
     private var possible: Bool { Bundle.main.bundleIdentifier != nil }
 
     func demanderAutorisation() {
         guard possible else { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        // Répondre directement dans la bulle de notification d'un message (HUGO 24/11)
+        let repondre = UNTextInputNotificationAction(identifier: "repondre", title: "Répondre", options: [],
+                                                     textInputButtonTitle: "Envoyer", textInputPlaceholder: "Ta réponse…")
+        UNUserNotificationCenter.current().setNotificationCategories([
+            UNNotificationCategory(identifier: Notifieur.categorieMessage, actions: [repondre], intentIdentifiers: [], options: [])
+        ])
     }
 
     func jouer(_ son: String) {
         guard !son.isEmpty, Preferences.partagees.mode != .silencieux else { return }
         guard Date().timeIntervalSince(dernierSon) > 0.8 else { return }   // jamais une rafale de sons
         dernierSon = Date()
-        guard let s = NSSound(named: NSSound.Name(son)) else { return }
-        s.volume = Float(Preferences.partagees.volume)
+        let fichier = URL(fileURLWithPath: "/System/Library/Sounds/\(son).aiff")
+        guard let s = NSSound(contentsOf: fichier, byReference: true) ?? NSSound(named: NSSound.Name(son)) else { return }
+        s.volume = Float(max(Preferences.partagees.volume, 0.2))
+        sonEnCours = s
         s.play()
     }
 
@@ -154,6 +164,7 @@ final class Notifieur {
         }
         n.sound = nil                                        // le son est joué par l'app
         n.threadIdentifier = e.rawValue
+        if (e == .message || e == .incident) && l.count < 3 { n.categoryIdentifier = Notifieur.categorieMessage }
         var info: [String: String] = infos
         info["ecran"] = e.ecran.rawValue
         n.userInfo = info

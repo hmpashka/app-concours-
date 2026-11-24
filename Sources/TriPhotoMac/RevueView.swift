@@ -438,7 +438,7 @@ struct RevueView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 3))
                                 .overlay(RoundedRectangle(cornerRadius: 3).stroke(i == index ? Theme.accent : Color.clear, lineWidth: 2))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(BoutonPlat())
                         .id(i)
                     }
                 }

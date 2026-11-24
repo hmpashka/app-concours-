@@ -80,7 +80,7 @@ struct MemoireView: View {
                             .background(choisie == c.cle ? Theme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 5))
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(BoutonPlat())
                     }
                 }
             }
@@ -171,7 +171,7 @@ struct MemoireView: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(choisi ? Theme.accent : Color.clear, lineWidth: 2))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BoutonPlat())
     }
 
     // MARK: - Actions

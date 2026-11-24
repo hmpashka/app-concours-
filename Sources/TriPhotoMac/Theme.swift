@@ -143,3 +143,13 @@ struct BoutonStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
+
+/// Bouton sans décor (onglets, listes, vignettes) : toute sa surface est cliquable, pas seulement le texte
+/// (HUGO 24/11 : « il faut cliquer pile sur le texte »).
+struct BoutonPlat: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.75 : 1)
+    }
+}

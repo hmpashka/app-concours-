@@ -78,7 +78,7 @@ struct AValiderView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(normales) { s in
                         Button { choisie = s.id } label: { ligneSerie(s, active: s.id == serie?.id) }
-                            .buttonStyle(.plain)
+                            .buttonStyle(BoutonPlat())
                     }
                     if !rushs.isEmpty {
                         Text("À reprendre au calme (\(r.aReprendre) photo\(r.aReprendre > 1 ? "s" : ""), déjà envoyées)")
@@ -86,7 +86,7 @@ struct AValiderView: View {
                             .padding(.top, 10)
                         ForEach(rushs) { s in
                             Button { choisie = s.id } label: { ligneSerie(s, active: s.id == serie?.id) }
-                                .buttonStyle(.plain)
+                                .buttonStyle(BoutonPlat())
                         }
                     }
                 }
@@ -162,7 +162,7 @@ struct AValiderView: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 8)], spacing: 8) {
                 ForEach(s.photos, id: \.id) { f in
                     Button { basculer(f.id) } label: { vignette(f, choisie: selection.contains(f.id)) }
-                        .buttonStyle(.plain)
+                        .buttonStyle(BoutonPlat())
                 }
             }
         }
@@ -357,7 +357,7 @@ struct Liste00View: View {
                                     .font(.system(size: 10)).foregroundStyle(Theme.texteDiscret).lineLimit(1)
                             }
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(BoutonPlat())
                     }
                 }
             }

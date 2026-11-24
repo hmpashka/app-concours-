@@ -72,7 +72,7 @@ struct CommandesView: View {
                             .background(client?.id == c.id ? Theme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 5))
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(BoutonPlat())
                     }
                     if !recherche.isEmpty && clients.isEmpty {
                         Text("Personne trouvé.").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
@@ -108,7 +108,7 @@ struct CommandesView: View {
                             .background(commande?.id == k.id ? Theme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 5))
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(BoutonPlat())
                     }
                 }
             }

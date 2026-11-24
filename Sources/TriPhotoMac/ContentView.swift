@@ -93,11 +93,11 @@ struct Bandeau: View {
                         }
                             .font(.system(size: 13, weight: etat.ecran == e ? .semibold : .regular))
                             .foregroundStyle(etat.ecran == e ? Theme.texte : Theme.texteDiscret)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
                             .background(etat.ecran == e ? Theme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 5))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(BoutonPlat())
                 }
             }
             Spacer()
@@ -112,7 +112,7 @@ struct Bandeau: View {
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .background(enPause ? Theme.orange : Theme.bordure, in: RoundedRectangle(cornerRadius: 5))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(BoutonPlat())
                 .help(enPause ? "Tout repart : serveur, Lightroom, galerie en ligne."
                               : "Plus rien ne part (serveur, Lightroom, galerie en ligne). Les photos attendent dans la réception.")
             }
