@@ -314,6 +314,37 @@ struct ReglagesView: View {
                 .disabled(true)
                 .help("SMB pour l'instant ; le FTP viendra plus tard si besoin.")
             }
+            Ligne("Galerie du stand (serveur local)") {
+                TextField("https://190.160.40.5 (vide : pas de rafraîchissement)", text: $etat.reglages.urlGalerieStand)
+                    .textFieldStyle(.roundedBorder)
+            }
+            if !etat.reglages.urlGalerieStand.isEmpty {
+                Ligne("Identifiant · mot de passe") {
+                    TextField("Identifiant", text: $etat.reglages.identifiantGalerieStand).textFieldStyle(.roundedBorder).frame(width: 180)
+                    SecureField("Mot de passe (gardé dans le trousseau)", text: Binding(
+                        get: { etat.motDePasseGalerie },
+                        set: { etat.motDePasseGalerie = $0 }))
+                        .textFieldStyle(.roundedBorder)
+                }
+                Ligne("Rafraîchir la galerie") {
+                    Stepper("toutes les \(etat.reglages.minutesGalerieStand) min au plus, et à la fin de chaque rafale",
+                            value: $etat.reglages.minutesGalerieStand, in: 1...30)
+                }
+                HStack {
+                    Button("Rafraîchir maintenant") { etat.moteur.rafraichirGalerie() }
+                        .buttonStyle(BoutonStyle()).disabled(!etat.moteur.actif)
+                    if !etat.reglages.empreinteGalerieStand.isEmpty {
+                        Button("Oublier le certificat du serveur") { etat.reglages.empreinteGalerieStand = "" }
+                            .buttonStyle(BoutonStyle())
+                            .help("À faire seulement si le serveur du stand a changé de certificat.")
+                    }
+                    if let g = etat.moteur.resume.galerie, !g.message.isEmpty {
+                        Text(g.message).font(.system(size: 11)).foregroundStyle(g.ok == false ? Theme.erreur : Theme.texteDiscret)
+                    }
+                }
+                Text("Les copies partent au fil de l'eau ; la galerie ne relit que les dossiers qui ont reçu des photos, toutes les X minutes au plus. Pas de requête à chaque photo.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            }
             Ligne("Galerie en ligne (FTP)") {
                 TextField("Adresse FTP de ta galerie (étape 4)", text: $etat.reglages.adresseFTPGalerie)
                     .textFieldStyle(.roundedBorder)

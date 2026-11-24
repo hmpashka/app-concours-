@@ -57,6 +57,7 @@ struct MenusTriPhoto: Commands {
             Button("Recharger le fichier FFE") { etat.rechargerFFE() }
                 .disabled(etat.reglages.cheminFFE.isEmpty)
             Divider()
+            Button("Synchroniser les boîtiers (photo du QR)…") { etat.montrerSynchro = true }
             Button("Mode entraînement…") { etat.montrerEntrainement = true }
                 .raccourci(raccourcis[.entrainement])
         }

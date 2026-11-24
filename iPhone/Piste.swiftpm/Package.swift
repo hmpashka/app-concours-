@@ -35,7 +35,8 @@ let package = Package(
         .executableTarget(
             name: "AppModule",
             dependencies: [.product(name: "TriPhotoCommun", package: "app-concours-")],
-            path: "."
+            path: ".",
+            resources: [.copy("Polices")]
         )
     ]
 )

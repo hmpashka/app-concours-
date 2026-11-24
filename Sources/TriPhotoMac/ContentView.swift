@@ -27,6 +27,9 @@ struct ContentView: View {
         .foregroundStyle(Theme.texte)
         .preferredColorScheme(.dark)
         .frame(minWidth: 980, minHeight: 640)
+        .sheet(isPresented: $etat.montrerSynchro) {
+            SynchroView(moteur: etat.moteur)
+        }
         .sheet(isPresented: $etat.montrerEntrainement) {
             EntrainementView(entrainement: etat.entrainement, dossierReception: etat.reglages.dossierReception)
         }

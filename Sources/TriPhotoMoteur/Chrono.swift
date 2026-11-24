@@ -62,8 +62,16 @@ final class Chrono {
     var erreur: String { verrou.lock(); defer { verrou.unlock() }; return _erreur }
     var vu: Date? { verrou.lock(); defer { verrou.unlock() }; return _vu }
 
-    /// Heure d'une photo (horloge de l'appareil) sur l'horloge du chrono.
-    func heureChrono(_ prise: Date) -> Double { prise.timeIntervalSince1970 }
+    private var _ecartsBoitiers: [String: Double] = [:]
+
+    /// Écarts d'heure des boîtiers synchronisés (photo du QR) : heure du boîtier − heure du chrono.
+    func regler(ecarts: [String: Double]) { verrou.lock(); _ecartsBoitiers = ecarts; verrou.unlock() }
+
+    /// Heure d'une photo (horloge de l'appareil) sur l'horloge du chrono, corrigée de l'écart du boîtier.
+    func heureChrono(_ prise: Date, boitier: String = "") -> Double {
+        verrou.lock(); defer { verrou.unlock() }
+        return prise.timeIntervalSince1970 - (_ecartsBoitiers[boitier] ?? 0)
+    }
 
     /// Demande les passages si le dernier appel date de plus de 8 s. Ne bloque jamais.
     func actualiserSiBesoin(depuis: Date) {

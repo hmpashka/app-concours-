@@ -158,12 +158,21 @@ struct AccueilView: View {
 
     private var boitiers: some View {
         Carte(titre: "Boîtiers", sousTitre: "\(r.boitiers.count) boîtier\(r.boitiers.count > 1 ? "s" : "") aujourd'hui") {
+            Button("Synchroniser les boîtiers (photo du QR)…") { etat.montrerSynchro = true }.buttonStyle(BoutonStyle())
             if r.boitiers.isEmpty {
                 Text("Aucune photo reçue pour l'instant.").font(.system(size: 13)).foregroundStyle(Theme.texteDiscret)
             }
             ForEach(r.boitiers) { b in
                 HStack {
-                    Text(b.nom).font(.system(size: 13))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(b.nomAffiche).font(.system(size: 13))
+                        if let s = b.synchro {
+                            Text([s.piste, s.photographe, s.ecartTexte].filter { !$0.isEmpty }.joined(separator: " · "))
+                                .font(.system(size: 11)).foregroundStyle(Theme.texteDiscret)
+                        } else {
+                            Text("pas de photo de synchro").font(.system(size: 11)).foregroundStyle(Theme.attention)
+                        }
+                    }
                     Spacer()
                     Text("\(b.photos) photos").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
                     if let d = b.derniere {
@@ -260,6 +269,7 @@ struct AccueilView: View {
         case .aValider: return "à valider"
         case .photoCode: return "photo de code"
         case .retiree: return "retirée"
+        case .synchro: return "synchro"
         }
     }
 }

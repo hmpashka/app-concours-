@@ -2,7 +2,10 @@
 //
 //   swift run -c release essai-moteur <dossier de photos> [--cube fichier.cube] [--ffe fichier.xml]
 //                                     [--cadence photos-par-minute] [--tampon] [--max N]
-//                                     [--passages passages.json | --simuler-chrono [--erreurs N]]
+//                                     [--passages passages.json | --simuler-chrono [--erreurs N]] [--synchro]
+//
+// --synchro : avant les photos, fabrique une photo d'un QR de synchro (boîtier « Essai QR » en avance de 2,5 s)
+// et vérifie que le moteur la reconnaît, la met de côté et calcule l'écart.
 //
 // --simuler-chrono : fabrique un faux chrono d'après les codes des photos elles-mêmes (un passage par suite de
 // photos du même code), pour essayer les propositions « À valider », les photos de code et les _00.
@@ -11,6 +14,8 @@
 // donné n'est jamais modifié. À la fin : vitesse, photos à renvoyer, erreurs, et vérification que les pixels des
 // originaux envoyés à Lightroom sont identiques à ceux de départ (aucune recompression).
 import CoreGraphics
+import CoreImage
+import CoreImage.CIFilterBuiltins
 import Foundation
 import ImageIO
 import TriPhotoCommun
@@ -44,6 +49,7 @@ let avecTampon = drapeau("--tampon")
 let cheminPassages = option("--passages")
 let simulerChrono = drapeau("--simuler-chrono")
 let erreursChrono = option("--erreurs").flatMap(Int.init) ?? 0   // 1 passage sur N avec un autre dossard
+let essaiSynchro = drapeau("--synchro")
 guard let source = args.first else {
     quitter("Usage : essai-moteur <dossier de photos> [--cube f.cube] [--ffe f.xml] [--cadence N] [--tampon] [--max N]")
 }
@@ -122,6 +128,54 @@ try moteur.demarrer(ConfigMoteur(reception: reception, importLightroom: importLR
                                  tailleLot: 20, silenceMinutes: 1, retarderSiOccupe: true,
                                  journal: essai.appendingPathComponent("journal.sqlite"),
                                  chrono: chrono, attente00Minutes: 0.2))
+
+/// Photo d'un QR de synchro, comme si un boîtier en avance de `avance` secondes avait photographié l'écran.
+func photoQR(_ dest: URL, avance: Double) {
+    let prise = Date()
+    let qrTexte = "HMT:\(Int64(((prise.timeIntervalSince1970 - avance) * 1000).rounded()))"
+    let f = CIFilter.qrCodeGenerator()
+    f.message = Data(qrTexte.utf8)
+    let ctx = CIContext()
+    guard let qr = f.outputImage?.transformed(by: CGAffineTransform(scaleX: 24, y: 24)),
+          let qrIm = ctx.createCGImage(qr, from: qr.extent),
+          let c = CGContext(data: nil, width: 2400, height: 1600, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return }
+    c.setFillColor(gray: 0.85, alpha: 1)
+    c.fill(CGRect(x: 0, y: 0, width: 2400, height: 1600))
+    c.interpolationQuality = .none
+    c.draw(qrIm, in: CGRect(x: 1200 - qr.extent.width / 2, y: 800 - qr.extent.height / 2, width: qr.extent.width, height: qr.extent.height))
+    guard let im = c.makeImage(), let d = CGImageDestinationCreateWithURL(dest as CFURL, "public.jpeg" as CFString, 1, nil) else { return }
+    let df = DateFormatter()
+    df.locale = Locale(identifier: "en_US_POSIX")
+    df.dateFormat = "yyyy:MM:dd HH:mm:ss"
+    let sub = String(format: "%02d", Int((prise.timeIntervalSince1970.truncatingRemainder(dividingBy: 1)) * 100))
+    let props: [CFString: Any] = [
+        kCGImageDestinationLossyCompressionQuality: 0.9,
+        kCGImagePropertyExifDictionary: [kCGImagePropertyExifDateTimeOriginal: df.string(from: prise),
+                                         kCGImagePropertyExifSubsecTimeOriginal: sub,
+                                         kCGImagePropertyExifBodySerialNumber: "001"],
+        kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFModel: "Essai QR"],
+    ]
+    CGImageDestinationAddImage(d, im, props as CFDictionary)
+    CGImageDestinationFinalize(d)
+}
+
+if essaiSynchro {
+    moteur.ouvrirSynchro(DemandeSynchro(nom: "Boîtier test", piste: "Piste 1", source: "", photographe: "Tom"))
+    Thread.sleep(forTimeInterval: 0.5)
+    let prov = essai.appendingPathComponent("QR_0001.JPG")
+    photoQR(prov, avance: 2.5)
+    try? fm.moveItem(at: prov, to: reception.appendingPathComponent("QR_0001.JPG"))
+    let t0 = Date()
+    while moteur.resume.synchro.dernier == nil && Date().timeIntervalSince(t0) < 30 { RunLoop.main.run(until: Date().addingTimeInterval(0.5)) }
+    if let s = moteur.resume.synchro.dernier {
+        let cote = fm.fileExists(atPath: reception.appendingPathComponent(Moteur.dossierSynchro).appendingPathComponent("QR_0001.JPG").path)
+        print("SYNCHRO OK : \(s.boitier) → « \(s.nomAffiche) », \(s.piste), \(s.photographe), \(s.ecartTexte) (attendu : en avance de 2,5 s environ) · mise de côté dans _Synchro : \(cote ? "oui" : "NON")")
+    } else {
+        print("SYNCHRO ÉCHEC : la photo du QR n'a pas été reconnue en 30 s.")
+    }
+    moteur.fermerSynchro()
+}
 
 // Les photos arrivent dans la réception (copie, puis renommage : jamais de fichier à moitié écrit).
 let debut = Date()

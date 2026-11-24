@@ -10,30 +10,32 @@ struct RenvoyerView: View {
         ZStack {
             Style.fond
             VStack(alignment: .leading, spacing: 14) {
-                Button { fermer() } label: { Text("‹ Retour").font(.system(size: 16, weight: .semibold)).foregroundStyle(Style.or) }
-                Text("Photos à renvoyer").font(Style.titre(34))
+                EnteteRetour(titre: "Photos à renvoyer", taille: 30) { fermer() }
                 (Text("Ces photos ne sont pas bien arrivées sur le Mac. Renvoie-les depuis le boîtier, avec leur ")
-                    + Text("nom d'origine").bold() + Text("."))
-                    .font(.system(size: 14)).foregroundStyle(Style.cremeDiscret)
-                ScrollView {
+                    + Text("nom d’origine").foregroundColor(Style.creme).fontWeight(.semibold) + Text("."))
+                    .font(.system(size: 14)).foregroundColor(Style.cremeDiscret).lineSpacing(3).padding(.horizontal, 4)
+                ScrollView(showsIndicators: false) {
                     VStack(spacing: 10) {
                         ForEach(liaison.direct?.aRenvoyer ?? []) { p in
-                            Bloc(bord: Style.orange, fond: Style.orange.opacity(0.14)) {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(p.nom).font(.system(size: 17, weight: .semibold)).monospacedDigit()
-                                        Text(p.detail).font(.system(size: 12)).foregroundStyle(Style.cremeDiscret)
+                            Bloc(marge: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(alignment: .firstTextBaseline) {
+                                        Text((p.nom as NSString).deletingPathExtension).font(Style.code(30)).monospacedDigit()
+                                            .foregroundStyle(Style.or)
+                                        Spacer()
+                                        Text(Date(timeIntervalSince1970: p.heure).formatted(date: .omitted, time: .standard))
+                                            .font(.system(size: 13)).monospacedDigit().foregroundStyle(Style.cremeDiscret)
                                     }
-                                    Spacer()
-                                    Text(Date(timeIntervalSince1970: p.heure).formatted(date: .omitted, time: .shortened))
-                                        .font(.system(size: 13)).foregroundStyle(Style.cremeDiscret)
+                                    Text(p.detail.prefix(1).uppercased() + p.detail.dropFirst()).font(.system(size: 13))
+                                        .foregroundStyle(Style.cremeDiscret)
                                 }
                             }
                         }
                         ForEach(liaison.direct?.bienArrivees ?? [], id: \.self) { n in
-                            Bloc {
+                            Bloc(bord: Style.vert.opacity(0.5), fond: Style.vert.opacity(0.12)) {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("\(n) est bien arrivée").font(.system(size: 15, weight: .semibold)).foregroundStyle(Style.vert)
+                                    Text("\((n as NSString).deletingPathExtension) est bien arrivée")
+                                        .font(.system(size: 14, weight: .semibold)).foregroundStyle(Style.vertTexte)
                                     Text("Retirée de la liste toute seule").font(.system(size: 12)).foregroundStyle(Style.cremeDiscret)
                                 }
                             }
@@ -44,9 +46,9 @@ struct RenvoyerView: View {
                     }
                 }
                 Text("La liste se vide toute seule dès que le Mac reçoit la photo.")
-                    .font(.system(size: 12)).foregroundStyle(Style.cremeDiscret).frame(maxWidth: .infinity)
+                    .font(.system(size: 13)).foregroundStyle(Style.cremeDiscret).frame(maxWidth: .infinity)
             }
-            .padding(18)
+            .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 10)
         }
         .foregroundStyle(Style.creme)
         .preferredColorScheme(.dark)
@@ -58,51 +60,54 @@ struct MessagesPisteView: View {
     @EnvironmentObject var liaison: Liaison
     @Environment(\.dismiss) private var fermer
     @State private var texte = ""
-    private let rapides = ["Bien reçu", "J'arrive", "Batterie faible", "Carte pleine", "Pause"]
+    private let rapides = ["Batterie", "Carte pleine", "Pause 5 min", "Besoin de relève"]
 
     var body: some View {
         ZStack {
             Style.fond
             VStack(alignment: .leading, spacing: 12) {
-                Button { fermer() } label: { Text("‹ Retour").font(.system(size: 16, weight: .semibold)).foregroundStyle(Style.or) }
-                Text("Messages").font(Style.titre(34))
-                Text("Stand (Mac) et toutes les pistes").font(.system(size: 13)).foregroundStyle(Style.cremeDiscret)
+                EnteteRetour(titre: "Messages", taille: 28, sousTitre: "Stand (Mac) et toutes les pistes") { fermer() }
                 ScrollViewReader { lecteur in
-                    ScrollView {
+                    ScrollView(showsIndicators: false) {
                         VStack(spacing: 10) {
+                            Spacer(minLength: 0)
                             ForEach(liaison.messages) { m in bulle(m).id(m.id) }
                         }
+                        .frame(maxWidth: .infinity)
                     }
+                    .defaultScrollAnchorBas()
                     .onAppear { lecteur.scrollTo(liaison.messages.last?.id, anchor: .bottom) }
                     .onChange(of: liaison.messages.count) { _ in
                         withAnimation { lecteur.scrollTo(liaison.messages.last?.id, anchor: .bottom) }
                     }
                 }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(rapides, id: \.self) { r in
-                            Button(r) { liaison.envoyer(message: r) }
-                                .font(.system(size: 14, weight: .semibold))
-                                .padding(.horizontal, 12).padding(.vertical, 8)
-                                .background(.white.opacity(0.10), in: Capsule())
-                        }
+                Rangees(espace: 6) {
+                    ForEach(rapides, id: \.self) { r in
+                        Button(r) { liaison.envoyer(message: r) }
+                            .font(.system(size: 13)).foregroundStyle(Style.creme)
+                            .padding(.horizontal, 12).frame(minHeight: 36)
+                            .background(.white.opacity(0.08), in: Capsule())
+                            .overlay(Capsule().stroke(.white.opacity(0.15), lineWidth: 1))
                     }
                 }
-                HStack {
-                    TextField("Message", text: $texte, axis: .vertical)
+                HStack(spacing: 8) {
+                    TextField("", text: $texte, prompt: Text("Écrire au stand…").foregroundColor(Style.cremeDiscret), axis: .vertical)
                         .lineLimit(1...4)
-                        .padding(12)
-                        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+                        .font(.system(size: 15)).foregroundStyle(Style.creme)
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 22))
+                        .overlay(RoundedRectangle(cornerRadius: 22).stroke(.white.opacity(0.15), lineWidth: 1))
                     Button {
                         liaison.envoyer(message: texte)
                         texte = ""
                     } label: {
-                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 34)).foregroundStyle(Style.or)
+                        Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold)).foregroundStyle(Style.nuit)
+                            .frame(width: 44, height: 44).background(Style.or, in: Circle())
                     }
                     .disabled(texte.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
-            .padding(18)
+            .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 10)
         }
         .foregroundStyle(Style.creme)
         .preferredColorScheme(.dark)
@@ -112,18 +117,79 @@ struct MessagesPisteView: View {
 
     private func bulle(_ m: MessagePiste) -> some View {
         let moi = m.qui == liaison.nom
+        let qui = moi ? "Moi" : (m.piste.isEmpty ? m.qui : "\(m.qui) · \(m.piste)")
+        let forme = UnevenRoundedRectangleCompat(haut: 16, basGauche: moi ? 16 : 4, basDroit: moi ? 4 : 16)
         return HStack {
-            if moi { Spacer(minLength: 50) }
+            if moi { Spacer(minLength: 0) }
             VStack(alignment: .leading, spacing: 3) {
-                Text("\(m.qui)\(m.pour.isEmpty ? "" : " → \(m.pour == liaison.nom ? "toi" : m.pour)") · \(Date(timeIntervalSince1970: m.heure).formatted(date: .omitted, time: .shortened))")
+                Text("\(qui)\(m.pour.isEmpty ? "" : (m.pour == liaison.nom ? " · pour toi" : " → \(m.pour)")) · \(Date(timeIntervalSince1970: m.heure).formatted(date: .omitted, time: .shortened))")
                     .font(.system(size: 11)).foregroundStyle(Style.cremeDiscret)
-                Text(m.texte).font(.system(size: 15, weight: m.incident ? .semibold : .regular))
+                Text(m.texte).font(.system(size: 15, weight: m.incident ? .semibold : .regular)).lineSpacing(2)
                     .foregroundStyle(m.incident ? Style.orangeClair : Style.creme)
             }
-            .padding(10)
-            .background(moi ? Style.or.opacity(0.22) : (m.qui == "Stand" ? Style.nuitClair : .white.opacity(0.08)),
-                        in: RoundedRectangle(cornerRadius: 12))
-            if !moi { Spacer(minLength: 50) }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(moi ? Style.or.opacity(0.22) : .white.opacity(0.08), in: forme)
+            .overlay(forme.stroke(moi ? Style.or.opacity(0.5) : .white.opacity(0.12), lineWidth: 1))
+            .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: moi ? .trailing : .leading)
+            if !moi { Spacer(minLength: 0) }
         }
+    }
+}
+
+/// Bulle aux coins inégaux (iOS 16 n'a pas UnevenRoundedRectangle).
+struct UnevenRoundedRectangleCompat: Shape {
+    var haut: CGFloat
+    var basGauche: CGFloat
+    var basDroit: CGFloat
+
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX + haut, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX - haut, y: r.minY))
+        p.addArc(tangent1End: CGPoint(x: r.maxX, y: r.minY), tangent2End: CGPoint(x: r.maxX, y: r.minY + haut), radius: haut)
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - basDroit))
+        p.addArc(tangent1End: CGPoint(x: r.maxX, y: r.maxY), tangent2End: CGPoint(x: r.maxX - basDroit, y: r.maxY), radius: basDroit)
+        p.addLine(to: CGPoint(x: r.minX + basGauche, y: r.maxY))
+        p.addArc(tangent1End: CGPoint(x: r.minX, y: r.maxY), tangent2End: CGPoint(x: r.minX, y: r.maxY - basGauche), radius: basGauche)
+        p.addLine(to: CGPoint(x: r.minX, y: r.minY + haut))
+        p.addArc(tangent1End: CGPoint(x: r.minX, y: r.minY), tangent2End: CGPoint(x: r.minX + haut, y: r.minY), radius: haut)
+        p.closeSubpath()
+        return p
+    }
+}
+
+/// Boutons rapides sur plusieurs lignes si besoin (comme « flex-wrap »).
+struct Rangees: Layout {
+    var espace: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let largeur = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, ligne: CGFloat = 0, maxX: CGFloat = 0
+        for v in subviews {
+            let t = v.sizeThatFits(.unspecified)
+            if x > 0 && x + t.width > largeur { x = 0; y += ligne + espace; ligne = 0 }
+            x += t.width + espace
+            maxX = max(maxX, x - espace)
+            ligne = max(ligne, t.height)
+        }
+        return CGSize(width: proposal.width ?? maxX, height: y + ligne)
+    }
+
+    func placeSubviews(in r: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = r.minX, y = r.minY, ligne: CGFloat = 0
+        for v in subviews {
+            let t = v.sizeThatFits(.unspecified)
+            if x > r.minX && x + t.width > r.maxX { x = r.minX; y += ligne + espace; ligne = 0 }
+            v.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(t))
+            x += t.width + espace
+            ligne = max(ligne, t.height)
+        }
+    }
+}
+
+extension View {
+    /// Fil des messages collé en bas (iOS 17 : ancre de défilement ; iOS 16 : rien, le défilement suffit).
+    @ViewBuilder func defaultScrollAnchorBas() -> some View {
+        if #available(iOS 17.0, *) { self.defaultScrollAnchor(.bottom) } else { self }
     }
 }

@@ -20,11 +20,13 @@ public struct ConfigMoteur {
     public var chrono: ConfigChrono?    // nil : pas de chrono, les photos partent avec le code du photographe
     /// Une photo en _00 (ou sans code) attend tant de minutes une photo de code ou le chrono avant de partir.
     public var attente00Minutes: Double
+    /// Rafraîchissement de la galerie du stand (serveur local) par lots. nil : pas de rafraîchissement.
+    public var galerie: ConfigGalerie?
 
     public init(reception: URL, importLightroom: URL, tampon: URL?, serveur: URL, cote: Int, qualite: Int,
                 cube: FichierCube?, concours: Concours?, tailleLot: Int, silenceMinutes: Int,
                 retarderSiOccupe: Bool, journal: URL, travailLightroom: URL? = nil, chrono: ConfigChrono? = nil,
-                attente00Minutes: Double = 2) {
+                attente00Minutes: Double = 2, galerie: ConfigGalerie? = nil) {
         self.reception = reception
         self.importLightroom = importLightroom
         self.tampon = tampon
@@ -40,6 +42,7 @@ public struct ConfigMoteur {
         self.travailLightroom = travailLightroom
         self.chrono = chrono
         self.attente00Minutes = attente00Minutes
+        self.galerie = galerie
     }
 }
 
@@ -50,6 +53,9 @@ public struct ResumeMoteur {
         public var nom: String
         public var photos: Int
         public var derniere: Date?
+        /// Photo de synchro : nom donné, piste, photographe, écart d'heure.
+        public var synchro: BoitierSynchro?
+        public var nomAffiche: String { synchro?.nomAffiche ?? nom }
     }
     public struct Recente: Identifiable {
         public var id: Int64
@@ -101,6 +107,13 @@ public struct ResumeMoteur {
     public var heureChrono: Double = 0
     /// Début du nom des photos d'un boîtier (« DERB ») → boîtier : retrouve le boîtier d'une photo illisible.
     public var prefixeBoitier: [String: String] = [:]
+
+    // Photo de synchro (QR) et galerie du stand
+    public var synchro = EtatSynchro()
+    public var boitiersSynchro: [BoitierSynchro] = []
+    /// Heure du chrono − heure du Mac (pour l'heure affichée dans le QR).
+    public var ecartChrono: Double = 0
+    public var galerie: EtatGalerie?
 
     public init() {}
 }
@@ -190,12 +203,20 @@ public final class Moteur: ObservableObject {
     private var alertesVues: [String: Double] = [:]            // boîtier → heure de la dernière photo quand vue
     private var direct = false                                  // des iPhone suivent les pistes
     private var prefixeBoitier: [String: String] = [:]
+    private var demandeSynchro: DemandeSynchro?
+    private var synchroDebut = Date.distantPast
+    private var synchroJusqua = Date.distantPast
+    private var dernierSynchro: BoitierSynchro?
+    private var boitiersSynchro: [String: BoitierSynchro] = [:]
+    private var galerie: GalerieStand?
+    private var fichierSynchro: URL? { config.map { $0.journal.deletingLastPathComponent().appendingPathComponent("boitiers-synchro.json") } }
 
     public static let dossierARenvoyer = "_À renvoyer"
     public static let dossierAAttribuer = "À attribuer"
     public static let dossierDoublons = "_Doublons"
     public static let dossierAValider = "_À valider"
     public static let dossierPhotosCode = "_Photos de code"
+    public static let dossierSynchro = "_Synchro"
     static let doublonAccepte = "Doublon accepté par HUGO"
     static let codeGarde = "Code du photographe gardé par HUGO"
     static let pasPhotoCode = "Pas une photo de code (HUGO)"
@@ -213,6 +234,8 @@ public final class Moteur: ObservableObject {
             self.message = ""
             self.chrono = c.chrono.map { Chrono(config: $0) }
             self.suivi = c.travailLightroom.map { SuiviLightroom(dossier: $0) }
+            self.galerie = c.galerie.flatMap { $0.adresse.isEmpty ? nil : GalerieStand(config: $0, racine: c.serveur) }
+            self.chargerSynchro()
             self.enAttenteChrono = [:]
             let t = DispatchSource.makeTimerSource(queue: file)
             t.schedule(deadline: .now(), repeating: 1.0, leeway: .milliseconds(200))
@@ -280,6 +303,7 @@ public final class Moteur: ObservableObject {
             s.examiner { [weak self] constat in self?.file.async { self?.appliquer(constat) } }
         }
 
+        galerie?.peutEtre()
         publier(journal: j, maintenant: maintenant)
     }
 
@@ -290,7 +314,7 @@ public final class Moteur: ObservableObject {
                                     options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
         var l: [(URL, UInt64)] = []
         for case let url as URL in e {
-            if [dossierARenvoyer, dossierDoublons, dossierAValider, dossierPhotosCode].contains(url.lastPathComponent) {
+            if [dossierARenvoyer, dossierDoublons, dossierAValider, dossierPhotosCode, dossierSynchro].contains(url.lastPathComponent) {
                 e.skipDescendants()
                 continue
             }
@@ -337,6 +361,28 @@ public final class Moteur: ObservableObject {
                     if let avant = prefixeBoitier[prefixe] { if avant != bt { prefixeBoitier[prefixe] = "*" } }
                     else { prefixeBoitier[prefixe] = bt }
                 }
+            }
+
+            // 1a. Photo de synchro : pendant que la fenêtre du QR est ouverte, une photo du QR règle l'heure du
+            //     boîtier, lui donne son nom, sa piste et son photographe. Elle n'est jamais envoyée.
+            if let session = file.sync(execute: { () -> (debut: Date, demande: DemandeSynchro)? in
+                   guard let d = demandeSynchro, Date() < synchroJusqua else { return nil }
+                   return (synchroDebut, d)
+               }), let qr = Synchro.lireQR(url), qr >= session.debut.timeIntervalSince1970 - 5, let prise = fiche.prise {
+                let demande = session.demande
+                let cote = c.reception.appendingPathComponent(Moteur.dossierSynchro, isDirectory: true)
+                try mettreDeCote(url, dans: cote, fiche: &fiche)
+                let b = fiche.boitier
+                let avant = file.sync { boitiersSynchro[b] }
+                let s = BoitierSynchro(boitier: b, nom: demande.nom.isEmpty ? (avant?.nom ?? "") : demande.nom,
+                                       piste: demande.piste, source: demande.source, photographe: demande.photographe,
+                                       ecart: (prise.timeIntervalSince1970 - qr), le: Date(), photo: fiche.origine)
+                fiche.etat = .synchro
+                fiche.erreur = "Photo de synchro : \(s.nomAffiche), \(s.ecartTexte)"
+                fiche.noter("synchro", s.ecartTexte)
+                file.sync { enregistrerSynchro(s) }
+                terminer(fiche, chemin: chemin)
+                return
             }
 
             // 1b. Photo renvoyée par le photographe (elle était mal arrivée) : l'ancienne, abîmée, va à la corbeille
@@ -386,11 +432,11 @@ public final class Moteur: ObservableObject {
                     if ch.ok == true {
                         let b0 = fiche.boitier
                         let piste = file.sync { pisteDuBoitier[b0] }
-                        let d = Attribution.decider(code: codePhotographe, t: ch.heureChrono(prise), passages: ch.passages,
+                        let d = Attribution.decider(code: codePhotographe, t: ch.heureChrono(prise, boitier: b0), passages: ch.passages,
                                                     apres: ch.config.apresArrivee, latence: ch.config.latence, piste: piste)
                         switch d {
                         case .conforme:
-                            if case .trouve(let places) = Attribution.placer(t: ch.heureChrono(prise), passages: ch.passages,
+                            if case .trouve(let places) = Attribution.placer(t: ch.heureChrono(prise, boitier: b0), passages: ch.passages,
                                                                               apres: ch.config.apresArrivee),
                                let p = places.first(where: { $0.passage.code == codePhotographe }) {
                                 let b = fiche.boitier
@@ -476,10 +522,12 @@ public final class Moteur: ObservableObject {
 
             // 4. Copie compressée avec le .cube vers le serveur local.
             let copie = dossierServeur.appendingPathComponent(fiche.nom)
+            let dossierNeuf = !FileManager.default.fileExists(atPath: dossierServeur.path)
             try TraitementPhoto.fabriquerCopie(de: url, vers: copie, cote: c.cote, qualite: c.qualite, cube: c.cube,
                                                copyright: code?.texte ?? infos.copyright, priseEXIF: infos.priseEXIF)
             fiche.copie = copie.path
             fiche.etat = .copiee
+            galerie?.copieFaite(dans: dossierServeur, nouveau: dossierNeuf)
             let enregistrer = fiche
             file.sync { journal?.mettreAJour(enregistrer) }
 
@@ -624,7 +672,15 @@ public final class Moteur: ObservableObject {
         r.enErreur = compte[.erreur] ?? 0
         r.dansTampon = compte[.tampon] ?? 0
         r.boitiers = j.boitiers(depuis: debutJournee).filter { !$0.nom.isEmpty }
-            .map { ResumeMoteur.Boitier(nom: $0.nom, photos: $0.photos, derniere: $0.derniere) }
+            .map { ResumeMoteur.Boitier(nom: $0.nom, photos: $0.photos, derniere: $0.derniere, synchro: boitiersSynchro[$0.nom]) }
+        var es = EtatSynchro()
+        es.ouverte = demandeSynchro != nil && maintenant < synchroJusqua
+        es.jusqua = es.ouverte ? synchroJusqua : nil
+        es.dernier = dernierSynchro
+        r.synchro = es
+        r.boitiersSynchro = boitiersSynchro.values.sorted { $0.le > $1.le }
+        r.ecartChrono = chrono?.ecart ?? 0
+        r.galerie = galerie?.etat
         r.recentes = j.dernieres(12).map { ResumeMoteur.Recente(id: $0.id, nom: $0.nom, code: $0.codeRetenu, boitier: $0.boitier, etat: $0.etat) }
         r.chargeLightroom = charge
         r.ouvriers = ouvriers.maxConcurrentOperationCount
@@ -710,6 +766,13 @@ public final class Moteur: ObservableObject {
             r.alertes.append("\(b) : \(v.1) photos sur \(v.0) en _00 ou sans code.")
         }
         publierPistes(&r, journal: j, maintenant: maintenant)
+        // boîtier qui travaille sans photo de synchro (son heure n'est pas vérifiée)
+        if chrono != nil {
+            for b in r.boitiers where b.synchro == nil && b.photos >= 5 && maintenant.timeIntervalSince(b.derniere ?? .distantPast) < 1800 {
+                r.alertes.append("\(b.nom) : pas de photo de synchro (heure du boîtier non vérifiée).")
+            }
+        }
+        if let g = r.galerie, g.ok == false { r.alertes.append(g.message) }
         DispatchQueue.main.async { self.resume = r }
     }
 
@@ -737,7 +800,7 @@ public final class Moteur: ObservableObject {
         var derniere: [String: Double] = [:]
         for f in j.dernieres(150) where ![.aRenvoyer, .doublon, .ecartee].contains(f.etat) {
             guard let p = f.prise, !f.boitier.isEmpty else { continue }
-            let h = ch.heureChrono(p)
+            let h = ch.heureChrono(p, boitier: f.boitier)
             photos[f.boitier, default: []].append((code: f.code, prise: h))
             derniere[f.boitier] = max(derniere[f.boitier] ?? 0, h)
         }
@@ -769,7 +832,7 @@ public final class Moteur: ObservableObject {
     public func alerteVue(boitier: String) {
         file.async { [weak self] in
             guard let self, let j = self.journal, let ch = self.chrono else { return }
-            let h = j.dernieres(150).filter { $0.boitier == boitier }.compactMap(\.prise).map(ch.heureChrono).max() ?? 0
+            let h = j.dernieres(150).filter { $0.boitier == boitier }.compactMap(\.prise).map { ch.heureChrono($0, boitier: boitier) }.max() ?? 0
             self.alertesVues[boitier] = h
         }
     }
@@ -783,6 +846,75 @@ public final class Moteur: ObservableObject {
             }.sorted { ($0.prise ?? .distantPast) < ($1.prise ?? .distantPast) }
         }
     }
+
+    // MARK: - Photo de synchro (QR)
+
+    /// Ouvre la synchro : pendant `minutes`, une photo du QR règle le boîtier qui l'a prise, avec ces choix.
+    public func ouvrirSynchro(_ d: DemandeSynchro, minutes: Double = 10) {
+        file.async { [weak self] in
+            guard let self else { return }
+            if self.demandeSynchro == nil || Date() >= self.synchroJusqua { self.synchroDebut = Date() }
+            self.demandeSynchro = d
+            self.synchroJusqua = Date().addingTimeInterval(minutes * 60)
+        }
+    }
+
+    public func fermerSynchro() {
+        file.async { [weak self] in
+            self?.demandeSynchro = nil
+            self?.synchroJusqua = .distantPast
+        }
+    }
+
+    /// Change le nom, la piste ou le photographe d'un boîtier déjà synchronisé (sans refaire la photo).
+    public func modifierBoitier(_ s: BoitierSynchro) {
+        file.async { [weak self] in
+            guard let self, self.boitiersSynchro[s.boitier] != nil else { return }
+            self.enregistrerSynchro(s, nouveau: false)
+        }
+    }
+
+    /// Oublie la synchro d'un boîtier (son heure n'est plus corrigée).
+    public func oublierBoitier(_ boitier: String) {
+        file.async { [weak self] in
+            guard let self else { return }
+            self.boitiersSynchro[boitier] = nil
+            self.sauverSynchro()
+        }
+    }
+
+    private func enregistrerSynchro(_ s: BoitierSynchro, nouveau: Bool = true) {
+        boitiersSynchro[s.boitier] = s
+        if !s.source.isEmpty { pisteDuBoitier[s.boitier] = s.source }
+        if nouveau {
+            dernierSynchro = s
+            // le nom est propre à chaque boîtier : le suivant devra en recevoir un autre (piste et photographe restent)
+            demandeSynchro?.nom = ""
+        }
+        sauverSynchro()
+    }
+
+    private func sauverSynchro() {
+        chrono?.regler(ecarts: boitiersSynchro.mapValues(\.ecart))
+        guard let f = fichierSynchro else { return }
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .secondsSince1970
+        e.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let d = try? e.encode(Array(boitiersSynchro.values)) { try? d.write(to: f, options: .atomic) }
+    }
+
+    private func chargerSynchro() {
+        guard let f = fichierSynchro, let d = try? Data(contentsOf: f) else { return }
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .secondsSince1970
+        guard let l = try? dec.decode([BoitierSynchro].self, from: d) else { return }
+        boitiersSynchro = Dictionary(l.map { ($0.boitier, $0) }, uniquingKeysWith: { a, _ in a })
+        for s in l where !s.source.isEmpty { pisteDuBoitier[s.boitier] = s.source }
+        chrono?.regler(ecarts: boitiersSynchro.mapValues(\.ecart))
+    }
+
+    /// Galerie du stand : rafraîchir tout de suite (bouton).
+    public func rafraichirGalerie() { file.async { [weak self] in self?.galerie?.maintenant() } }
 
     // MARK: - Doublons (décision de HUGO)
 
@@ -1053,11 +1185,16 @@ public final class Moteur: ObservableObject {
             f.codeFinal = code.texte
             if let couple = c.concours?.couple(pour: code) { f.cavalier = couple.cavalier; f.cheval = couple.cheval } else { f.cavalier = ""; f.cheval = "" }
             let nouvelle = Moteur.dossierServeur(pour: code, config: c).appendingPathComponent(f.nom)
+            let dossierNeuf = !FileManager.default.fileExists(atPath: nouvelle.deletingLastPathComponent().path)
             if let infos = TraitementPhoto.infos(original) {
                 try TraitementPhoto.fabriquerCopie(de: original, vers: nouvelle, cote: c.cote, qualite: c.qualite, cube: c.cube,
                                                    copyright: code.texte, priseEXIF: infos.priseEXIF)
             }
-            if !ancienne.isEmpty, ancienne != nouvelle.path { try? FileManager.default.removeItem(atPath: ancienne) }
+            if !ancienne.isEmpty, ancienne != nouvelle.path {
+                try? FileManager.default.removeItem(atPath: ancienne)
+                galerie?.copieFaite(dans: URL(fileURLWithPath: ancienne).deletingLastPathComponent(), nouveau: false)
+            }
+            galerie?.copieFaite(dans: nouvelle.deletingLastPathComponent(), nouveau: dossierNeuf)
             f.copie = nouvelle.path
             try TraitementPhoto.reecrireMetadonnees(original, motsCles: Moteur.motsCles(f, code: code, config: c),
                                                     codeOrigine: f.code, copyright: code.texte)
@@ -1107,7 +1244,10 @@ public final class Moteur: ObservableObject {
         var retirees = 0
         for nom in constat.disparues {
             guard var f = j.ficheEnvoyee(nom: nom) else { continue }
-            if !f.copie.isEmpty { try? FileManager.default.removeItem(atPath: f.copie) }
+            if !f.copie.isEmpty {
+                try? FileManager.default.removeItem(atPath: f.copie)
+                galerie?.copieFaite(dans: URL(fileURLWithPath: f.copie).deletingLastPathComponent(), nouveau: false)
+            }
             f.etat = .retiree
             f.noter("Lightroom", "supprimée dans Lightroom : copie retirée du serveur")
             j.mettreAJour(f)

@@ -15,6 +15,7 @@ public enum EtatPhoto: String, CaseIterable, Sendable {
     case aValider       // le chrono propose un autre code : attend la validation de HUGO, rien n'est envoyé
     case photoCode      // photo de code (ciel, plafond) : jamais envoyée, sert à recoder les photos d'avant
     case retiree        // supprimée dans Lightroom : sa copie a été retirée du serveur local
+    case synchro        // photo du QR de synchro : règle l'heure du boîtier, jamais envoyée
 }
 
 /// Une ligne du journal.
@@ -207,7 +208,7 @@ final class Journal {
     func precedentes(boitier: String, avant: Date, n: Int) -> [FichePhoto] {
         let st = preparer("""
         SELECT \(Journal.colonnes) FROM photos WHERE boitier=? AND prise<? AND prise>=?
-          AND etat NOT IN ('photoCode','ecartee','aRenvoyer','doublon','retiree') ORDER BY prise DESC LIMIT ?
+          AND etat NOT IN ('photoCode','ecartee','aRenvoyer','doublon','retiree','synchro') ORDER BY prise DESC LIMIT ?
         """)
         defer { sqlite3_finalize(st) }
         lier(st, 1, boitier); lier(st, 2, avant); lier(st, 3, avant.addingTimeInterval(-3600))

@@ -84,6 +84,11 @@ struct ReglagesConcours: Codable, Equatable {
 
     // 5. Envois
     var protocoleServeur: Protocole = .smb
+    // Galerie du stand (serveur local) : rafraîchie par lots, jamais à chaque photo. Mot de passe : trousseau du Mac.
+    var urlGalerieStand = ""             // « https://190.160.40.5 »
+    var identifiantGalerieStand = ""
+    var minutesGalerieStand = 2          // au plus tard X minutes après la première copie en attente
+    var empreinteGalerieStand = ""       // certificat du serveur retenu à la 1re connexion
     var adresseFTPGalerie = ""
     var sauvegardeActive = false
     var dossierSauvegarde = ""
@@ -132,6 +137,10 @@ struct ReglagesConcours: Codable, Equatable {
         silenceBoitierMinutes = lire(.silenceBoitierMinutes, silenceBoitierMinutes)
         retarderSiLightroomOccupe = lire(.retarderSiLightroomOccupe, retarderSiLightroomOccupe)
         protocoleServeur = lire(.protocoleServeur, protocoleServeur)
+        urlGalerieStand = lire(.urlGalerieStand, urlGalerieStand)
+        identifiantGalerieStand = lire(.identifiantGalerieStand, identifiantGalerieStand)
+        minutesGalerieStand = lire(.minutesGalerieStand, minutesGalerieStand)
+        empreinteGalerieStand = lire(.empreinteGalerieStand, empreinteGalerieStand)
         adresseFTPGalerie = lire(.adresseFTPGalerie, adresseFTPGalerie)
         sauvegardeActive = lire(.sauvegardeActive, sauvegardeActive)
         dossierSauvegarde = lire(.dossierSauvegarde, dossierSauvegarde)

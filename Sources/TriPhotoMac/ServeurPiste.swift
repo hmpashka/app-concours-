@@ -265,7 +265,11 @@ final class ServeurPiste: ObservableObject {
         var d = DirectPiste(piste: piste)
         let source = ServeurPiste.source(pour: piste, reglages: reg, sources: Array(r.suivis.keys))
         d.chronoOK = r.chrono?.ok == true
-        let boitiers = Set(r.boitierPiste.filter { $0.value == source }.map(\.key))
+        // boîtiers de la piste : choisis à la photo de synchro, sinon appris sur les photos au bon code
+        var boitiers = Set(r.boitierPiste.filter { source != nil && $0.value == source }.map(\.key))
+        for s in r.boitiersSynchro {
+            if s.piste == piste { boitiers.insert(s.boitier) } else if !s.piste.isEmpty { boitiers.remove(s.boitier) }
+        }
         if let source, let s = r.suivis[source] {
             d.carriere = s.carriere
             d.epreuve = s.epreuve

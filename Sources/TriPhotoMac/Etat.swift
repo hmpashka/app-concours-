@@ -35,6 +35,11 @@ final class Etat: ObservableObject {
     let entrainement: Entrainement
     let capture = CaptureHorseComp()
     @Published var montrerCapture = false
+    @Published var montrerSynchro = false
+    /// Mot de passe de la galerie du stand : dans le trousseau du Mac, jamais dans reglages.json.
+    @Published var motDePasseGalerie: String = Trousseau.lire("galerie-stand") {
+        didSet { Trousseau.ecrire("galerie-stand", motDePasseGalerie) }
+    }
     let serveur = ServeurPiste()
     /// « Voir les photos de ce moment » (incident d'un iPhone) : la revue montre les photos autour de cette heure.
     @Published var momentRevue: (heure: Date, titre: String)?
@@ -67,6 +72,12 @@ final class Etat: ObservableObject {
         var l = Set(moteur.resume.suivis.keys)
         if !plus.isEmpty { l.insert(plus) }
         return l.sorted()
+    }
+
+    /// Ouvre la synchro des boîtiers (photo du QR) avec ces choix pour le prochain boîtier.
+    func demanderSynchro(nom: String, piste: String, photographe: String) {
+        let source = ServeurPiste.source(pour: piste, reglages: reglages, sources: Array(moteur.resume.suivis.keys)) ?? ""
+        moteur.ouvrirSynchro(DemandeSynchro(nom: nom, piste: piste, source: source, photographe: photographe))
     }
 
     /// Ouvre la revue sur les photos prises autour d'une heure (incident).
@@ -179,7 +190,14 @@ final class Etat: ObservableObject {
                                              journal: Stockage.dossier.appendingPathComponent("journal.sqlite"),
                                              travailLightroom: r.dossierTravailLightroom.isEmpty ? nil
                                                  : URL(fileURLWithPath: r.dossierTravailLightroom, isDirectory: true),
-                                             chrono: chrono, attente00Minutes: Double(r.attente00Minutes)))
+                                             chrono: chrono, attente00Minutes: Double(r.attente00Minutes),
+                                             galerie: r.urlGalerieStand.isEmpty ? nil : ConfigGalerie(
+                                                 adresse: r.urlGalerieStand, identifiant: r.identifiantGalerieStand,
+                                                 motDePasse: motDePasseGalerie, minutes: Double(r.minutesGalerieStand),
+                                                 empreinte: r.empreinteGalerieStand,
+                                                 sauverEmpreinte: { emp in
+                                                     Task { @MainActor in Etat.courant?.reglages.empreinteGalerieStand = emp }
+                                                 })))
             if chrono?.externe == true {
                 let m = moteur
                 capture.envoyer = { p, e in m.passagesExternes(p, erreur: e) }
