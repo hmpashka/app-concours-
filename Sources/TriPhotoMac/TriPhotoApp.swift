@@ -23,6 +23,8 @@ final class Delegue: NSObject, NSApplicationDelegate, UNUserNotificationCenterDe
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         if Bundle.main.bundleIdentifier != nil { UNUserNotificationCenter.current().delegate = self }
+        // demande l'autorisation dès l'ouverture et déclare le bouton « Répondre » des bulles (sinon il n'apparaît jamais)
+        MainActor.assumeIsolated { Notifieur.partage.demanderAutorisation() }
     }
 
     /// Clic sur une notification (message ou incident d'un iPhone) : Groom Pix s'ouvre sur l'onglet Messages.
@@ -31,6 +33,7 @@ final class Delegue: NSObject, NSApplicationDelegate, UNUserNotificationCenterDe
         let info = response.notification.request.content.userInfo
         // Réponse tapée dans la bulle : envoyée à l'auteur (ou à tout le monde si son message était pour tous)
         if let r = response as? UNTextInputNotificationResponse {
+            if info["essai"] != nil { fin(); return }        // notification d'essai : la réponse ne part nulle part
             let texte = r.userText
             let qui = info["qui"] as? String ?? ""
             let pour = (info["pour"] as? String ?? "").isEmpty ? "" : qui

@@ -2,6 +2,7 @@ import Foundation
 import Network
 import TriPhotoCommun
 import UIKit
+import UserNotifications
 
 /// Le lien avec le Mac Groom Pix : cherche le Mac sur le wifi (Bonjour), s'y connecte, se reconnecte tout seul.
 /// Garde le nom et la piste choisis (ils restent d'un jour à l'autre).
@@ -51,6 +52,7 @@ final class Liaison: ObservableObject {
     // MARK: - Chercher le Mac
 
     func demarrer() {
+        NotifsPiste.partage.demander()
         guard chercheur == nil else { return }
         let b = NWBrowser(for: .bonjour(type: LienPiste.service, domain: nil), using: .tcp)
         b.browseResultsChangedHandler = { [weak self] resultats, _ in
@@ -136,7 +138,9 @@ final class Liaison: ObservableObject {
         switch m {
         case .accueil(let a): accueil = a
         case .direct(let d): if d.piste == piste { direct = d }
-        case .messages(let l): messages = l
+        case .messages(let l):
+            NotifsPiste.partage.nouveaux(l, avant: messages, moi: nom)
+            messages = l
         case .clients(let texte, let l): rechercheFaite = texte; clients = l
         case .commandes(let l): commandes = l
         case .theme(let t):
@@ -180,5 +184,41 @@ final class Liaison: ObservableObject {
 
     func alerteVue(_ a: AlerteCodePiste) {
         canal?.envoyer(.alerteVue(boitier: a.boitier, attendu: a.attendu))
+    }
+}
+
+/// Bulles et sons sur l'iPhone quand un message arrive pendant que l'app est ouverte (même devant).
+/// App fermée ou en veille : rien ne peut arriver sans le service d'Apple par internet (prévu après le 29/11).
+final class NotifsPiste: NSObject, UNUserNotificationCenterDelegate {
+    static let partage = NotifsPiste()
+    private var demande = false
+    private var premiereListe = true
+
+    func demander() {
+        guard !demande else { return }
+        demande = true
+        let c = UNUserNotificationCenter.current()
+        c.delegate = self
+        c.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+    }
+
+    /// Nouveaux messages pour moi (ou pour tout le monde), écrits par quelqu'un d'autre.
+    func nouveaux(_ l: [MessagePiste], avant: [MessagePiste], moi: String) {
+        // la première liste reçue après l'ouverture, c'est l'historique : pas de bulles
+        if premiereListe { premiereListe = false; return }
+        let connus = Set(avant.map(\.id))
+        for m in l where !connus.contains(m.id) && m.qui != moi && (m.pour.isEmpty || m.pour == moi) {
+            let n = UNMutableNotificationContent()
+            n.title = m.incident ? "Incident · \(m.qui)" : (m.qui == "Stand" ? "Stand" : m.qui) + (m.pour.isEmpty ? " · à tous" : "")
+            n.body = m.texte
+            n.sound = m.incident ? .defaultCritical : .default
+            n.threadIdentifier = "messages"
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: m.id, content: n, trigger: nil))
+        }
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler fin: @escaping (UNNotificationPresentationOptions) -> Void) {
+        fin([.banner, .sound, .list])
     }
 }

@@ -128,6 +128,41 @@ final class Notifieur {
         ])
     }
 
+    /// Ce qui empêche les bulles, en clair (nil : tout va bien).
+    func probleme(_ fin: @escaping @MainActor (String?) -> Void) {
+        guard possible else { fin("Les notifications ne marchent que depuis Groom Pix.app (pas depuis le Terminal)."); return }
+        UNUserNotificationCenter.current().getNotificationSettings { r in
+            let texte: String?
+            switch r.authorizationStatus {
+            case .denied:
+                texte = "Les notifications de Groom Pix sont refusées par le Mac. Ouvre Réglages Système › Notifications › Groom Pix et active « Autoriser les notifications », style « Bannières » ou « Alertes »."
+            case .notDetermined:
+                texte = "Le Mac n'a pas encore demandé l'autorisation. Clique « Essayer » : une fenêtre doit proposer « Autoriser »."
+            default:
+                texte = r.alertSetting == .disabled
+                    ? "Les bulles de Groom Pix sont masquées. Dans Réglages Système › Notifications › Groom Pix, choisis le style « Bannières » ou « Alertes »."
+                    : nil
+            }
+            Task { @MainActor in fin(texte) }
+        }
+    }
+
+    /// Bouton « Essayer » des réglages : un son et une bulle avec « Répondre », sans tenir compte des préférences.
+    func essayer() {
+        dernierSon = .distantPast
+        jouer(Preferences.partagees.reglage(.message).son.isEmpty ? "Pop" : Preferences.partagees.reglage(.message).son)
+        guard possible else { return }
+        demanderAutorisation()
+        let n = UNMutableNotificationContent()
+        n.title = "Essai · Groom Pix"
+        n.body = "Si tu vois cette bulle, les notifications marchent. Passe la souris dessus pour voir « Répondre »."
+        n.categoryIdentifier = Notifieur.categorieMessage
+        n.userInfo = ["essai": "1", "ecran": Ecran.messages.rawValue]
+        // une seconde plus tard : laisse le temps à la fenêtre d'autorisation
+        let t = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "essai", content: n, trigger: t))
+    }
+
     func jouer(_ son: String) {
         guard !son.isEmpty, Preferences.partagees.mode != .silencieux else { return }
         guard Date().timeIntervalSince(dernierSon) > 0.8 else { return }   // jamais une rafale de sons
