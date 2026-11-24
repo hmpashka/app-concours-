@@ -17,7 +17,18 @@ struct RevueView: View {
     @State private var nouveauCode = ""
     @State private var changerCode = false
     @State private var corrections: [String] = []
-    @State private var supprimees: [FichePhoto] = []     // pour « Annuler la suppression »
+    @State private var retours: [Retour] = []            // pour ⌘Z : suppression ou retrait des bonnes
+    // Filtres personnalisés (se combinent avec le filtre choisi)
+    @State private var piste = ""                        // vide : toutes
+    @State private var parHeure = false
+    @State private var heureDe = Calendar.current.date(bySettingHour: 8, minute: 0, second: 0, of: Date()) ?? Date()
+    @State private var heureA = Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: Date()) ?? Date()
+    @State private var recherche = ""                    // code, cavalier ou cheval
+
+    private enum Retour {
+        case suppression(FichePhoto)
+        case retrait(FichePhoto, String)                 // retirée des bonnes : drapeau posé
+    }
 
     /// Les filtres, en trois groupes bien séparés (HUGO 24/11) : tout voir, les photos À TRAITER (les seules où
     /// « Supprimer » est possible) et les BONNES photos (réseaux, meilleures), où rien ne peut être supprimé.
@@ -42,6 +53,16 @@ struct RevueView: View {
             }
         }
         static func du(_ g: Groupe) -> [Ordre] { allCases.filter { $0.groupe == g } }
+
+        /// Bonnes photos : drapeau posé quand HUGO retire une photo de ce filtre (⌫), pour qu'elle n'y revienne pas.
+        var drapeauRetrait: String? {
+            switch self {
+            case .belles: return "pasBelle"
+            case .meilleures: return "pasMeilleure"
+            case .reseaux: return "pasReseaux"
+            default: return nil
+            }
+        }
     }
 
     /// « Supprimer » n'existe que dans les filtres « À traiter » : jamais sur les bonnes photos.
@@ -74,6 +95,11 @@ struct RevueView: View {
         .onChange(of: epreuve) { _ in charger() }
         .onChange(of: boitier) { _ in charger() }
         .onChange(of: ordre) { _ in charger() }
+        .onChange(of: piste) { _ in charger() }
+        .onChange(of: parHeure) { _ in charger() }
+        .onChange(of: heureDe) { _ in if parHeure { charger() } }
+        .onChange(of: heureA) { _ in if parHeure { charger() } }
+        .onChange(of: recherche) { _ in charger() }
         .onChange(of: etat.momentRevue?.heure) { _ in charger() }
         .onChange(of: etat.photosRevue?.ids) { _ in charger() }
         .background(raccourcis)
@@ -113,6 +139,7 @@ struct RevueView: View {
     /// Note « réseaux sociaux » : ressemblance aux meilleures de la mémoire, marques de HUGO, netteté.
     static func noteBelle(_ f: FichePhoto, netteteMax: Double) -> Double {
         let mauvaises: Set<String> = ["floue", "sol", "code"]
+        if f.a("pasBelle") { return -1 }
         if mauvaises.contains(f.classe) || mauvaises.contains(String(f.detection.split(separator: "|").first ?? "")) { return -1 }
         var n = 0.6 * max(f.belle, 0) + 0.4 * (netteteMax > 0 ? min(f.nettete / netteteMax, 1) : 0)
         if f.a("meilleure") { n += 2 }
@@ -185,15 +212,49 @@ struct RevueView: View {
         return r
     }
 
+    /// Minutes depuis minuit (filtre par heure).
+    static func minutes(_ d: Date) -> Int {
+        let c = Calendar.current.dateComponents([.hour, .minute], from: d)
+        return (c.hour ?? 0) * 60 + (c.minute ?? 0)
+    }
+
+    /// Piste de chaque boîtier : celle de sa photo de synchro, sinon celle apprise avec le chrono.
+    private var pisteParBoitier: [String: String] {
+        var d = moteur.resume.boitierPiste
+        for b in moteur.resume.boitiers { if let s = b.synchro, !s.piste.isEmpty { d[b.nom] = s.piste } }
+        return d
+    }
+
+    private var pistesConnues: [String] {
+        Array(Set(etat.reglages.pistes.map(\.nom).filter { !$0.isEmpty } + pisteParBoitier.values)).sorted()
+    }
+
     private func charger() {
         let ep = epreuve.isEmpty ? nil : epreuve
         let b = boitier
         let tri = ordre
         let moment = etat.momentRevue?.heure
         let ids = etat.photosRevue?.ids
+        let p = piste
+        let pisteDe = pisteParBoitier
+        let heures = parHeure ? (RevueView.minutes(heureDe), RevueView.minutes(heureA)) : nil
+        let texte = recherche.trimmingCharacters(in: .whitespaces).lowercased()
         DispatchQueue.global(qos: .userInitiated).async {
             var l = ids.map { moteur.fiches(ids: $0) } ?? moment.map { moteur.photosAutour($0) } ?? moteur.photosRevue(epreuve: ep)
             if !b.isEmpty { l = l.filter { $0.boitier == b } }
+            if !p.isEmpty { l = l.filter { pisteDe[$0.boitier] == p } }
+            if let h = heures {
+                let de = h.0, a = h.1
+                l = l.filter { f in
+                    guard let pr = f.prise else { return false }
+                    let m = RevueView.minutes(pr)
+                    return de <= a ? (m >= de && m <= a) : (m >= de || m <= a)
+                }
+            }
+            if !texte.isEmpty {
+                l = l.filter { $0.codeRetenu.lowercased().contains(texte) || $0.cavalier.lowercased().contains(texte)
+                    || $0.cheval.lowercased().contains(texte) }
+            }
             switch tri {
             case .douteuses:
                 let marques = RevueView.douteuses(l)
@@ -205,9 +266,9 @@ struct RevueView: View {
             case .belles:
                 l = RevueView.bellesDabord(l, seulementLesTetes: true)
             case .meilleures:
-                l = l.filter { $0.a("meilleure") || $0.detection.split(separator: "|").contains("meilleure") }
+                l = l.filter { !$0.a("pasMeilleure") && ($0.a("meilleure") || $0.detection.split(separator: "|").contains("meilleure")) }
             case .reseaux:
-                l = l.filter { $0.a("reseaux") || $0.detection.split(separator: "|").contains("reseaux") }
+                l = l.filter { !$0.a("pasReseaux") && ($0.a("reseaux") || $0.detection.split(separator: "|").contains("reseaux")) }
             case .heure:
                 break
             }
@@ -259,6 +320,21 @@ struct RevueView: View {
                 ForEach(moteur.resume.boitiers) { b in Text(b.nom).tag(b.nom) }
             }
             .labelsHidden()
+            Text("Piste").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+            Picker("", selection: $piste) {
+                Text("Toutes").tag("")
+                ForEach(pistesConnues, id: \.self) { Text($0).tag($0) }
+            }
+            .labelsHidden()
+            Toggle("Entre deux heures", isOn: $parHeure).font(.system(size: 12))
+            if parHeure {
+                HStack(spacing: 6) {
+                    DatePicker("", selection: $heureDe, displayedComponents: .hourAndMinute).labelsHidden()
+                    Text("à").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+                    DatePicker("", selection: $heureA, displayedComponents: .hourAndMinute).labelsHidden()
+                }
+            }
+            TextField("Code, cavalier ou cheval", text: $recherche).textFieldStyle(.roundedBorder)
             Text("Filtre").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
             Picker("", selection: $ordre) {
                 Section("Toutes les photos") { ForEach(Ordre.du(.toutes)) { Text($0.rawValue).tag($0) } }
@@ -267,7 +343,7 @@ struct RevueView: View {
             }
             .labelsHidden()
             Text(ordre.groupe == .aTraiter ? "À traiter : ⌫ supprime (serveur, galerie en ligne, original à la Corbeille), ⌘Z annule."
-                 : ordre.groupe == .bonnes ? "Bonnes photos : la suppression est désactivée dans ce filtre."
+                 : ordre.groupe == .bonnes ? "Bonnes photos : rien n'est supprimé ici. ⌫ retire la photo de cette sélection seulement, ⌘Z annule."
                  : "Pour supprimer, passe par un filtre « À traiter ».")
                 .font(.system(size: 11)).foregroundStyle(ordre.groupe == .aTraiter ? Theme.attention : Theme.texteTresDiscret)
             if ordre == .belles {
@@ -312,8 +388,13 @@ struct RevueView: View {
                     Button(f.a("reseaux") ? "Réseaux ✓ (R)" : "Réseaux (R)") { basculer("reseaux") }
                         .buttonStyle(BoutonStyle(principal: f.a("reseaux")))
                     Spacer()
-                    if !supprimees.isEmpty {
-                        Button("Annuler la suppression (⌘Z)") { annulerSuppression() }.buttonStyle(BoutonStyle())
+                    if !retours.isEmpty {
+                        Button("Annuler (⌘Z)") { annulerSuppression() }.buttonStyle(BoutonStyle())
+                    }
+                    if ordre.drapeauRetrait != nil {
+                        Button("Retirer de la sélection (⌫)") { supprimer() }
+                            .buttonStyle(BoutonStyle())
+                            .help("La photo n'est plus retenue dans ce filtre. Elle reste sur le serveur et dans Lightroom.")
                     }
                     if suppressionPermise {
                         Button("Supprimer (⌫)") { supprimer() }
@@ -449,20 +530,41 @@ struct RevueView: View {
     }
 
     /// Supprimer la photo affichée : copie retirée du serveur (et de la galerie en ligne), original à la Corbeille.
+    /// ⌫ : dans « À traiter », supprime (serveur, galerie en ligne, original à la Corbeille) ; dans « Bonnes »,
+    /// retire seulement la photo de la sélection (rien n'est effacé) ; ailleurs, rien.
     private func supprimer() {
-        guard suppressionPermise, let f = courante else { return }
-        moteur.supprimer([f.id])
-        supprimees.append(f)
-        corrections.insert("\(f.origine) : supprimée", at: 0)
+        guard let f = courante else { return }
+        if suppressionPermise {
+            moteur.supprimer([f.id])
+            retours.append(.suppression(f))
+            corrections.insert("\(f.origine) : supprimée", at: 0)
+        } else if let d = ordre.drapeauRetrait {
+            moteur.marquer(f.id, d, true)
+            if ordre == .meilleures, f.a("meilleure") { moteur.marquer(f.id, "meilleure", false); etat.noterDansLaMemoire(f, categorie: "meilleure", ajouter: false) }
+            if ordre == .reseaux, f.a("reseaux") { moteur.marquer(f.id, "reseaux", false); etat.noterDansLaMemoire(f, categorie: "reseaux", ajouter: false) }
+            retours.append(.retrait(f, d))
+            corrections.insert("\(f.origine) : retirée de « \(ordre.rawValue) »", at: 0)
+        } else {
+            return
+        }
         photos.remove(at: index)
         if index >= photos.count { index = max(0, photos.count - 1) }
     }
 
     private func annulerSuppression() {
-        guard let f = supprimees.popLast() else { return }
-        moteur.annulerSuppression([f.id])
-        corrections.insert("\(f.origine) : suppression annulée", at: 0)
-        photos.insert(f, at: min(index, photos.count))
+        guard let r = retours.popLast() else { return }
+        switch r {
+        case .suppression(let f):
+            moteur.annulerSuppression([f.id])
+            corrections.insert("\(f.origine) : suppression annulée", at: 0)
+            photos.insert(f, at: min(index, photos.count))
+        case .retrait(let f, let d):
+            moteur.marquer(f.id, d, false)
+            if d == "pasMeilleure", f.a("meilleure") { moteur.marquer(f.id, "meilleure", true); etat.noterDansLaMemoire(f, categorie: "meilleure", ajouter: true) }
+            if d == "pasReseaux", f.a("reseaux") { moteur.marquer(f.id, "reseaux", true); etat.noterDansLaMemoire(f, categorie: "reseaux", ajouter: true) }
+            corrections.insert("\(f.origine) : remise dans la sélection", at: 0)
+            photos.insert(f, at: min(index, photos.count))
+        }
     }
 
     private func avancer(_ pas: Int) {
