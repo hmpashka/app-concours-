@@ -44,7 +44,6 @@ struct ComparerDoublon: View {
         .frame(width: 980)
         .background(Theme.fond)
         .foregroundStyle(Theme.texte)
-        .preferredColorScheme(.dark)
         .task {
             let p = moteur.premiere(pour: doublon)
             premiere = p

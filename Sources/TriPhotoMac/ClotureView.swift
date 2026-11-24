@@ -98,7 +98,6 @@ struct ClotureView: View {
         .padding(22)
         .frame(width: 640)
         .background(Theme.fond)
-        .preferredColorScheme(.dark)
         .onAppear {
             moteur.viderTampon()
             if genre == .finale || !etat.reglages.galerieLaNuit { moteur.envoyerGalerieMaintenant() }

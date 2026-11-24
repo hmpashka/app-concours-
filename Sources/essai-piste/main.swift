@@ -2,7 +2,7 @@ import Foundation
 import Network
 import TriPhotoCommun
 
-// Essai du lien Mac ↔ iPhone sans iPhone : fait comme l'app Piste (trouve Tri-photo sur le wifi, dit bonjour,
+// Essai du lien Mac ↔ iPhone sans iPhone : fait comme l'app Piste (trouve Groom Pix sur le wifi, dit bonjour,
 // affiche ce que le Mac envoie, envoie un message et un incident).
 //
 //   swift run essai-piste [nom] [piste] [secondes]       ex. swift run essai-piste Tom "Piste 1" 20
@@ -12,7 +12,7 @@ let nom = args.count > 1 ? args[1] : "Essai"
 let piste = args.count > 2 ? args[2] : "Piste 1"
 let duree = args.count > 3 ? Double(args[3]) ?? 20 : 20
 
-print("Recherche de Tri-photo (\(LienPiste.service)) sur le réseau…")
+print("Recherche de Groom Pix (\(LienPiste.service)) sur le réseau…")
 var canal: Canal<VersPiste, DepuisPiste>?
 var recus = 0
 let chercheur = NWBrowser(for: .bonjour(type: LienPiste.service, domain: nil), using: .tcp)
@@ -44,13 +44,15 @@ chercheur.browseResultsChangedHandler = { resultats, _ in
             print("CLIENTS « \(texte) » : \(l.map { "\($0.nom) \($0.prenom)" }.joined(separator: ", "))")
         case .commandes(let l):
             print("COMMANDES (\(l.count))")
+        case .theme(let t):
+            print("THÈME \(t)")
         }
     }
     c.demarrer()
 }
 chercheur.start(queue: .main)
 DispatchQueue.main.asyncAfter(deadline: .now() + duree) {
-    print(canal == nil ? "ÉCHEC : Tri-photo pas trouvé sur le réseau." : "Fin de l'essai : \(recus) messages reçus du Mac.")
+    print(canal == nil ? "ÉCHEC : Groom Pix pas trouvé sur le réseau." : "Fin de l'essai : \(recus) messages reçus du Mac.")
     exit(canal == nil || recus == 0 ? 1 : 0)
 }
 dispatchMain()

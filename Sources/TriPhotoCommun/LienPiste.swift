@@ -38,6 +38,8 @@ public enum VersPiste: Codable, Sendable, Equatable {
     case clients(texte: String, [ClientTrouve])
     /// Les commandes du concours en cours (les 200 dernières).
     case commandes([Commande])
+    /// Thème choisi sur le Mac (« bleuOr » ou « graphite ») : l'iPhone prend le même.
+    case theme(String)
 }
 
 public struct AccueilPiste: Codable, Sendable, Equatable {

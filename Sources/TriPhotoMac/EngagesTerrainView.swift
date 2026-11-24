@@ -92,7 +92,6 @@ struct EngagesTerrainView: View {
         .padding(20)
         .frame(minWidth: 900, minHeight: 520)
         .background(Theme.fond)
-        .preferredColorScheme(.dark)
     }
 
     private func enregistrer() {

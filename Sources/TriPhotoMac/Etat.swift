@@ -113,6 +113,7 @@ final class Etat: ObservableObject {
         serveur.enregistrerCommande = { [weak self] k in self?.archives.enregistrer(k) }
         serveur.suivreEnDirect = { m.suivreEnDirect($0) }
         Etat.courant = self
+        Notifieur.partage.surveiller(m) { [weak self] in self?.reglages.silenceBoitierMinutes ?? 5 }
         serveur.demarrer()
         terrainHorsTri = fichierTerrain.map { Moteur.engagesTerrain(fichier: $0) } ?? []
         acces.moteur = m

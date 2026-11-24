@@ -13,11 +13,13 @@ enum SectionReglages: String, CaseIterable, Identifiable {
     case cloture = "6. Clôture"
     case memoire = "7. Mémoire, remises des prix"
     case commandes = "8. Commandes de pack photo"
+    case apparence = "9. Apparence, son et notifications"
+    case protection = "10. Protection antivol"
     case raccourcis = "Raccourcis clavier"
     case modeles = "Modèles de concours"
     var id: String { rawValue }
 
-    static let debut: [SectionReglages] = [.concours, .dossiers, .copies, .lightroom, .envois, .cloture, .memoire, .commandes]
+    static let debut: [SectionReglages] = [.concours, .dossiers, .copies, .lightroom, .envois, .cloture, .memoire, .commandes, .apparence, .protection]
     static let preferences: [SectionReglages] = [.raccourcis, .modeles]
 }
 
@@ -84,7 +86,7 @@ struct ReglagesView: View {
         Button { section = s } label: {
             HStack {
                 Text(s.rawValue).font(.system(size: 13))
-                    .foregroundStyle(section == s ? Color.white : Color(hex: 0xD0D0D0))
+                    .foregroundStyle(section == s ? Theme.texte : Theme.texteSection)
                 Spacer()
                 if let ok {
                     Text(ok ? "OK" : "À faire").font(.system(size: 12, weight: ok ? .regular : .semibold))
@@ -124,6 +126,8 @@ struct ReglagesView: View {
                         carteCloture.id(SectionReglages.cloture)
                         carteMemoire.id(SectionReglages.memoire)
                         carteCommandes.id(SectionReglages.commandes)
+                        CarteApparence().id(SectionReglages.apparence)
+                        CarteProtection().id(SectionReglages.protection)
                     }
                     .padding(24)
                     .frame(maxWidth: 820, alignment: .leading)
@@ -208,7 +212,7 @@ struct ReglagesView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(etat.reglages.urlIncrustation.isEmpty ? "Page d'incrustation à régler" : etat.reglages.urlIncrustation)
                             .font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
-                        Text("Tri-photo lit qui est en piste sur la page de Horses & Competitions, comme HM Timing.")
+                        Text("Groom Pix lit qui est en piste sur la page de Horses & Competitions, comme HM Timing.")
                             .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
                     }
                     Spacer()
@@ -749,7 +753,6 @@ struct EpreuvesView: View {
         .padding(20)
         .frame(minWidth: 900, minHeight: 500)
         .background(Theme.fond)
-        .preferredColorScheme(.dark)
     }
 }
 

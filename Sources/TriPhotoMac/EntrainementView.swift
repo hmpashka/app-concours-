@@ -118,7 +118,6 @@ struct EntrainementView: View {
         .frame(width: 720)
         .background(Theme.fond)
         .foregroundStyle(Theme.texte)
-        .preferredColorScheme(.dark)
         .onReceive(minuterie) { horloge = $0 }
     }
 

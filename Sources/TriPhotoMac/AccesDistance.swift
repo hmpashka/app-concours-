@@ -42,7 +42,7 @@ struct PhotoDistance: Codable {
 }
 
 /// Accès à distance depuis un autre Mac ou un PC : une page web en LECTURE SEULE (tableau de bord et revue des
-/// photos), servie par Tri-photo sur le réseau du stand. Aucun réglage, aucune action : on regarde seulement.
+/// photos), servie par Groom Pix sur le réseau du stand. Aucun réglage, aucune action : on regarde seulement.
 /// Protégée par un code (Réglages › 5. Envois). Les vignettes sont petites (≈ 30 Ko) pour ne pas charger le réseau.
 final class AccesDistance: @unchecked Sendable {
     private let file = DispatchQueue(label: "tri-photo.acces-distance", qos: .utility)
@@ -231,14 +231,14 @@ final class AccesDistance: @unchecked Sendable {
     static func pageCode(erreur: Bool) -> String {
         """
         <!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Tri-photo</title><style>
+        <title>Groom Pix</title><style>
         body{margin:0;background:#1e1e1e;color:#ddd;font:15px -apple-system,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
         form{background:#2a2a2a;border:1px solid #3a3a3a;border-radius:8px;padding:28px;width:300px}
         h1{font-size:18px;margin:0 0 6px}p{color:#999;font-size:13px;margin:0 0 16px}
         input{width:100%;box-sizing:border-box;padding:10px;border-radius:5px;border:1px solid #444;background:#1a1a1a;color:#fff;font-size:18px;letter-spacing:4px;text-align:center}
         button{margin-top:12px;width:100%;padding:10px;border:0;border-radius:5px;background:#2d7ff9;color:#fff;font-size:14px;font-weight:600}
         .e{color:#e66;font-size:13px;margin-top:10px}</style></head><body>
-        <form method="get" action="/"><h1>Tri-photo</h1><p>Tableau de bord et revue, en lecture seule. Code dans les réglages de l'app (5. Envois).</p>
+        <form method="get" action="/"><h1>Groom Pix</h1><p>Tableau de bord et revue, en lecture seule. Code dans les réglages de l'app (5. Envois).</p>
         <input name="code" inputmode="numeric" autocomplete="off" autofocus placeholder="Code"><button>Ouvrir</button>
         \(erreur ? "<div class=\"e\">Code incorrect.</div>" : "")</form></body></html>
         """
@@ -246,7 +246,7 @@ final class AccesDistance: @unchecked Sendable {
 
     static let page = """
     <!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Tri-photo · à distance</title><style>
+    <title>Groom Pix · à distance</title><style>
     :root{--fond:#1e1e1e;--panneau:#262626;--bord:#383838;--texte:#ddd;--discret:#999;--accent:#2d7ff9;--ok:#4cc77a;--att:#e8913a;--err:#e45b5b}
     *{box-sizing:border-box}body{margin:0;background:var(--fond);color:var(--texte);font:14px -apple-system,Segoe UI,sans-serif}
     header{display:flex;align-items:center;gap:20px;padding:12px 20px;background:var(--panneau);border-bottom:1px solid var(--bord);flex-wrap:wrap}
@@ -268,7 +268,7 @@ final class AccesDistance: @unchecked Sendable {
     #grand img{max-width:96vw;max-height:88vh}#grand p{color:#ccc;font-size:13px}.ok{color:var(--ok)}.err{color:var(--err)}
     @media (max-width:600px){main{padding:12px}nav{margin-left:0}}
     </style></head><body>
-    <header><div><h1 id="titre">Tri-photo</h1><small id="sous">Lecture seule</small></div>
+    <header><div><h1 id="titre">Groom Pix</h1><small id="sous">Lecture seule</small></div>
     <nav><button id="b-tdb" class="on" onclick="voir('tdb')">Tableau de bord</button><button id="b-revue" onclick="voir('revue')">Revue</button></nav></header>
     <main><section id="tdb"><div id="alertes"></div><div class="grille" id="cartes"></div>
     <h2>En piste</h2><table id="pistes"></table><h2>Boîtiers</h2><table id="boitiers"></table></section>
@@ -282,7 +282,7 @@ final class AccesDistance: @unchecked Sendable {
     function voir(v){for(const x of['tdb','revue']){document.getElementById(x).hidden=x!==v;document.getElementById('b-'+x).classList.toggle('on',x===v)}if(v==='revue')photos()}
     function carte(t,v,s){return `<div class="carte"><span>${h(t)}</span><b>${h(v)}</b>${s?`<span>${h(s)}</span>`:''}</div>`}
     async function etat(){try{const r=await fetch('/api/etat');if(r.status!==200){location.reload();return}const e=await r.json();if(!e)return;
-    document.getElementById('titre').textContent=e.concours||'Tri-photo';
+    document.getElementById('titre').textContent=e.concours||'Groom Pix';
     document.getElementById('sous').innerHTML=(e.actif?'<span class="ok">Tri en cours</span>':'<span class="err">Tri arrêté</span>')+' · '+h(e.chrono)+' · mis à jour '+hm(e.heure);
     document.getElementById('cartes').innerHTML=carte('Photos reçues aujourd\\'hui',e.recues)+carte('Par minute',e.parMinute.toFixed(0))+
     carte('En file',e.enFile,e.retardSecondes>30?'retard '+Math.round(e.retardSecondes)+' s':'')+carte('À valider',e.aValider)+

@@ -74,7 +74,7 @@ struct DirectView: View {
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(liaison.nom) · \(liaison.piste) ▾").font(Style.titre(22)).foregroundStyle(Style.creme)
-                    Text([d?.carriere ?? "", liaison.connecte ? "Tri-photo connecté" : "Tri-photo pas joint"]
+                    Text([d?.carriere ?? "", liaison.connecte ? "Groom Pix connecté" : "Groom Pix pas joint"]
                         .filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.system(size: 12)).foregroundStyle(Style.cremeDiscret)
                 }
@@ -83,15 +83,15 @@ struct DirectView: View {
             Button { montrerCommandes = true } label: {
                 Image(systemName: "bag").font(.system(size: 17)).foregroundStyle(Style.creme)
                     .frame(width: 44, height: 44)
-                    .background(.white.opacity(0.08), in: Circle())
-                    .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 1))
+                    .background(Style.voile.opacity(0.08), in: Circle())
+                    .overlay(Circle().stroke(Style.voile.opacity(0.12), lineWidth: 1))
             }
             .buttonStyle(.plain)
             Button { montrerMessages = true } label: {
                 Image(systemName: "bubble.left").font(.system(size: 17)).foregroundStyle(Style.creme)
                     .frame(width: 44, height: 44)
-                    .background(.white.opacity(0.08), in: Circle())
-                    .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 1))
+                    .background(Style.voile.opacity(0.08), in: Circle())
+                    .overlay(Circle().stroke(Style.voile.opacity(0.12), lineWidth: 1))
                     .overlay(alignment: .topTrailing) {
                         if liaison.nonLus > 0 {
                             Text("\(liaison.nonLus)").font(.system(size: 11, weight: .bold)).foregroundStyle(Style.nuit)
@@ -137,7 +137,7 @@ struct DirectView: View {
     // MARK: - En piste
 
     private var enPiste: some View {
-        Bloc(bord: Style.or.opacity(0.45), fond: .white.opacity(0.08), rayon: 18,
+        Bloc(bord: Style.or.opacity(0.45), fond: Style.voile.opacity(0.08), rayon: 18,
              marge: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("EN PISTE · TON CODE").font(.system(size: 11, weight: .semibold)).tracking(1.1).foregroundStyle(Style.cremeDiscret)
@@ -219,8 +219,8 @@ struct DirectView: View {
                         }
                         .font(.system(size: 13, weight: .semibold)).foregroundStyle(Style.creme)
                         .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(.white.opacity(0.08), in: Capsule())
-                        .overlay(Capsule().stroke(.white.opacity(0.15), lineWidth: 1))
+                        .background(Style.voile.opacity(0.08), in: Capsule())
+                        .overlay(Capsule().stroke(Style.voile.opacity(0.15), lineWidth: 1))
                     }
                 }
                 .transition(.opacity)
@@ -290,7 +290,7 @@ struct AlerteCodeView: View {
                 .frame(maxWidth: .infinity)
                 .background(.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 18))
                 if alerte.photos > 0 {
-                    Text("Pas de souci pour les \(alerte.photos) photo\(alerte.photos > 1 ? "s" : "") déjà prise\(alerte.photos > 1 ? "s" : "") : Tri-photo propose de les corriger.")
+                    Text("Pas de souci pour les \(alerte.photos) photo\(alerte.photos > 1 ? "s" : "") déjà prise\(alerte.photos > 1 ? "s" : "") : Groom Pix propose de les corriger.")
                         .font(.system(size: 14)).foregroundStyle(Style.alerteTexte).multilineTextAlignment(.center)
                 }
                 Spacer()

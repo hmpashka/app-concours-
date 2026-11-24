@@ -3,12 +3,12 @@ import Network
 import TriPhotoCommun
 import UIKit
 
-/// Le lien avec le Mac Tri-photo : cherche le Mac sur le wifi (Bonjour), s'y connecte, se reconnecte tout seul.
+/// Le lien avec le Mac Groom Pix : cherche le Mac sur le wifi (Bonjour), s'y connecte, se reconnecte tout seul.
 /// Garde le nom et la piste choisis (ils restent d'un jour à l'autre).
 @MainActor
 final class Liaison: ObservableObject {
     @Published private(set) var connecte = false
-    @Published private(set) var macs: [String] = []          // noms des Mac Tri-photo trouvés
+    @Published private(set) var macs: [String] = []          // noms des Mac Groom Pix trouvés
     @Published private(set) var macChoisi = ""
     @Published private(set) var accueil: AccueilPiste?
     @Published private(set) var direct: DirectPiste?
@@ -16,7 +16,8 @@ final class Liaison: ObservableObject {
     @Published private(set) var clients: [ClientTrouve] = []      // réponse du Mac à la dernière recherche
     @Published private(set) var rechercheFaite = ""
     @Published private(set) var commandes: [Commande] = []        // commandes du concours en cours
-    @Published private(set) var etat = "Recherche du Mac Tri-photo sur le wifi…"
+    @Published private(set) var theme: String = UserDefaults.standard.string(forKey: "theme") ?? "bleuOr"
+    @Published private(set) var etat = "Recherche du Mac Groom Pix sur le wifi…"
 
     @Published var nom: String { didSet { UserDefaults.standard.set(nom, forKey: "nom"); direBonjour() } }
     @Published var piste: String { didSet { UserDefaults.standard.set(piste, forKey: "piste"); direct = nil; direBonjour() } }
@@ -105,7 +106,7 @@ final class Liaison: ObservableObject {
         guard canal == nil else { return }
         let nomMac = resultats[macChoisi] != nil ? macChoisi : (macs.count == 1 ? macs[0] : "")
         guard let point = resultats[nomMac] else {
-            etat = macs.count > 1 ? "Plusieurs Mac Tri-photo : choisis le tien" : "Recherche du Mac Tri-photo sur le wifi…"
+            etat = macs.count > 1 ? "Plusieurs Mac Groom Pix : choisis le tien" : "Recherche du Mac Groom Pix sur le wifi…"
             return
         }
         etat = "Connexion à \(nomMac)…"
@@ -116,7 +117,7 @@ final class Liaison: ObservableObject {
             guard let self, self.canal === c else { return }
             if pret {
                 self.connecte = true
-                self.etat = "Tri-photo connecté"
+                self.etat = "Groom Pix connecté"
                 self.direBonjour()
                 self.enAttente.forEach { c.envoyer($0) }
                 self.enAttente = []
@@ -138,6 +139,8 @@ final class Liaison: ObservableObject {
         case .messages(let l): messages = l
         case .clients(let texte, let l): rechercheFaite = texte; clients = l
         case .commandes(let l): commandes = l
+        case .theme(let t):
+            if t != theme { UserDefaults.standard.set(t, forKey: "theme"); theme = t }
         }
     }
 

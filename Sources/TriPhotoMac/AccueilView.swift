@@ -212,8 +212,8 @@ struct AccueilView: View {
                 Text("Lightroom : \(Int((r.chargeLightroom * 100).rounded())) % du Mac").font(.system(size: 13))
                 Text("Photos traitées en même temps : \(r.ouvriers)").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
                 Text(RegleRegulateur.lightroomOccupe(chargeLightroom: r.chargeLightroom)
-                     ? "Lightroom travaille : Tri-photo ralentit, reprise automatique."
-                     : "Lightroom est calme : Tri-photo va à pleine vitesse.")
+                     ? "Lightroom travaille : Groom Pix ralentit, reprise automatique."
+                     : "Lightroom est calme : Groom Pix va à pleine vitesse.")
                     .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
             }
             Divider().overlay(Theme.bordure)

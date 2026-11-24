@@ -668,3 +668,16 @@ extension TraitementPhoto {
         return ctx.makeImage()
     }
 }
+
+extension GalerieEnLigne {
+    /// Dépose un seul fichier par la connexion choisie (FTP, FTP sur TLS, SFTP), dans `config.dossier`.
+    /// Sert aussi à la protection antivol (fichier « macs.json » sur le site).
+    public static func deposer(_ local: URL, nom: String, config: ConfigGalerieEnLigne) throws {
+        try Transfert(config: config).envoyer([(local, nom)])
+    }
+
+    /// Essaie la connexion (même test que « Tester la connexion » de la galerie).
+    public static func testerConnexion(_ config: ConfigGalerieEnLigne) throws {
+        try Transfert(config: config).tester()
+    }
+}

@@ -2,7 +2,7 @@ import Foundation
 import ImageIO
 
 /// Mode entraînement : rejoue les photos d'un ancien concours dans le dossier de réception, comme si les boîtiers
-/// les envoyaient, pour tester Tri-photo sans risque. Les photos de départ ne sont jamais modifiées : ce sont
+/// les envoyaient, pour tester Groom Pix sans risque. Les photos de départ ne sont jamais modifiées : ce sont
 /// des copies qui arrivent dans le dossier de réception.
 @MainActor
 final class Entrainement: ObservableObject {
@@ -110,7 +110,7 @@ final class Entrainement: ObservableObject {
         }
     }
 
-    /// Copie sous un nom provisoire puis renommage : Tri-photo ne voit jamais une photo à moitié écrite.
+    /// Copie sous un nom provisoire puis renommage : Groom Pix ne voit jamais une photo à moitié écrite.
     nonisolated static func deposer(_ url: URL, dans cible: URL) -> String? {
         let fm = FileManager.default
         let final = cible.appendingPathComponent(url.lastPathComponent)

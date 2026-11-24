@@ -94,7 +94,6 @@ struct CaptureView: View {
         .frame(width: 1080, height: 640)
         .background(Theme.fond)
         .foregroundStyle(Theme.texte)
-        .preferredColorScheme(.dark)
         .onAppear { capture.rafraichirApercu() }
         .onReceive(minuterie) { _ in capture.rafraichirApercu() }
     }

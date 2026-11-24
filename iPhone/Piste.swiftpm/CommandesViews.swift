@@ -35,14 +35,14 @@ struct CommandesPisteView: View {
                     Spacer()
                     Button { fermer() } label: {
                         Image(systemName: "xmark").font(.system(size: 16, weight: .semibold)).foregroundStyle(Style.creme)
-                            .frame(width: 44, height: 44).background(.white.opacity(0.08), in: Circle())
+                            .frame(width: 44, height: 44).background(Style.voile.opacity(0.08), in: Circle())
                     }
                 }
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 12) {
                         recherche
                         if !liaison.connecte {
-                            Text("Tri-photo pas joint : la recherche a besoin du Mac.").font(.system(size: 13)).foregroundStyle(Style.orangeClair)
+                            Text("Groom Pix pas joint : la recherche a besoin du Mac.").font(.system(size: 13)).foregroundStyle(Style.orangeClair)
                         }
                         ForEach(liaison.clients) { c in resultats(c) }
                         if liaison.clients.isEmpty && liaison.rechercheFaite.count >= 2 && texte == liaison.rechercheFaite {
@@ -62,7 +62,6 @@ struct CommandesPisteView: View {
             .padding(.horizontal, 18).padding(.top, 14)
         }
         .foregroundStyle(Style.creme)
-        .preferredColorScheme(.dark)
         .onChange(of: texte) { t in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if t == texte { liaison.chercher(client: t) } }
         }
@@ -82,7 +81,7 @@ struct CommandesPisteView: View {
             }
         }
         .padding(.horizontal, 16).frame(minHeight: 54)
-        .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 14))
+        .background(Style.voile.opacity(0.10), in: RoundedRectangle(cornerRadius: 14))
     }
 
     /// Les passages du client : concours le plus récent d'abord ; on n'en garde qu'un par commande.
@@ -90,7 +89,7 @@ struct CommandesPisteView: View {
         ForEach(c.participations) { p in
             let coche = choix[p.id] != nil
             Button { toucher(p, de: c) } label: {
-                Bloc(bord: coche ? Style.or : .white.opacity(0.10), fond: coche ? Style.or.opacity(0.14) : .white.opacity(0.06),
+                Bloc(bord: coche ? Style.or : Style.voile.opacity(0.10), fond: coche ? Style.or.opacity(0.14) : Style.voile.opacity(0.06),
                      largeurBord: coche ? 2 : 1) {
                     VStack(alignment: .leading, spacing: 5) {
                         (Text("\(c.nom) \(c.prenom)").fontWeight(.bold) + Text(" · \(p.cheval)"))
@@ -129,7 +128,7 @@ struct CommandesPisteView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(r == v ? Style.nuit : Style.creme)
                         .padding(.horizontal, 10).padding(.vertical, 4)
-                        .background(r == v ? Style.or : .white.opacity(0.10), in: Capsule())
+                        .background(r == v ? Style.or : Style.voile.opacity(0.10), in: Capsule())
                 }
             }
         }
@@ -201,7 +200,7 @@ struct CommandesPisteView: View {
             .keyboardType(clavier).autocorrectionDisabled().textInputAutocapitalization(.never)
             .font(.system(size: 18)).foregroundStyle(Style.creme)
             .padding(.horizontal, 10).frame(minHeight: 40)
-            .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
+            .background(Style.voile.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
             .focused($clavier)
     }
 
@@ -212,7 +211,7 @@ struct CommandesPisteView: View {
                     .font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
                     .foregroundStyle(v.wrappedValue == x ? Style.nuit : Style.creme)
                     .padding(.horizontal, 10).frame(minHeight: 34)
-                    .background(v.wrappedValue == x ? Style.or : .white.opacity(0.08), in: Capsule())
+                    .background(v.wrappedValue == x ? Style.or : Style.voile.opacity(0.08), in: Capsule())
             }
         }
     }
@@ -228,7 +227,7 @@ struct CommandesPisteView: View {
             k.note = note
             liaison.enregistrer(k)
             info = liaison.connecte ? "Commande de \(k.client) envoyée au stand (\(Commande.euros(k.prix)))."
-                                    : "Commande de \(k.client) gardée : elle partira dès que Tri-photo sera joint."
+                                    : "Commande de \(k.client) gardée : elle partira dès que Groom Pix sera joint."
             vider()
         } label: {
             Text("ENREGISTRER").font(Style.titre(26)).foregroundStyle(Style.nuit)
@@ -267,7 +266,7 @@ struct CommandesPisteView: View {
                             Text(k.statut.rawValue).font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(k.statut == .envoye ? Style.vertTexte : k.statut == .aFaire ? Style.orangeClair : Style.creme)
                                 .padding(.horizontal, 10).frame(minHeight: 32)
-                                .background(.white.opacity(0.08), in: Capsule())
+                                .background(Style.voile.opacity(0.08), in: Capsule())
                         }
                         .buttonStyle(.plain)
                     }

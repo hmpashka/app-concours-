@@ -147,7 +147,7 @@ struct MessagesView: View {
             }
             Divider().overlay(Theme.bordure)
             Text("Notifications du Mac").font(.system(size: 13, weight: .semibold))
-            Text("Une notification pour chaque message ou incident, sauf quand cet onglet est ouvert. Un clic dessus ouvre Tri-photo ici.")
+            Text("Une notification pour chaque message ou incident, sauf quand cet onglet est ouvert. Un clic dessus ouvre Groom Pix ici.")
                 .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
             Spacer()
         }

@@ -8,8 +8,8 @@ struct TriPhotoApp: App {
     @StateObject private var etat = Etat()
 
     var body: some Scene {
-        WindowGroup("Tri-photo", id: "principale") {
-            ContentView()
+        WindowGroup("Groom Pix", id: "principale") {
+            RacineMac()
                 .environmentObject(etat)
         }
         .defaultSize(width: 1280, height: 820)
@@ -25,17 +25,18 @@ final class Delegue: NSObject, NSApplicationDelegate, UNUserNotificationCenterDe
         if Bundle.main.bundleIdentifier != nil { UNUserNotificationCenter.current().delegate = self }
     }
 
-    /// Clic sur une notification (message ou incident d'un iPhone) : Tri-photo s'ouvre sur l'onglet Messages.
+    /// Clic sur une notification (message ou incident d'un iPhone) : Groom Pix s'ouvre sur l'onglet Messages.
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler fin: @escaping () -> Void) {
+        let ecran = (response.notification.request.content.userInfo["ecran"] as? String).flatMap(Ecran.init(rawValue:)) ?? .messages
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
-            Etat.courant?.ecran = .messages
+            Etat.courant?.ecran = ecran
         }
         fin()
     }
 
-    /// Notification pendant que Tri-photo est devant : montrée quand même, sauf sur l'onglet Messages.
+    /// Notification pendant que Groom Pix est devant : montrée quand même, sauf sur l'onglet Messages.
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler fin: @escaping (UNNotificationPresentationOptions) -> Void) {
         let surMessages = MainActor.assumeIsolated { Etat.courant?.ecran == .messages }

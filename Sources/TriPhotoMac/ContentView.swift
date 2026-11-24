@@ -25,7 +25,6 @@ struct ContentView: View {
         }
         .background(Theme.fond)
         .foregroundStyle(Theme.texte)
-        .preferredColorScheme(.dark)
         .frame(minWidth: 980, minHeight: 640)
         .sheet(isPresented: $etat.montrerSynchro) {
             SynchroView(moteur: etat.moteur)
@@ -91,7 +90,7 @@ struct Bandeau: View {
                             }
                         }
                             .font(.system(size: 13, weight: etat.ecran == e ? .semibold : .regular))
-                            .foregroundStyle(etat.ecran == e ? Color.white : Theme.texteDiscret)
+                            .foregroundStyle(etat.ecran == e ? Theme.texte : Theme.texteDiscret)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(etat.ecran == e ? Theme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 5))

@@ -348,6 +348,5 @@ struct Liste00View: View {
         .frame(width: 900)
         .background(Theme.fond)
         .foregroundStyle(Theme.texte)
-        .preferredColorScheme(.dark)
     }
 }

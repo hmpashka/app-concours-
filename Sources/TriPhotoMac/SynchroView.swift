@@ -4,7 +4,7 @@ import SwiftUI
 import TriPhotoCommun
 import TriPhotoMoteur
 
-/// Photo de synchro (début de concours, comme la v00) : Tri-photo affiche un QR qui porte l'heure du chrono.
+/// Photo de synchro (début de concours, comme la v00) : Groom Pix affiche un QR qui porte l'heure du chrono.
 /// Chaque boîtier le photographie : la photo vérifie que le transfert marche, donne au boîtier son nom, sa piste et son
 /// photographe, et règle son heure (avance ou retard). Elle n'est jamais envoyée au serveur ni à Lightroom.
 struct SynchroView: View {
@@ -83,7 +83,6 @@ struct SynchroView: View {
         .frame(width: 980, height: 600)
         .background(Theme.fond)
         .foregroundStyle(Theme.texte)
-        .preferredColorScheme(.dark)
         .onAppear {
             if piste.isEmpty { piste = etat.reglages.pistes.first?.nom ?? "" }
             if photographe.isEmpty { photographe = etat.reglages.pistes.first(where: { $0.nom == piste })?.photographe ?? "" }

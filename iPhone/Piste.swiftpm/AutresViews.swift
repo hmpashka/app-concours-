@@ -51,7 +51,6 @@ struct RenvoyerView: View {
             .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 10)
         }
         .foregroundStyle(Style.creme)
-        .preferredColorScheme(.dark)
     }
 }
 
@@ -86,8 +85,8 @@ struct MessagesPisteView: View {
                         Button(r) { liaison.envoyer(message: r) }
                             .font(.system(size: 13)).foregroundStyle(Style.creme)
                             .padding(.horizontal, 12).frame(minHeight: 36)
-                            .background(.white.opacity(0.08), in: Capsule())
-                            .overlay(Capsule().stroke(.white.opacity(0.15), lineWidth: 1))
+                            .background(Style.voile.opacity(0.08), in: Capsule())
+                            .overlay(Capsule().stroke(Style.voile.opacity(0.15), lineWidth: 1))
                     }
                 }
                 HStack(spacing: 8) {
@@ -95,8 +94,8 @@ struct MessagesPisteView: View {
                         .lineLimit(1...4)
                         .font(.system(size: 15)).foregroundStyle(Style.creme)
                         .padding(.horizontal, 16).padding(.vertical, 12)
-                        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 22))
-                        .overlay(RoundedRectangle(cornerRadius: 22).stroke(.white.opacity(0.15), lineWidth: 1))
+                        .background(Style.voile.opacity(0.08), in: RoundedRectangle(cornerRadius: 22))
+                        .overlay(RoundedRectangle(cornerRadius: 22).stroke(Style.voile.opacity(0.15), lineWidth: 1))
                     Button {
                         liaison.envoyer(message: texte)
                         texte = ""
@@ -110,7 +109,6 @@ struct MessagesPisteView: View {
             .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 10)
         }
         .foregroundStyle(Style.creme)
-        .preferredColorScheme(.dark)
         .onAppear { liaison.luJusqua = Date().timeIntervalSince1970 }
         .onChange(of: liaison.messages.count) { _ in liaison.luJusqua = Date().timeIntervalSince1970 }
     }
@@ -128,8 +126,8 @@ struct MessagesPisteView: View {
                     .foregroundStyle(m.incident ? Style.orangeClair : Style.creme)
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
-            .background(moi ? Style.or.opacity(0.22) : .white.opacity(0.08), in: forme)
-            .overlay(forme.stroke(moi ? Style.or.opacity(0.5) : .white.opacity(0.12), lineWidth: 1))
+            .background(moi ? Style.or.opacity(0.22) : Style.voile.opacity(0.08), in: forme)
+            .overlay(forme.stroke(moi ? Style.or.opacity(0.5) : Style.voile.opacity(0.12), lineWidth: 1))
             .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: moi ? .trailing : .leading)
             if !moi { Spacer(minLength: 0) }
         }

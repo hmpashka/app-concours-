@@ -64,7 +64,7 @@ final class ServeurPiste: ObservableObject {
         guard ecoute == nil else { return }
         do {
             let l = try NWListener(using: Canal<DepuisPiste, VersPiste>.parametres)
-            let nom = reglages().nomConcours.isEmpty ? "Tri-photo" : "Tri-photo · \(reglages().nomConcours)"
+            let nom = reglages().nomConcours.isEmpty ? "Groom Pix" : "Groom Pix · \(reglages().nomConcours)"
             l.service = NWListener.Service(name: String(nom.prefix(60)), type: LienPiste.service)
             l.stateUpdateHandler = { [weak self] e in
                 Task { @MainActor in
@@ -124,6 +124,7 @@ final class ServeurPiste: ObservableObject {
             connectes[i].dernierDirect = nil
             connectes[i].derniersMessages = nil
             connectes[i].dernieresCommandes = nil
+            connectes[i].canal.envoyer(.theme(ChoixTheme.courant.code))
             if !nom.isEmpty && !personnes.contains(nom) {
                 personnes.append(nom)
                 Stockage.ecrire(personnes, nom: "personnes-piste.json")
@@ -146,6 +147,8 @@ final class ServeurPiste: ObservableObject {
         case .commande(var k):
             if k.par.isEmpty { k.par = connectes[i].nom.isEmpty ? "iPhone" : connectes[i].nom }
             enregistrerCommande?(k)
+            Notifieur.partage.signaler(.commande, titre: "Commande · \(k.par)",
+                                       texte: "\(k.client) · \(Commande.euros(k.prix)) · \(k.statut.rawValue)")
             actualiser()
         }
     }
@@ -194,6 +197,11 @@ final class ServeurPiste: ObservableObject {
         return Array(Set(l)).sorted()
     }
 
+    /// Thème changé sur le Mac : tous les iPhone le prennent.
+    func themeChange() {
+        for c in connectes { c.canal.envoyer(.theme(ChoixTheme.courant.code)) }
+    }
+
     // MARK: - Notifications du Mac
 
     private var notificationsPossibles: Bool { Bundle.main.bundleIdentifier != nil }
@@ -204,13 +212,10 @@ final class ServeurPiste: ObservableObject {
     }
 
     private func notifier(_ m: MessagePiste) {
-        guard notificationsPossibles else { return }
-        let n = UNMutableNotificationContent()
-        n.title = m.incident ? "Incident · \(m.qui)" : m.qui + (m.piste.isEmpty ? "" : " · \(m.piste)")
-        n.body = m.texte
-        n.sound = .default
-        n.userInfo = ["message": m.id]
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: m.id, content: n, trigger: nil))
+        // affichage et son selon Réglages › Son et notifications
+        Notifieur.partage.signaler(m.incident ? .incident : .message,
+                                   titre: m.incident ? "Incident · \(m.qui)" : m.qui + (m.piste.isEmpty ? "" : " · \(m.piste)"),
+                                   texte: m.texte, id: m.id, infos: ["message": m.id])
     }
 
     // MARK: - Envoi aux iPhone (toutes les 2 s, seulement ce qui a changé)

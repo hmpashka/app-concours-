@@ -17,7 +17,7 @@ struct QuiView: View {
             VStack(spacing: 6) {
                 Text("HM TIMINGS · PISTE").font(Style.titre(18)).tracking(1.4).foregroundStyle(Style.or)
                 Text("Qui es-tu ?").font(Style.titre(40)).foregroundStyle(Style.creme)
-                Text(liaison.connecte ? "Connecté à Tri-photo\(lieu.isEmpty ? "" : " · \(lieu)")" : liaison.etat)
+                Text(liaison.connecte ? "Connecté à Groom Pix\(lieu.isEmpty ? "" : " · \(lieu)")" : liaison.etat)
                     .font(.system(size: 14)).foregroundStyle(Style.cremeDiscret).multilineTextAlignment(.center)
             }
             .padding(.top, 12)
@@ -45,7 +45,7 @@ struct QuiView: View {
                             Text("+ Quelqu'un d'autre").font(.system(size: 15)).foregroundStyle(Style.cremeDiscret)
                                 .frame(maxWidth: .infinity, minHeight: 52)
                                 .overlay(RoundedRectangle(cornerRadius: 14)
-                                    .stroke(.white.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+                                    .stroke(Style.voile.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)

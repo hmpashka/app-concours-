@@ -12,8 +12,8 @@ struct PisteApp: App {
     var body: some Scene {
         WindowGroup {
             RacineView()
+                .id(liaison.theme)                        // thème changé sur le Mac : tout est redessiné
                 .environmentObject(liaison)
-                .preferredColorScheme(.dark)
                 .onAppear { liaison.demarrer() }
                 .onChange(of: phase) { p in
                     switch p {
@@ -36,29 +36,45 @@ enum Style {
     static func rvb(_ h: UInt32, _ a: Double = 1) -> Color {
         Color(red: Double((h >> 16) & 0xff) / 255, green: Double((h >> 8) & 0xff) / 255, blue: Double(h & 0xff) / 255, opacity: a)
     }
-    static let nuit = rvb(0x0e2a47)
-    static let nuitFonce = rvb(0x081a2e)
-    static let nuitClair = rvb(0x15365c)
-    static let creme = rvb(0xf5f1e8)
-    static let cremeDiscret = rvb(0xc9c3b6)
-    static let fleche = rvb(0x8f8a80)
-    static let or = rvb(0xc9a34a)
-    static let orPale = rvb(0xe8cf8f)
-    static let orange = rvb(0xe8913a)
-    static let orangeClair = rvb(0xf7c78f)
-    static let orangeTexte = rvb(0xe9d3b5)
+    /// Thème reçu du Mac : « bleuOr » (bleu nuit, crème, or) ou « graphite ». Clair ou sombre suit l'iPhone.
+    static var theme: String { UserDefaults.standard.string(forKey: "theme") ?? "bleuOr" }
+    private static var graphite: Bool { theme == "graphite" }
+
+    /// Couleur qui change avec l'apparence de l'iPhone (sombre, clair).
+    static func dyn(_ sombre: UInt32, _ clair: UInt32) -> Color {
+        Color(uiColor: UIColor { t in
+            let h = t.userInterfaceStyle == .light ? clair : sombre
+            return UIColor(red: CGFloat((h >> 16) & 0xff) / 255, green: CGFloat((h >> 8) & 0xff) / 255,
+                           blue: CGFloat(h & 0xff) / 255, alpha: 1)
+        })
+    }
+
+    static var nuit: Color { graphite ? rvb(0xffffff) : rvb(0x0e2a47) }          // texte posé sur l'accent
+    static var nuitFonce: Color { graphite ? dyn(0x121212, 0xededed) : dyn(0x081a2e, 0xf4f0e6) }
+    static var nuitClair: Color { graphite ? dyn(0x262626, 0xfafafa) : dyn(0x15365c, 0xfffdf8) }
+    static var nuitMilieu: Color { graphite ? dyn(0x1c1c1c, 0xf4f4f4) : dyn(0x0e2a47, 0xf9f6ee) }
+    static var creme: Color { graphite ? dyn(0xe6e6e6, 0x1e1e1e) : dyn(0xf5f1e8, 0x0e2a47) }
+    static var cremeDiscret: Color { graphite ? dyn(0x9a9a9a, 0x5e5e5e) : dyn(0xc9c3b6, 0x5a6472) }
+    static var fleche: Color { graphite ? dyn(0x6a6a6a, 0xa0a0a0) : dyn(0x8f8a80, 0x9a9488) }
+    static var or: Color { graphite ? dyn(0x5b9be6, 0x2f6fc0) : dyn(0xc9a34a, 0xa8842f) }
+    static var orPale: Color { graphite ? dyn(0x9cc3f0, 0x2f6fc0) : dyn(0xe8cf8f, 0x8a6a20) }
+    static var orange: Color { dyn(0xe8913a, 0xc66a12) }
+    static var orangeClair: Color { dyn(0xf7c78f, 0xb0600f) }
+    static var orangeTexte: Color { dyn(0xe9d3b5, 0x8a5a1c) }
     static let rouge = rvb(0xb8322a)
     static let rougeTexte = rvb(0xf4d4d0)
     static let alerteFond = rvb(0x5a1a16)
     static let alerteOr = rvb(0xffd7a1)
     static let alerteTexte = rvb(0xf6d6d2)
     static let vert = rvb(0x4cc77a)
-    static let vertTexte = rvb(0xa9e7bf)
+    static var vertTexte: Color { dyn(0xa9e7bf, 0x2e8b47) }
+    /// Voile des cartes et boutons : blanc sur fond sombre, noir sur fond clair.
+    static var voile: Color { dyn(0xffffff, 0x000000) }
 
     /// Fond de tous les écrans : dégradé radial (#15365c au centre, #0e2a47, #081a2e).
     static var fond: some View {
         GeometryReader { g in
-            RadialGradient(stops: [.init(color: nuitClair, location: 0), .init(color: nuit, location: 0.45),
+            RadialGradient(stops: [.init(color: nuitClair, location: 0), .init(color: nuitMilieu, location: 0.45),
                                    .init(color: nuitFonce, location: 1)],
                            center: UnitPoint(x: 0.62, y: 0.3), startRadius: 0,
                            endRadius: max(g.size.width, g.size.height) * 0.75)
@@ -83,8 +99,8 @@ enum Style {
 
 /// Carte translucide des maquettes (fond blanc 6 %, bord blanc 10 %, coins 14).
 struct Bloc<Contenu: View>: View {
-    var bord: Color = .white.opacity(0.10)
-    var fond: Color = .white.opacity(0.06)
+    var bord: Color = Style.voile.opacity(0.10)
+    var fond: Color = Style.voile.opacity(0.06)
     var rayon: CGFloat = 14
     var largeurBord: CGFloat = 1
     var marge = EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)
@@ -119,8 +135,8 @@ struct LigneChoix: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
         .frame(minHeight: 64)
-        .background(choisie ? Style.or.opacity(0.16) : .white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(choisie ? Style.or : .white.opacity(0.10), lineWidth: choisie ? 2 : 1))
+        .background(choisie ? Style.or.opacity(0.16) : Style.voile.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(choisie ? Style.or : Style.voile.opacity(0.10), lineWidth: choisie ? 2 : 1))
         .contentShape(Rectangle())
     }
 }
@@ -182,7 +198,7 @@ struct EtatLienView: View {
                     ForEach(liaison.macs, id: \.self) { m in
                         Button { liaison.choisirMac(m) } label: {
                             Text(m).font(.system(size: 14, weight: .semibold)).frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(10).background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                                .padding(10).background(Style.voile.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                         }
                     }
                 }
