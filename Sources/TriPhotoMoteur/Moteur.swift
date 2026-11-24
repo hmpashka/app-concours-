@@ -22,11 +22,16 @@ public struct ConfigMoteur {
     public var attente00Minutes: Double
     /// Rafraîchissement de la galerie du stand (serveur local) par lots. nil : pas de rafraîchissement.
     public var galerie: ConfigGalerie?
+    /// Envoi vers la galerie en ligne (FTP, FTP sur TLS ou SFTP). nil : pas d'envoi.
+    public var galerieEnLigne: ConfigGalerieEnLigne?
+    /// Les engagés terrain du concours (fichier JSON). nil : pas d'engagés terrain gardés.
+    public var fichierTerrain: URL?
 
     public init(reception: URL, importLightroom: URL, tampon: URL?, serveur: URL, cote: Int, qualite: Int,
                 cube: FichierCube?, concours: Concours?, tailleLot: Int, silenceMinutes: Int,
                 retarderSiOccupe: Bool, journal: URL, travailLightroom: URL? = nil, chrono: ConfigChrono? = nil,
-                attente00Minutes: Double = 2, galerie: ConfigGalerie? = nil) {
+                attente00Minutes: Double = 2, galerie: ConfigGalerie? = nil,
+                galerieEnLigne: ConfigGalerieEnLigne? = nil, fichierTerrain: URL? = nil) {
         self.reception = reception
         self.importLightroom = importLightroom
         self.tampon = tampon
@@ -43,6 +48,8 @@ public struct ConfigMoteur {
         self.chrono = chrono
         self.attente00Minutes = attente00Minutes
         self.galerie = galerie
+        self.galerieEnLigne = galerieEnLigne
+        self.fichierTerrain = fichierTerrain
     }
 }
 
@@ -114,6 +121,10 @@ public struct ResumeMoteur {
     /// Heure du chrono − heure du Mac (pour l'heure affichée dans le QR).
     public var ecartChrono: Double = 0
     public var galerie: EtatGalerie?
+
+    // Étape 4 : galerie en ligne, engagés terrain
+    public var galerieEnLigne: EtatGalerieEnLigne?
+    public var engagesTerrain: [EngageTerrain] = []
 
     public init() {}
 }
@@ -209,6 +220,12 @@ public final class Moteur: ObservableObject {
     private var dernierSynchro: BoitierSynchro?
     private var boitiersSynchro: [String: BoitierSynchro] = [:]
     private var galerie: GalerieStand?
+    /// Galerie en ligne : gardée après « Arrêter le tri » (les envois de nuit continuent tant que l'app est ouverte).
+    private var enLigne: GalerieEnLigne?
+    private var dernierEnLigne = Date.distantPast
+    private var terrain: [EngageTerrain] = []
+    private var dernierTerrain = Date.distantPast
+    private var forcerTampon = false
     private var fichierSynchro: URL? { config.map { $0.journal.deletingLastPathComponent().appendingPathComponent("boitiers-synchro.json") } }
 
     public static let dossierARenvoyer = "_À renvoyer"
@@ -235,6 +252,13 @@ public final class Moteur: ObservableObject {
             self.chrono = c.chrono.map { Chrono(config: $0) }
             self.suivi = c.travailLightroom.map { SuiviLightroom(dossier: $0) }
             self.galerie = c.galerie.flatMap { $0.adresse.isEmpty ? nil : GalerieStand(config: $0, racine: c.serveur) }
+            if let g = c.galerieEnLigne {
+                if let e = self.enLigne { e.regler(g) } else { self.enLigne = GalerieEnLigne(config: g) }
+            } else {
+                self.enLigne = nil
+            }
+            self.dernierEnLigne = .distantPast
+            self.chargerTerrain()
             self.chargerSynchro()
             self.enAttenteChrono = [:]
             let t = DispatchSource.makeTimerSource(queue: file)
@@ -304,6 +328,16 @@ public final class Moteur: ObservableObject {
         }
 
         galerie?.peutEtre()
+
+        // Engagés terrain vus par le chrono (toutes les 10 s), galerie en ligne (liste complète toutes les minutes).
+        if chrono != nil, maintenant.timeIntervalSince(dernierTerrain) >= 10 {
+            dernierTerrain = maintenant
+            detecterTerrain()
+        }
+        if let e = enLigne, let g = c.galerieEnLigne, maintenant.timeIntervalSince(dernierEnLigne) >= 60 {
+            dernierEnLigne = maintenant
+            e.synchroniser(photosEnLigne(journal: j, config: g))
+        }
         publier(journal: j, maintenant: maintenant)
     }
 
@@ -629,11 +663,13 @@ public final class Moteur: ObservableObject {
         let enAttente = j.fiches(etat: .tampon)
         var derniere: [String: Date] = [:]
         for f in enAttente { derniere[f.boitier] = max(derniere[f.boitier] ?? .distantPast, f.recue) }
-        let decision = RegleTampon.decider(enAttente: enAttente.count, tailleLot: c.tailleLot,
+        let decision = forcerTampon && !enAttente.isEmpty ? RegleTampon.Decision.envoyer(raison: "clôture")
+            : RegleTampon.decider(enAttente: enAttente.count, tailleLot: c.tailleLot,
                                            derniereParBoitier: derniere, premiereEnAttente: enAttente.map(\.recue).min(),
                                            maintenant: maintenant, silenceMinutes: c.silenceMinutes,
                                            lightroomOccupe: RegleRegulateur.lightroomOccupe(chargeLightroom: charge),
                                            retarderSiOccupe: c.retarderSiOccupe)
+        if enAttente.isEmpty { forcerTampon = false }
         guard case .envoyer(let raison) = decision else { return }
         let fm = FileManager.default
         var envoyees = 0
@@ -681,6 +717,8 @@ public final class Moteur: ObservableObject {
         r.boitiersSynchro = boitiersSynchro.values.sorted { $0.le > $1.le }
         r.ecartChrono = chrono?.ecart ?? 0
         r.galerie = galerie?.etat
+        r.galerieEnLigne = enLigne?.etat
+        r.engagesTerrain = terrain
         r.recentes = j.dernieres(12).map { ResumeMoteur.Recente(id: $0.id, nom: $0.nom, code: $0.codeRetenu, boitier: $0.boitier, etat: $0.etat) }
         r.chargeLightroom = charge
         r.ouvriers = ouvriers.maxConcurrentOperationCount
@@ -773,6 +811,7 @@ public final class Moteur: ObservableObject {
             }
         }
         if let g = r.galerie, g.ok == false { r.alertes.append(g.message) }
+        if let g = r.galerieEnLigne, g.ok == false { r.alertes.append(g.message) }
         DispatchQueue.main.async { self.resume = r }
     }
 
@@ -1256,3 +1295,161 @@ public final class Moteur: ObservableObject {
         if retirees > 0 { message = "\(retirees) photo\(retirees > 1 ? "s" : "") supprimée\(retirees > 1 ? "s" : "") dans Lightroom : copie retirée du serveur local." }
     }
 }
+
+// MARK: - Étape 4 : galerie en ligne, engagés terrain, clôture
+
+/// Où en est la clôture : ce qui reste à faire avant de pouvoir fermer la journée.
+public struct EtatCloture: Sendable {
+    public var enReception = 0           // photos pas encore traitées (réception, attente du chrono)
+    public var aValider = 0              // photos mises de côté, à valider
+    public var dansTampon = 0
+    public var enErreur = 0
+    public var galerie: EtatGalerieEnLigne?
+    public var photosDuConcours = 0
+    public init() {}
+}
+
+extension Moteur {
+    /// Les photos à mettre en ligne : celles qui ont une copie sur le serveur local, depuis le début du concours.
+    private func photosEnLigne(journal j: Journal, config g: ConfigGalerieEnLigne) -> [PhotoEnLigne] {
+        j.fichesEnLigne(depuis: g.depuis).compactMap { f in
+            let nom = URL(fileURLWithPath: f.copie).lastPathComponent
+            guard !nom.isEmpty else { return nil }
+            let photographe = boitiersSynchro[f.boitier]?.photographe ?? ""
+            let auteur = photographe.isEmpty ? g.auteurParDefaut : photographe
+            return PhotoEnLigne(nom: nom, signature: "\(f.copie)|\(f.codeRetenu)|\(auteur)", original: f.chemin,
+                                copie: f.copie, copyright: f.codeRetenu, auteur: auteur)
+        }
+    }
+
+    /// Envoyer tout de suite à la galerie en ligne (sans attendre la nuit).
+    public func envoyerGalerieMaintenant() {
+        file.async { [weak self] in
+            guard let self else { return }
+            if let j = self.journal, let g = self.config?.galerieEnLigne, let e = self.enLigne {
+                self.dernierEnLigne = Date()
+                e.synchroniser(self.photosEnLigne(journal: j, config: g))
+            }
+            self.enLigne?.envoyerMaintenant()
+        }
+    }
+
+    /// Essai de connexion à la galerie en ligne, avec ces réglages (sans attendre le démarrage de la journée).
+    public func testerGalerieEnLigne(_ g: ConfigGalerieEnLigne, fini: @escaping @Sendable (Bool, String) -> Void) {
+        let e = GalerieEnLigne(config: g)
+        e.tester { ok, message in
+            _ = e          // gardée le temps de l'essai
+            fini(ok, message)
+        }
+    }
+
+    /// Nouveaux réglages de la galerie en ligne pendant la journée (mot de passe, nuit…).
+    public func reglerGalerieEnLigne(_ g: ConfigGalerieEnLigne) {
+        file.async { [weak self] in
+            guard let self else { return }
+            self.config?.galerieEnLigne = g
+            if let e = self.enLigne { e.regler(g) } else { self.enLigne = GalerieEnLigne(config: g) }
+            self.dernierEnLigne = .distantPast
+        }
+    }
+
+    // MARK: Engagés terrain
+
+    private func chargerTerrain() {
+        terrain = config?.fichierTerrain.map { Moteur.engagesTerrain(fichier: $0) } ?? []
+        appliquerTerrain()
+    }
+
+    private func sauverTerrain() {
+        guard let u = config?.fichierTerrain else { return }
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        enc.dateEncodingStrategy = .iso8601
+        if let d = try? enc.encode(terrain) { try? d.write(to: u, options: .atomic) }
+    }
+
+    /// Les engagés terrain rejoignent le concours du moteur : leurs photos portent cavalier et cheval en mots-clés.
+    private func appliquerTerrain() {
+        guard var concours = config?.concours else { return }
+        for i in concours.epreuves.indices { concours.epreuves[i].engages.removeAll { $0.terrain } }
+        for t in terrain {
+            guard let i = concours.epreuves.firstIndex(where: { $0.cle == CodePassage.cle(t.epreuve) }),
+                  concours.epreuves[i].engage(dossard: t.dossard) == nil else { continue }
+            concours.epreuves[i].engages.append(Engage(dossard: t.dossard, cavalier: t.cavalier, cheval: t.cheval, terrain: true))
+        }
+        config?.concours = concours
+    }
+
+    /// Un couple passé en piste (chrono) qui n'est pas dans le fichier FFE : ajouté aux engagés terrain.
+    private func detecterTerrain() {
+        guard let ch = chrono, let concours = config?.concours else { return }
+        var ajout = false
+        for p in ch.passages {
+            let code = p.code
+            guard code.special == nil, !p.dossard.isEmpty, let ep = concours.epreuve(numero: p.epreuve),
+                  ep.engage(dossard: p.dossard) == nil,
+                  !terrain.contains(where: { CodePassage.cle($0.epreuve) == ep.cle && CodePassage.cle($0.dossard) == CodePassage.cle(p.dossard) })
+            else { continue }
+            let (nom, prenom) = EngageTerrain.couper(p.cavalier)
+            terrain.append(EngageTerrain(epreuve: ep.numero, dossard: p.dossard, nom: nom, prenom: prenom,
+                                         cheval: p.cheval, source: .chrono))
+            ajout = true
+        }
+        if ajout {
+            sauverTerrain()
+            appliquerTerrain()
+        }
+    }
+
+    /// Ajoute (ou corrige, même identifiant) un couple engagé sur le terrain.
+    public func enregistrerEngageTerrain(_ e: EngageTerrain) {
+        file.async { [weak self] in
+            guard let self else { return }
+            if let i = self.terrain.firstIndex(where: { $0.id == e.id }) { self.terrain[i] = e } else { self.terrain.append(e) }
+            self.sauverTerrain()
+            self.appliquerTerrain()
+        }
+    }
+
+    public func retirerEngageTerrain(id: UUID) {
+        file.async { [weak self] in
+            guard let self else { return }
+            self.terrain.removeAll { $0.id == id }
+            self.sauverTerrain()
+            self.appliquerTerrain()
+        }
+    }
+
+    /// Les engagés terrain, lus dans le fichier du concours (même quand le tri ne tourne pas).
+    public static func engagesTerrain(fichier: URL) -> [EngageTerrain] {
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        return (try? Data(contentsOf: fichier)).flatMap { try? dec.decode([EngageTerrain].self, from: $0) } ?? []
+    }
+
+    // MARK: Clôture
+
+    /// Clôture : les photos du tampon partent à Lightroom tout de suite, sans attendre la fin du lot.
+    public func viderTampon() { file.async { [weak self] in self?.forcerTampon = true } }
+
+    /// Ce qui reste avant de clôturer.
+    public func etatCloture(depuis: Date) -> EtatCloture {
+        file.sync {
+            var e = EtatCloture()
+            guard let j = journal else { return e }
+            e.enReception = vuesEnAttente.count + enAttenteChrono.count + enCours.count
+            e.aValider = j.fiches(etat: .aValider, limite: 5000).count
+            e.dansTampon = j.fiches(etat: .tampon, limite: 5000).count
+            e.enErreur = j.fiches(etat: .erreur, limite: 5000).count
+            e.galerie = enLigne?.etat
+            e.photosDuConcours = j.fichesEnLigne(depuis: depuis).count
+            return e
+        }
+    }
+
+    /// Photos du concours (copie sur le serveur local), pour les statistiques de fin de concours.
+    public func photosDuConcours(depuis: Date) -> [FichePhoto] {
+        file.sync { journal?.statistiques(depuis: depuis) ?? [] }
+    }
+}
+

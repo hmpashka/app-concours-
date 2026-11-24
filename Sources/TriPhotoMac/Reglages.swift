@@ -1,5 +1,6 @@
 import Foundation
 import TriPhotoCommun
+import TriPhotoMoteur
 
 /// Réglages d'un concours. Gardés d'un jour à l'autre ; enregistrables comme modèle (« CSO 4 pistes »).
 struct ReglagesConcours: Codable, Equatable {
@@ -89,7 +90,18 @@ struct ReglagesConcours: Codable, Equatable {
     var identifiantGalerieStand = ""
     var minutesGalerieStand = 2          // au plus tard X minutes après la première copie en attente
     var empreinteGalerieStand = ""       // certificat du serveur retenu à la 1re connexion
-    var adresseFTPGalerie = ""
+    // Galerie en ligne (comme un site dans FileZilla). Mot de passe : trousseau du Mac.
+    var adresseFTPGalerie = ""           // hôte : « ftp.mon-site.fr »
+    var protocoleGalerie: ConfigGalerieEnLigne.Protocole = .ftp
+    var portGalerie = 0                  // 0 : port habituel du protocole
+    var identifiantGalerie = ""
+    var dossierGalerie = ""              // dossier distant, à plat : « /www/album »
+    var accepterCertificatGalerie = false
+    var galerieLaNuit = false
+    var heureNuitGalerie = 22
+    var heureMatinGalerie = 7
+    var limiteKoGalerie = 0              // Ko/s, 0 : sans limite
+    var auteurGalerie = ""               // quand le boîtier n'a pas de photographe
     var sauvegardeActive = false
     var dossierSauvegarde = ""
 
@@ -142,6 +154,16 @@ struct ReglagesConcours: Codable, Equatable {
         minutesGalerieStand = lire(.minutesGalerieStand, minutesGalerieStand)
         empreinteGalerieStand = lire(.empreinteGalerieStand, empreinteGalerieStand)
         adresseFTPGalerie = lire(.adresseFTPGalerie, adresseFTPGalerie)
+        protocoleGalerie = lire(.protocoleGalerie, protocoleGalerie)
+        portGalerie = lire(.portGalerie, portGalerie)
+        identifiantGalerie = lire(.identifiantGalerie, identifiantGalerie)
+        dossierGalerie = lire(.dossierGalerie, dossierGalerie)
+        accepterCertificatGalerie = lire(.accepterCertificatGalerie, accepterCertificatGalerie)
+        galerieLaNuit = lire(.galerieLaNuit, galerieLaNuit)
+        heureNuitGalerie = lire(.heureNuitGalerie, heureNuitGalerie)
+        heureMatinGalerie = lire(.heureMatinGalerie, heureMatinGalerie)
+        limiteKoGalerie = lire(.limiteKoGalerie, limiteKoGalerie)
+        auteurGalerie = lire(.auteurGalerie, auteurGalerie)
         sauvegardeActive = lire(.sauvegardeActive, sauvegardeActive)
         dossierSauvegarde = lire(.dossierSauvegarde, dossierSauvegarde)
         dossierClotures = lire(.dossierClotures, dossierClotures)

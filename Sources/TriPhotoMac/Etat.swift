@@ -24,7 +24,11 @@ final class Etat: ObservableObject {
     @Published var montrerEntrainement = false
 
     @Published var reglages: ReglagesConcours {
-        didSet { if reglages != oldValue { Stockage.ecrire(reglages, nom: "reglages.json") } }
+        didSet {
+            guard reglages != oldValue else { return }
+            Stockage.ecrire(reglages, nom: "reglages.json")
+            if Etat.reglagesGalerie(reglages) != Etat.reglagesGalerie(oldValue) { galerieEnLigneChangee() }
+        }
     }
     @Published private(set) var concours: Concours?
     @Published var erreurFFE: String?
@@ -40,6 +44,15 @@ final class Etat: ObservableObject {
     @Published var motDePasseGalerie: String = Trousseau.lire("galerie-stand") {
         didSet { Trousseau.ecrire("galerie-stand", motDePasseGalerie) }
     }
+    /// Mot de passe de la galerie en ligne (FTP / SFTP) : dans le trousseau du Mac.
+    @Published var motDePasseGalerieEnLigne: String = Trousseau.lire("galerie-en-ligne") {
+        didSet { Trousseau.ecrire("galerie-en-ligne", motDePasseGalerieEnLigne); galerieEnLigneChangee() }
+    }
+    @Published var montrerTerrain = false
+    @Published var cloture: GenreCloture?
+    /// Engagés terrain quand le tri ne tourne pas (sinon : ceux du moteur, qui ajoute aussi ceux du chrono).
+    @Published var terrainHorsTri: [EngageTerrain] = []
+    @Published var messageAttribution = ""
     let serveur = ServeurPiste()
     /// « Voir les photos de ce moment » (incident d'un iPhone) : la revue montre les photos autour de cette heure.
     @Published var momentRevue: (heure: Date, titre: String)?
@@ -65,6 +78,7 @@ final class Etat: ObservableObject {
         serveur.suivreEnDirect = { m.suivreEnDirect($0) }
         Etat.courant = self
         serveur.demarrer()
+        terrainHorsTri = fichierTerrain.map { Moteur.engagesTerrain(fichier: $0) } ?? []
     }
 
     /// Sources du chrono vues aujourd'hui (pour relier les pistes des réglages à celles du chrono).
@@ -197,7 +211,10 @@ final class Etat: ObservableObject {
                                                  empreinte: r.empreinteGalerieStand,
                                                  sauverEmpreinte: { emp in
                                                      Task { @MainActor in Etat.courant?.reglages.empreinteGalerieStand = emp }
-                                                 })))
+                                                 }),
+                                             galerieEnLigne: configGalerieEnLigne(),
+                                             fichierTerrain: fichierTerrain))
+            if !fichierDebutExiste { creerFichierDebut(silencieux: true) }
             if chrono?.externe == true {
                 let m = moteur
                 capture.envoyer = { p, e in m.passagesExternes(p, erreur: e) }

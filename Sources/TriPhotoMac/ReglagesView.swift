@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import TriPhotoCommun
+import TriPhotoMoteur
 import UniformTypeIdentifiers
 
 enum SectionReglages: String, CaseIterable, Identifiable {
@@ -23,6 +24,9 @@ struct ReglagesView: View {
     @EnvironmentObject var etat: Etat
     @State private var section: SectionReglages = .concours
     @State private var montrerEpreuves = false
+    @State private var testGalerie = ""
+    @State private var testGalerieOK: Bool?
+    @State private var testEnCours = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -345,10 +349,9 @@ struct ReglagesView: View {
                 Text("Les copies partent au fil de l'eau ; la galerie ne relit que les dossiers qui ont reçu des photos, toutes les X minutes au plus. Pas de requête à chaque photo.")
                     .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
             }
-            Ligne("Galerie en ligne (FTP)") {
-                TextField("Adresse FTP de ta galerie (étape 4)", text: $etat.reglages.adresseFTPGalerie)
-                    .textFieldStyle(.roundedBorder)
-            }
+            Divider().overlay(Theme.bordure)
+            galerieEnLigne
+            Divider().overlay(Theme.bordure)
             Toggle("Sauvegarde des originaux sur un 2e disque (option)", isOn: $etat.reglages.sauvegardeActive)
             if etat.reglages.sauvegardeActive {
                 ChoixChemin(titre: "Disque de sauvegarde", aide: nil, chemin: $etat.reglages.dossierSauvegarde)
@@ -359,7 +362,110 @@ struct ReglagesView: View {
     private var carteCloture: some View {
         Carte(titre: SectionReglages.cloture.rawValue,
               sousTitre: "Chaque soir : « Clôturer la journée ». Le dernier jour : « Clôturer le concours ». L'app vérifie que tous les envois vers la galerie sont finis, puis produit le fichier d'attribution des cavaliers.") {
-            ChoixChemin(titre: "Fichier d'attribution dans", aide: nil, chemin: $etat.reglages.dossierClotures)
+            ChoixChemin(titre: "Fichier d'attribution dans", aide: "Pas choisi : dans le dossier « Clôtures » de l'app.",
+                        chemin: $etat.reglages.dossierClotures)
+            HStack {
+                Button("Créer le fichier d'attribution de début") {
+                    if let u = etat.creerFichierDebut() { etat.montrerDansLeFinder(u) }
+                }
+                .buttonStyle(BoutonStyle()).disabled(etat.reglages.cheminFFE.isEmpty)
+                .help("Fait tout seul au démarrage de la journée s'il n'existe pas encore.")
+                Button("Engagés terrain…") { etat.montrerTerrain = true }.buttonStyle(BoutonStyle())
+                Text("\(etat.engagesTerrain.count) engagés terrain").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+            }
+            Text("Début : « \(etat.fichierDebut.lastPathComponent) » (lignes 80, 00 et 99 comprises). Fin : « \(etat.fichierFin.lastPathComponent) », au format HMV, avec les engagés terrain.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            if !etat.messageAttribution.isEmpty {
+                Text(etat.messageAttribution).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+            }
+            HStack {
+                Button(GenreCloture.journee.rawValue + "…") { etat.cloture = .journee }.buttonStyle(BoutonStyle())
+                Button(GenreCloture.finale.rawValue + "…") { etat.cloture = .finale }.buttonStyle(BoutonStyle())
+            }
+        }
+    }
+
+    /// Galerie en ligne : réglée comme un site dans FileZilla.
+    @ViewBuilder
+    private var galerieEnLigne: some View {
+        Text("Galerie en ligne").font(.system(size: 13, weight: .semibold))
+        Ligne("Protocole") {
+            Picker("", selection: $etat.reglages.protocoleGalerie) {
+                ForEach(ConfigGalerieEnLigne.Protocole.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .labelsHidden().frame(width: 220)
+            Text("comme dans FileZilla (Gestionnaire de sites › Protocole / Chiffrement)")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+        }
+        Ligne("Hôte · port") {
+            TextField("ftp.mon-site.fr (vide : pas d'envoi)", text: $etat.reglages.adresseFTPGalerie)
+                .textFieldStyle(.roundedBorder)
+            TextField("\(etat.reglages.protocoleGalerie.portParDefaut)", value: $etat.reglages.portGalerie, format: .number.grouping(.never))
+                .textFieldStyle(.roundedBorder).frame(width: 70)
+                .help("Vide ou 0 : port habituel (\(etat.reglages.protocoleGalerie.portParDefaut)).")
+        }
+        if !etat.reglages.adresseFTPGalerie.isEmpty {
+            Ligne("Identifiant · mot de passe") {
+                TextField("Identifiant", text: $etat.reglages.identifiantGalerie).textFieldStyle(.roundedBorder).frame(width: 180)
+                SecureField("Mot de passe (gardé dans le trousseau)", text: Binding(
+                    get: { etat.motDePasseGalerieEnLigne },
+                    set: { etat.motDePasseGalerieEnLigne = $0 }))
+                    .textFieldStyle(.roundedBorder)
+            }
+            Ligne("Dossier distant") {
+                TextField("/www/album (toutes les photos à plat dans ce dossier)", text: $etat.reglages.dossierGalerie)
+                    .textFieldStyle(.roundedBorder)
+            }
+            if etat.reglages.protocoleGalerie == .ftpsExplicite || etat.reglages.protocoleGalerie == .ftpsImplicite {
+                Toggle("Accepter le certificat du serveur même s'il n'est pas reconnu", isOn: $etat.reglages.accepterCertificatGalerie)
+            }
+            Ligne("Quand envoyer") {
+                Picker("", selection: $etat.reglages.galerieLaNuit) {
+                    Text("Au fil de l'eau").tag(false)
+                    Text("La nuit").tag(true)
+                }
+                .pickerStyle(.segmented).labelsHidden().frame(width: 220)
+                if etat.reglages.galerieLaNuit {
+                    Stepper("à partir de \(etat.reglages.heureNuitGalerie) h", value: $etat.reglages.heureNuitGalerie, in: 0...23)
+                    Stepper("jusqu'à \(etat.reglages.heureMatinGalerie) h", value: $etat.reglages.heureMatinGalerie, in: 0...23)
+                }
+            }
+            Ligne("Débit maximum") {
+                Stepper(etat.reglages.limiteKoGalerie == 0 ? "sans limite" : "\(etat.reglages.limiteKoGalerie) Ko/s",
+                        value: $etat.reglages.limiteKoGalerie, in: 0...20_000, step: 250)
+            }
+            Ligne("Auteur par défaut") {
+                TextField("Écrit dans la photo si le boîtier n'a pas de photographe (photo de synchro)", text: $etat.reglages.auteurGalerie)
+                    .textFieldStyle(.roundedBorder)
+            }
+            HStack {
+                Button(testEnCours ? "Essai en cours…" : "Tester la connexion") { testerGalerie() }
+                    .buttonStyle(BoutonStyle()).disabled(testEnCours)
+                Button("Envoyer maintenant") { etat.moteur.envoyerGalerieMaintenant() }
+                    .buttonStyle(BoutonStyle()).disabled(!etat.moteur.actif)
+                    .help("Sans attendre la nuit.")
+                if !testGalerie.isEmpty {
+                    Text(testGalerie).font(.system(size: 11)).foregroundStyle(testGalerieOK == false ? Theme.erreur : Theme.ok)
+                } else if let g = etat.moteur.resume.galerieEnLigne {
+                    Text(g.aFaire == 0 ? "\(g.enLigne) photos en ligne, à jour." : (g.attendLaNuit ? "\(g.aFaire) photos attendent la nuit." : g.message))
+                        .font(.system(size: 11)).foregroundStyle(g.ok == false ? Theme.erreur : Theme.texteDiscret)
+                }
+            }
+            Text("Une photo qui existe déjà en ligne est remplacée, une nouvelle est ajoutée, une photo supprimée dans Lightroom est supprimée en ligne. Seules les photos envoyées par l'app sont touchées.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+        }
+    }
+
+    private func testerGalerie() {
+        guard let g = etat.configGalerieEnLigne() else { return }
+        testEnCours = true
+        testGalerie = ""
+        etat.moteur.testerGalerieEnLigne(g) { ok, message in
+            Task { @MainActor in
+                testEnCours = false
+                testGalerieOK = ok
+                testGalerie = message
+            }
         }
     }
 }

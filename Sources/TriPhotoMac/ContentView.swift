@@ -33,6 +33,12 @@ struct ContentView: View {
         .sheet(isPresented: $etat.montrerEntrainement) {
             EntrainementView(entrainement: etat.entrainement, dossierReception: etat.reglages.dossierReception)
         }
+        .sheet(isPresented: $etat.montrerTerrain) {
+            EngagesTerrainView(moteur: etat.moteur).environmentObject(etat)
+        }
+        .sheet(item: $etat.cloture) { g in
+            ClotureView(moteur: etat.moteur, genre: g).environmentObject(etat)
+        }
     }
 }
 
@@ -94,10 +100,21 @@ struct Bandeau: View {
                 }
             }
             Spacer()
-            Button("Clôturer la journée") {}
-                .buttonStyle(BoutonStyle())
-                .disabled(true)
-                .help("Arrive à l'étape 4")
+            Menu {
+                Button(GenreCloture.journee.rawValue + "…") { etat.cloture = .journee }
+                Button(GenreCloture.finale.rawValue + "…") { etat.cloture = .finale }
+                Divider()
+                Button("Engagés terrain…") { etat.montrerTerrain = true }
+            } label: {
+                Text("Clôturer").font(.system(size: 12))
+            } primaryAction: {
+                etat.cloture = .journee
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(Theme.bordure, in: RoundedRectangle(cornerRadius: 5))
+            .help("Clic : clôturer la journée. Flèche : clôturer le concours, engagés terrain.")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)

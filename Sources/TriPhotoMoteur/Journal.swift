@@ -318,6 +318,22 @@ final class Journal {
         return liste(st)
     }
 
+    /// Photos qui ont une copie sur le serveur local (donc à mettre en ligne), reçues depuis le début du concours.
+    func fichesEnLigne(depuis: Date) -> [FichePhoto] {
+        let st = preparer("SELECT \(Journal.colonnes) FROM photos WHERE etat IN ('copiee','tampon','envoyee') AND copie<>'' AND recue>=? ORDER BY id")
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, depuis)
+        return liste(st)
+    }
+
+    /// Nombre de photos par épreuve (code retenu) et par boîtier, depuis le début du concours (statistiques).
+    func statistiques(depuis: Date) -> [FichePhoto] {
+        let st = preparer("SELECT \(Journal.colonnes) FROM photos WHERE etat IN ('copiee','tampon','envoyee') AND recue>=? ORDER BY id")
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, depuis)
+        return liste(st)
+    }
+
     func dernieres(_ n: Int) -> [FichePhoto] {
         let st = preparer("SELECT \(Journal.colonnes) FROM photos ORDER BY id DESC LIMIT ?")
         defer { sqlite3_finalize(st) }

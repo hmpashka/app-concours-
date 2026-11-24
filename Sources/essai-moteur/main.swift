@@ -41,6 +41,42 @@ func drapeau(_ nom: String) -> Bool {
     return true
 }
 
+// --attribution f.xml [--sortie f.csv] [--fin] : fichier d'attribution fait depuis le fichier FFE (début, ou fin HMV).
+if let ffe = option("--attribution") {
+    let sortie = option("--sortie")
+    let fin = drapeau("--fin")
+    do {
+        let e = try LecteurEngagesFFE.lire(fichier: URL(fileURLWithPath: (ffe as NSString).expandingTildeInPath))
+        let texte = fin ? FichierEngages.cloture(e, terrain: []) : FichierEngages.debut(e)
+        if let sortie {
+            try Data(texte.utf8).write(to: URL(fileURLWithPath: (sortie as NSString).expandingTildeInPath))
+            print("\(e.count) épreuves, \(e.reduce(0) { $0 + $1.engages.count }) engagés → \(sortie)")
+        } else {
+            print(texte, terminator: "")
+        }
+        exit(0)
+    } catch {
+        quitter("Attribution : \(error.localizedDescription)")
+    }
+}
+
+// --copie-galerie photo.jpg sortie.jpg [--cube f.cube] : une copie de galerie (numéro incrusté) pour la regarder.
+if let photo = option("--copie-galerie") {
+    guard let sortie = args.first else { quitter("Usage : essai-moteur --copie-galerie photo.jpg sortie.jpg [--cube f.cube]") }
+    let cube = option("--cube").flatMap { try? FichierCube(fichier: URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath)) }
+    let url = URL(fileURLWithPath: (photo as NSString).expandingTildeInPath)
+    do {
+        try GalerieEnLigne.essaiCopie(de: url, vers: URL(fileURLWithPath: (sortie as NSString).expandingTildeInPath),
+                                      cote: 1200, qualite: 56, cube: cube,
+                                      numero: (url.lastPathComponent as NSString).deletingPathExtension,
+                                      copyright: "#01_05", auteur: "Essai")
+        print("Copie de galerie écrite : \(sortie)")
+        exit(0)
+    } catch {
+        quitter("Copie de galerie : \(error.localizedDescription)")
+    }
+}
+
 let cheminCube = option("--cube")
 let cheminFFE = option("--ffe")
 let cadence = option("--cadence").flatMap(Double.init)

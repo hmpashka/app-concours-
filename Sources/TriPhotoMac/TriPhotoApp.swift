@@ -58,6 +58,11 @@ struct MenusTriPhoto: Commands {
                 .disabled(etat.reglages.cheminFFE.isEmpty)
             Divider()
             Button("Synchroniser les boîtiers (photo du QR)…") { etat.montrerSynchro = true }
+            Button("Engagés terrain…") { etat.montrerTerrain = true }
+            Divider()
+            Button("Clôturer la journée…") { etat.cloture = .journee }
+            Button("Clôturer le concours…") { etat.cloture = .finale }
+            Divider()
             Button("Mode entraînement…") { etat.montrerEntrainement = true }
                 .raccourci(raccourcis[.entrainement])
         }
