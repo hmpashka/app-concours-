@@ -671,7 +671,7 @@ extension TraitementPhoto {
 
 extension GalerieEnLigne {
     /// Dépose un seul fichier par la connexion choisie (FTP, FTP sur TLS, SFTP), dans `config.dossier`.
-    /// Sert aussi à la protection antivol (fichier « macs.json » sur le site).
+    /// Dépôt d’un fichier isolé par la même connexion.
     public static func deposer(_ local: URL, nom: String, config: ConfigGalerieEnLigne) throws {
         try Transfert(config: config).envoyer([(local, nom)])
     }

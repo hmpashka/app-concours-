@@ -14,7 +14,7 @@ enum SectionReglages: String, CaseIterable, Identifiable {
     case memoire = "7. Mémoire, remises des prix"
     case commandes = "8. Commandes de pack photo"
     case apparence = "9. Apparence, son et notifications"
-    case protection = "10. Protection antivol"
+    case protection = "10. Licence et antivol"
     case raccourcis = "Raccourcis clavier"
     case modeles = "Modèles de concours"
     var id: String { rawValue }
@@ -127,7 +127,7 @@ struct ReglagesView: View {
                         carteMemoire.id(SectionReglages.memoire)
                         carteCommandes.id(SectionReglages.commandes)
                         CarteApparence().id(SectionReglages.apparence)
-                        CarteProtection().id(SectionReglages.protection)
+                        CarteLicence().id(SectionReglages.protection)
                     }
                     .padding(24)
                     .frame(maxWidth: 820, alignment: .leading)

@@ -2,34 +2,39 @@ import AppKit
 import SwiftUI
 import TriPhotoMoteur
 
-/// Racine de la fenêtre : thème (l'écran est redessiné quand il change), animation d'ouverture, protection.
+/// Racine de la fenêtre : thème (l'écran est redessiné quand il change), animation d'ouverture, licence.
 struct RacineMac: View {
     @EnvironmentObject var etat: Etat
     @ObservedObject var prefs = Preferences.partagees
-    @ObservedObject var protection = Protection.partagee
+    @ObservedObject var licence = Licence.partagee
     @State private var ouverture = true
 
     var body: some View {
         ZStack {
-            if protection.bloque {
-                EcranBloque()
+            if licence.ecranBloque, licence.verdict == .aConnecter {
+                EcranLicence()
+            } else if licence.ecranBloque, case .bloque(let raison, let efface) = licence.verdict {
+                EcranBloque(raison: raison, efface: efface)
             } else {
-                ContentView().id(prefs.theme)
+                VStack(spacing: 0) {
+                    if case .avertissement(let jours) = licence.verdict { BandeauLicence(jours: jours) }
+                    ContentView().id(prefs.theme)
+                }
             }
-            if ouverture && prefs.ouverture && !protection.bloque {
+            if ouverture && prefs.ouverture {
                 EcranOuverture { withAnimation(.easeOut(duration: 0.3)) { ouverture = false } }
                     .transition(.opacity)
             }
         }
         .background(Theme.fond)
-        .sheet(isPresented: Binding(get: { protection.demanderInternet && !ouverture }, set: { _ in })) {
-            DemandeInternet()
-        }
         .onAppear {
             Theme.mettreIconeDuDock()
             if !prefs.ouverture { ouverture = false }
-            protection.demarrer()
+            let moteur = etat.moteur
+            licence.triActif = { moteur.actif }
+            licence.demarrer()
         }
+        .onReceive(etat.moteur.$actif) { _ in DispatchQueue.main.async { licence.triChange() } }
         .onChange(of: prefs.theme) { _ in
             Theme.mettreIconeDuDock()
             etat.serveur.themeChange()
@@ -120,8 +125,12 @@ private struct ToucheQuelconque: NSViewRepresentable {
     final class Coordinator { var moniteur: Any? }
 }
 
-/// Écran de blocage (Mac déclaré volé).
+/// Écran de blocage : licence suspendue, Mac bloqué, essai ou abonnement fini, ou 6 jours sans internet.
 struct EcranBloque: View {
+    var raison: String
+    var efface: Bool
+    @ObservedObject var licence = Licence.partagee
+
     var body: some View {
         ZStack {
             RadialGradient(colors: [Theme.panneau, Theme.fond], center: .center, startRadius: 0, endRadius: 700)
@@ -129,35 +138,97 @@ struct EcranBloque: View {
                 if let i = Theme.image { Image(nsImage: i).resizable().frame(width: 96, height: 96) }
                 (Text("GROOM ").foregroundColor(Theme.texte) + Text("PIX").foregroundColor(Theme.accent)
                  + Text(" EST BLOQUÉ").foregroundColor(Theme.texte)).font(Theme.titre(40))
-                Text("Ce Mac a été déclaré volé par son propriétaire.\nLes mots de passe enregistrés par l'app ont été effacés de ce Mac.")
-                    .multilineTextAlignment(.center).font(.system(size: 14)).foregroundStyle(Theme.texteDiscret)
-                Text("Contact : HM Photographie").font(.system(size: 12)).foregroundStyle(Theme.texteTresDiscret)
+                Text(raison).multilineTextAlignment(.center).font(.system(size: 14)).foregroundStyle(Theme.texteDiscret)
+                    .frame(maxWidth: 520)
+                if efface {
+                    Text("Les mots de passe enregistrés par l'app ont été effacés de ce Mac.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.texteTresDiscret)
+                }
+                HStack {
+                    Button("Vérifier à nouveau") { licence.signaler() }.buttonStyle(BoutonStyle(principal: true))
+                    Button("Changer de compte") { licence.deconnecter() }.buttonStyle(BoutonStyle())
+                }
+                .padding(.top, 6)
+                if !licence.message.isEmpty {
+                    Text(licence.message).font(.system(size: 12)).foregroundStyle(Theme.attention)
+                }
+                Text("Contact : HM Photographie · live.hmphotographie.fr").font(.system(size: 12)).foregroundStyle(Theme.texteTresDiscret)
             }
+            .padding(30)
         }
         .ignoresSafeArea()
     }
 }
 
-/// Plus de 30 jours sans nouvelles du site.
-struct DemandeInternet: View {
-    @ObservedObject var protection = Protection.partagee
+/// Première ouverture (ou session fermée) : se connecter au compte, ou le créer.
+struct EcranLicence: View {
+    @ObservedObject var licence = Licence.partagee
+    @State private var creer = false
+    @State private var mail = ""
+    @State private var motDePasse = ""
+    @State private var nom = ""
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Connecte ce Mac à internet").font(.system(size: 17, weight: .semibold))
-            Text("Groom Pix n'a pas pu joindre live.hmphotographie.fr depuis plus de \(Int(Protection.joursHorsLigne)) jours. Une connexion suffit pour vérifier que ce Mac est toujours autorisé.")
-                .font(.system(size: 13)).foregroundStyle(Theme.texteDiscret)
-            HStack {
-                Button("Réessayer") { protection.verifier() }.buttonStyle(BoutonStyle(principal: true))
-                if protection.sursis > 0 {
-                    Button("Continuer quand même (encore \(protection.sursis) fois)") { protection.continuerSansInternet() }
-                        .buttonStyle(BoutonStyle())
+        ZStack {
+            RadialGradient(colors: [Theme.panneau, Theme.fond], center: .center, startRadius: 0, endRadius: 700)
+            VStack(spacing: 14) {
+                if let i = Theme.image { Image(nsImage: i).resizable().frame(width: 88, height: 88) }
+                NomApp(taille: 40)
+                Text("L'ASSISTANT DU STAND PHOTO").font(.system(size: 11, weight: .medium)).tracking(3)
+                    .foregroundStyle(Theme.texteDiscret)
+                VStack(alignment: .leading, spacing: 10) {
+                    Picker("", selection: $creer) {
+                        Text("J'ai déjà un compte").tag(false)
+                        Text("Créer un compte").tag(true)
+                    }
+                    .pickerStyle(.segmented).labelsHidden()
+                    if creer {
+                        TextField("Nom du stand ou de la société", text: $nom).textFieldStyle(.roundedBorder)
+                    }
+                    TextField("Mail", text: $mail).textFieldStyle(.roundedBorder).textContentType(.username)
+                    SecureField("Mot de passe (8 caractères au moins)", text: $motDePasse).textFieldStyle(.roundedBorder)
+                        .onSubmit(valider)
+                    Button(creer ? "Créer le compte (48 h d'essai)" : "Se connecter", action: valider)
+                        .buttonStyle(BoutonStyle(principal: true))
+                        .disabled(licence.occupe || mail.isEmpty || motDePasse.count < 8 || (creer && nom.isEmpty))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    if !licence.message.isEmpty {
+                        Text(licence.message).font(.system(size: 12)).foregroundStyle(Theme.attention)
+                    }
+                    Text("Le même compte que sur live.hmphotographie.fr. Ce Mac se signale au site toutes les 5 minutes ; sans internet, Groom Pix continue 6 jours.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
                 }
+                .padding(20)
+                .frame(width: 400)
+                .background(Theme.carte, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.bordure, lineWidth: 1))
             }
         }
-        .padding(24)
-        .frame(width: 460)
-        .background(Theme.panneau)
-        .interactiveDismissDisabled(protection.sursis == 0)
+        .ignoresSafeArea()
+    }
+
+    private func valider() {
+        guard !licence.occupe, !mail.isEmpty, motDePasse.count >= 8 else { return }
+        licence.connecter(mail: mail.trimmingCharacters(in: .whitespaces), motDePasse: motDePasse,
+                          creerAvecNom: creer ? nom.trimmingCharacters(in: .whitespaces) : nil)
+        motDePasse = ""
+    }
+}
+
+/// Après 4 jours sans contact avec le site : bandeau en haut de la fenêtre.
+struct BandeauLicence: View {
+    var jours: Int
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "wifi.exclamationmark")
+            Text("Pas de contact avec live.hmphotographie.fr depuis \(jours) jours. Connecte ce Mac à internet avant \(Int(Licence.joursMax)) jours, sinon Groom Pix se bloquera (jamais pendant un tri).")
+            Spacer()
+            Button("Réessayer") { Licence.partagee.signaler() }.buttonStyle(BoutonStyle())
+        }
+        .font(.system(size: 12))
+        .foregroundStyle(Theme.attention)
+        .padding(.horizontal, 14).padding(.vertical, 7)
+        .background(Theme.attentionFond)
     }
 }
 
@@ -223,123 +294,49 @@ struct CarteApparence: View {
     }
 }
 
-struct CarteProtection: View {
-    @ObservedObject var p = Protection.partagee
-    @State private var phrase = ""
-    @State private var phrase2 = ""
-    @State private var action: ActionAdmin?
-    @State private var nouveauNom = ""
-
-    enum ActionAdmin: Identifiable {
-        case activer, bloquer(Protection.MacProtege, Bool), renommer(Protection.MacProtege), retirer(Protection.MacProtege)
-        var id: String {
-            switch self {
-            case .activer: return "activer"
-            case .bloquer(let m, let b): return "b\(m.id)\(b)"
-            case .renommer(let m): return "r\(m.id)"
-            case .retirer(let m): return "x\(m.id)"
-            }
-        }
-    }
+struct CarteLicence: View {
+    @ObservedObject var l = Licence.partagee
+    @State private var confirmer = false
 
     var body: some View {
         Carte(titre: SectionReglages.protection.rawValue,
-              sousTitre: "Chaque Mac est activé une fois. Un Mac volé se bloque depuis un autre Mac. Sans internet, rien ne s'arrête. Active aussi « Localiser » d'Apple sur chaque Mac : c'est le vrai antivol, il bloque tout le Mac.") {
+              sousTitre: "Même compte et même page d'administration que tes autres logiciels : live.hmphotographie.fr/admin › Mes abonnés › Groom Pix. De là, tu vois chaque Mac (dernier signal, ville approximative) et tu peux bloquer un Mac volé ou suspendre un compte.") {
             Ligne("Ce Mac") {
-                Text("\(Protection.nomCeMac) · \(p.actif ? (p.ceMac?.bloque == true ? "bloqué" : "protégé") : "pas encore activé")")
-                    .font(.system(size: 13)).foregroundStyle(p.actif ? Theme.ok : Theme.attention)
+                Text("\(Licence.nomCeMac) · \(Licence.poste.prefix(12))").font(.system(size: 13))
             }
-            if let d = p.derniereVerif {
-                Ligne("Dernière vérification") {
+            if let c = l.compte {
+                Ligne("Compte") { Text(c.nom.isEmpty ? c.mail : "\(c.nom) · \(c.mail)").font(.system(size: 13)) }
+                Ligne("Licence") {
+                    Pastille(texte: texteStatut(c), genre: c.statut == "actif" ? .ok : .attention)
+                }
+            }
+            if let d = l.dernierContact {
+                Ligne("Dernier contact avec le site") {
                     Text(d.formatted(date: .abbreviated, time: .shortened)).font(.system(size: 13))
                 }
             }
-            Ligne("Adresse du fichier") { TextField("", text: $p.reglage.adresse).textFieldStyle(.roundedBorder) }
-            Ligne("Connexion au site") {
-                Picker("", selection: $p.reglage.protocole) {
-                    ForEach(ConfigGalerieEnLigne.Protocole.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .labelsHidden().frame(width: 200)
-            }
-            Ligne("Serveur") { TextField("ftp.hmphotographie.fr", text: $p.reglage.hote).textFieldStyle(.roundedBorder) }
-            Ligne("Identifiant") { TextField("", text: $p.reglage.identifiant).textFieldStyle(.roundedBorder) }
-            Ligne("Mot de passe (trousseau)") {
-                SecureField("", text: Binding(get: { p.motDePasseSite }, set: { p.motDePasseSite = $0 })).textFieldStyle(.roundedBorder)
-            }
-            Ligne("Dossier du fichier sur le site") { TextField("/groompix", text: $p.reglage.dossier).textFieldStyle(.roundedBorder) }
             HStack {
-                Button("Tester la connexion") { p.testerConnexion() }.buttonStyle(BoutonStyle()).disabled(p.occupe)
-                Button(p.actif ? "Réactiver ce Mac" : "Activer la protection sur ce Mac") { action = .activer }
-                    .buttonStyle(BoutonStyle(principal: true)).disabled(p.occupe || p.reglage.hote.isEmpty)
-                Button("Relire le site") { p.verifier() }.buttonStyle(BoutonStyle()).disabled(!p.actif || p.occupe)
+                Button("Vérifier maintenant") { l.signaler() }.buttonStyle(BoutonStyle())
+                Button("Ouvrir la page d'administration") { NSWorkspace.shared.open(Licence.pageAdmin) }.buttonStyle(BoutonStyle())
+                Button("Déconnecter ce Mac") { confirmer = true }.buttonStyle(BoutonStyle())
             }
-            if !p.macs.isEmpty {
-                Divider().overlay(Theme.bordure)
-                Text("Tous tes Mac").font(.system(size: 13, weight: .semibold))
-                ForEach(p.macs) { m in
-                    HStack {
-                        Text(m.nom + (m.id == Protection.idCeMac ? " (ce Mac)" : "")).font(.system(size: 12.5))
-                        Spacer()
-                        Text("activé le \(m.activeLe.formatted(date: .abbreviated, time: .omitted))").font(.system(size: 11)).foregroundStyle(Theme.texteDiscret)
-                        Pastille(texte: m.bloque ? "Bloqué" : "Autorisé", genre: m.bloque ? .attention : .ok)
-                        Button("Renommer") { nouveauNom = m.nom; action = .renommer(m) }.buttonStyle(BoutonStyle())
-                        Button(m.bloque ? "Débloquer" : "Bloquer") { action = .bloquer(m, !m.bloque) }.buttonStyle(BoutonStyle())
-                        Button("Retirer") { action = .retirer(m) }.buttonStyle(BoutonStyle())
-                    }
-                }
-            }
-            if !p.message.isEmpty { Text(p.message).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret) }
-            Text("La phrase d'administration protège la clé qui signe le fichier : c'est toi qui la choisis et la tapes, elle n'est gardée nulle part. Perdue, il faut effacer le fichier du site et réactiver chaque Mac.")
+            if !l.message.isEmpty { Text(l.message).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret) }
+            Text("Sans internet, Groom Pix continue 6 jours (avertissement dès le 4e). Un blocage ne coupe jamais un tri en cours : il attend la fin du tri. Active aussi « Localiser » d'Apple sur chaque Mac : c'est le vrai antivol, il bloque tout le Mac.")
                 .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
         }
-        .sheet(item: $action) { a in feuille(a) }
-    }
-
-    @ViewBuilder
-    private func feuille(_ a: ActionAdmin) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            switch a {
-            case .activer:
-                Text("Activer la protection sur « \(Protection.nomCeMac) »").font(.system(size: 15, weight: .semibold))
-                Text("Premier Mac : choisis une phrase d'administration (8 caractères au moins) et tape-la deux fois. Mac suivants : la même phrase.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
-            case .bloquer(let m, let b):
-                Text(b ? "Bloquer « \(m.nom) » ?" : "Débloquer « \(m.nom) » ?").font(.system(size: 15, weight: .semibold))
-                if b {
-                    Text("Au prochain lancement (ou dans l'heure s'il a internet), l'app s'y bloque et efface ses mots de passe. Débloquer reste possible.")
-                        .font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
-                }
-            case .renommer(let m):
-                Text("Renommer « \(m.nom) »").font(.system(size: 15, weight: .semibold))
-                TextField("Nouveau nom", text: $nouveauNom).textFieldStyle(.roundedBorder)
-            case .retirer(let m):
-                Text("Retirer « \(m.nom) » de la liste ?").font(.system(size: 15, weight: .semibold))
-            }
-            SecureField("Phrase d'administration", text: $phrase).textFieldStyle(.roundedBorder)
-            if case .activer = a, p.macs.isEmpty {
-                SecureField("La même phrase, encore une fois", text: $phrase2).textFieldStyle(.roundedBorder)
-            }
-            HStack {
-                Spacer()
-                Button("Annuler") { fermer() }.buttonStyle(BoutonStyle())
-                Button("Valider") {
-                    switch a {
-                    case .activer:
-                        if p.macs.isEmpty && phrase2 != phrase { p.message = "Les deux phrases ne sont pas pareilles."; return }
-                        p.activer(phrase: phrase)
-                    case .bloquer(let m, let b): p.bloquer(m, oui: b, phrase: phrase)
-                    case .renommer(let m): p.renommer(m, en: nouveauNom, phrase: phrase)
-                    case .retirer(let m): p.retirer(m, phrase: phrase)
-                    }
-                    fermer()
-                }
-                .buttonStyle(BoutonStyle(principal: true)).disabled(phrase.count < 8)
-            }
+        .confirmationDialog("Déconnecter ce Mac du compte ?", isPresented: $confirmer) {
+            Button("Déconnecter", role: .destructive) { l.deconnecter() }
+        } message: {
+            Text("Groom Pix redemandera le mail et le mot de passe.")
         }
-        .padding(22)
-        .frame(width: 440)
-        .background(Theme.panneau)
     }
 
-    private func fermer() { phrase = ""; phrase2 = ""; action = nil }
+    private func texteStatut(_ c: Licence.Compte) -> String {
+        func jour(_ t: Double) -> String { Date(timeIntervalSince1970: t).formatted(date: .abbreviated, time: .omitted) }
+        switch c.statut {
+        case "actif": return c.fin.map { "Active jusqu'au \(jour($0))" } ?? "Active, sans fin"
+        case "suspendu": return "Suspendue"
+        default: return c.essai_fin.map { "Essai jusqu'au \(Date(timeIntervalSince1970: $0).formatted(date: .abbreviated, time: .shortened))" } ?? "Essai"
+        }
+    }
 }
