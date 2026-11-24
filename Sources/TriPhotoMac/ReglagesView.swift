@@ -482,6 +482,10 @@ struct ReglagesView: View {
                 }
                 Text("puis le code. Rien ne peut être réglé ni changé depuis cette page.")
                     .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+                if !etat.etatAccesDistance.isEmpty {
+                    Text(etat.etatAccesDistance).font(.system(size: 11))
+                        .foregroundStyle(etat.etatAccesDistance.hasPrefix("En marche") ? Theme.ok : Theme.erreur)
+                }
             }
         }
     }

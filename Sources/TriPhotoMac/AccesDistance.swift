@@ -53,6 +53,8 @@ final class AccesDistance: @unchecked Sendable {
     var code: @MainActor () -> String = { "" }
     var etat: @MainActor () -> EtatDistance? = { nil }
     var moteur: Moteur?
+    /// État de la page (« en marche », erreur…), montré dans les réglages.
+    var surEtat: @Sendable (String) -> Void = { _ in }
 
     init() { vignettes.countLimit = 600 }
 
@@ -63,11 +65,22 @@ final class AccesDistance: @unchecked Sendable {
             if self.ecoute != nil && self.port == p { return }
             self.ecoute?.cancel()
             self.ecoute = nil
-            guard let np = NWEndpoint.Port(rawValue: UInt16(clamping: p)), let l = try? NWListener(using: .tcp, on: np) else { return }
-            l.service = NWListener.Service(name: "Tri-photo", type: "_http._tcp")
+            // Pas d'annonce Bonjour : l'adresse est donnée dans les réglages (et macOS refuse un service non déclaré).
+            guard let np = NWEndpoint.Port(rawValue: UInt16(clamping: p)) else { self.surEtat("Port \(p) invalide."); return }
+            let l: NWListener
+            do { l = try NWListener(using: .tcp, on: np) } catch {
+                self.surEtat("Accès à distance impossible : \(error.localizedDescription)")
+                return
+            }
             l.newConnectionHandler = { [weak self] c in self?.servir(c) }
             l.stateUpdateHandler = { [weak self] e in
-                if case .failed = e { self?.file.async { self?.ecoute?.cancel(); self?.ecoute = nil } }
+                switch e {
+                case .ready: self?.surEtat("En marche sur le port \(p).")
+                case .failed(let err):
+                    self?.surEtat("Accès à distance arrêté : \(err.localizedDescription) (port \(p) déjà pris ?)")
+                    self?.file.async { self?.ecoute?.cancel(); self?.ecoute = nil }
+                default: break
+                }
             }
             l.start(queue: self.file)
             self.ecoute = l
@@ -79,6 +92,7 @@ final class AccesDistance: @unchecked Sendable {
         file.async {
             self.ecoute?.cancel()
             self.ecoute = nil
+            self.surEtat("")
         }
     }
 

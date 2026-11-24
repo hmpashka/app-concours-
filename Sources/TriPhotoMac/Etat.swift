@@ -62,6 +62,7 @@ final class Etat: ObservableObject {
     @Published var messageAttribution = ""
     let serveur = ServeurPiste()
     let acces = AccesDistance()
+    @Published var etatAccesDistance = ""
     /// « Voir les photos de ce moment » (incident d'un iPhone) : la revue montre les photos autour de cette heure.
     @Published var momentRevue: (heure: Date, titre: String)?
     /// L'état en cours (pour les clics sur les notifications du Mac).
@@ -88,6 +89,7 @@ final class Etat: ObservableObject {
         serveur.demarrer()
         terrainHorsTri = fichierTerrain.map { Moteur.engagesTerrain(fichier: $0) } ?? []
         acces.moteur = m
+        acces.surEtat = { t in Task { @MainActor in Etat.courant?.etatAccesDistance = t } }
         acces.code = { [weak self] in self?.reglages.codeAccesDistance ?? "" }
         acces.etat = { [weak self] in self?.etatDistance() }
         reglerAccesDistance()
