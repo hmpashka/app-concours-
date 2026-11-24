@@ -100,6 +100,8 @@ public struct ResumeMoteur {
     public var chargeLightroom = 0.0
     public var ouvriers = 3
     public var message = ""
+    /// Bouton Pause : plus rien ne part (serveur, Lightroom, galerie) ; les photos attendent dans la réception.
+    public var enPause = false
 
     // Étape 2
     public var series: [SerieAValider] = []
@@ -220,6 +222,7 @@ public final class Moteur: ObservableObject {
     private var debutJournee = Calendar.current.startOfDay(for: Date())
     private var message = ""
     private var alerteSauvegarde = ""
+    private var pause = false
     private var chrono: Chrono?
     private var enAttenteChrono: [String: Date] = [:]           // photos gardées en réception (chrono, _00)
     private var pisteDuBoitier: [String: String] = [:]          // apprise sur les photos conformes
@@ -299,6 +302,8 @@ public final class Moteur: ObservableObject {
             self.chargerRemises()
             self.chargerSynchro()
             self.enAttenteChrono = [:]
+            self.pause = false
+            self.enLigne?.mettreEnPause(false)
             let t = DispatchSource.makeTimerSource(queue: file)
             t.schedule(deadline: .now(), repeating: 1.0, leeway: .milliseconds(200))
             t.setEventHandler { [weak self] in self?.tour() }
@@ -339,6 +344,7 @@ public final class Moteur: ObservableObject {
         for k in enAttenteChrono.keys where !chemins.contains(k) && !enCours.contains(k) { enAttenteChrono[k] = nil }
         for (url, taille) in presentes {
             let chemin = url.path
+            if pause { if vuesEnAttente[chemin] == nil && enAttenteChrono[chemin] == nil { vuesEnAttente[chemin] = maintenant }; continue }
             if enCours.contains(chemin) { continue }
             if let r = reessayerApres[chemin], r > maintenant { continue }
             if vuesEnAttente[chemin] == nil && enAttenteChrono[chemin] == nil { vuesEnAttente[chemin] = maintenant }
@@ -357,7 +363,7 @@ public final class Moteur: ObservableObject {
         }
 
         // Dossier tampon : faut-il envoyer le lot à Lightroom ?
-        if let tampon = c.tampon { verifierTampon(tampon: tampon, config: c, journal: j, maintenant: maintenant) }
+        if !pause, let tampon = c.tampon { verifierTampon(tampon: tampon, config: c, journal: j, maintenant: maintenant) }
 
         // Dossier de travail de Lightroom : suppressions et codes changés (toutes les 15 s).
         if let s = suivi, maintenant.timeIntervalSince(dernierSuivi) >= 15 {
@@ -365,7 +371,7 @@ public final class Moteur: ObservableObject {
             s.examiner { [weak self] constat in self?.file.async { self?.appliquer(constat) } }
         }
 
-        galerie?.peutEtre()
+        if !pause { galerie?.peutEtre() }
 
         // Engagés terrain vus par le chrono (toutes les 10 s), galerie en ligne (liste complète toutes les minutes).
         if chrono != nil, maintenant.timeIntervalSince(dernierTerrain) >= 10 {
@@ -377,7 +383,7 @@ public final class Moteur: ObservableObject {
             e.synchroniser(photosEnLigne(journal: j, config: g))
         }
         detecterSiCalme(journal: j, config: c, maintenant: maintenant)
-        copierRemisesSiBesoin(journal: j, config: c, maintenant: maintenant)
+        if !pause { copierRemisesSiBesoin(journal: j, config: c, maintenant: maintenant) }
         publier(journal: j, maintenant: maintenant)
     }
 
@@ -788,6 +794,7 @@ public final class Moteur: ObservableObject {
         r.chargeLightroom = charge
         r.ouvriers = ouvriers.maxConcurrentOperationCount
         r.message = message
+        r.enPause = pause
 
         // Étape 2 : séries à valider, photos de code, chrono, _00, courbe.
         r.enAttenteChrono = enAttenteChrono.count
@@ -1235,6 +1242,102 @@ public final class Moteur: ObservableObject {
                 j.mettreAJour(f)
             }
         }
+    }
+
+    /// Bouton Pause / Reprendre. En pause, le tri ne prend plus de nouvelle photo : rien ne part vers le serveur,
+    /// Lightroom ni la galerie en ligne, les photos attendent dans la réception (la file d'attente le montre).
+    /// Les photos déjà en cours finissent proprement. « Reprendre » : tout repart, dans l'ordre.
+    public func mettreEnPause(_ p: Bool) {
+        file.async { [weak self] in
+            guard let self else { return }
+            self.pause = p
+            self.enLigne?.mettreEnPause(p)
+            self.message = p ? "En pause : plus rien ne part. Les photos attendent dans la réception." : "Reprise : les photos repartent."
+            if let j = self.journal { self.publier(journal: j, maintenant: Date()) }
+        }
+    }
+
+    // MARK: - Supprimer depuis l'app
+
+    static let supprimeeApp = "Supprimée depuis l'app"
+
+    /// Supprimer des photos depuis l'app : la copie est retirée du serveur local (la galerie en ligne suit), et
+    /// l'original part à la Corbeille du Mac. Lightroom ne peut pas être piloté de l'extérieur : il montre la photo
+    /// « manquante » ; clic droit sur le dossier › Synchroniser le dossier la retire du catalogue.
+    /// Tout est annulable : `annulerSuppression` remet l'original à sa place et refait la copie.
+    public func supprimer(_ ids: [Int64]) {
+        file.async { [weak self] in
+            guard let self, let c = self.config, let j = self.journal else { return }
+            var n = 0
+            for id in ids {
+                guard var f = j.fiche(id: id), [.copiee, .tampon, .envoyee].contains(f.etat) else { continue }
+                if !f.copie.isEmpty {
+                    try? FileManager.default.removeItem(atPath: f.copie)
+                    self.galerie?.copieFaite(dans: URL(fileURLWithPath: f.copie).deletingLastPathComponent(), nouveau: false)
+                }
+                var place = ""
+                if let original = Moteur.trouverOriginal(f, travail: c.travailLightroom) {
+                    var corbeille: NSURL?
+                    if (try? FileManager.default.trashItem(at: original, resultingItemURL: &corbeille)) != nil {
+                        place = original.path
+                        f.chemin = (corbeille as URL?)?.path ?? f.chemin
+                    }
+                }
+                f.raison = place                 // où remettre l'original si HUGO annule
+                f.etat = .retiree
+                f.marquer(Moteur.supprimeeApp)
+                f.noter("HUGO", place.isEmpty ? "supprimée depuis l'app : copie retirée du serveur (original introuvable)"
+                                              : "supprimée depuis l'app : copie retirée du serveur, original à la Corbeille")
+                j.mettreAJour(f)
+                n += 1
+            }
+            if n > 0 {
+                self.message = "\(n) photo\(n > 1 ? "s" : "") supprimée\(n > 1 ? "s" : "") : retirée\(n > 1 ? "s" : "") du serveur, original à la Corbeille. Dans Lightroom : clic droit sur le dossier › Synchroniser le dossier."
+                self.dernierEnLigne = .distantPast       // la galerie en ligne suit tout de suite
+            }
+        }
+    }
+
+    /// Annule une suppression faite depuis l'app : l'original revient à sa place, la copie du serveur est refaite.
+    public func annulerSuppression(_ ids: [Int64]) {
+        file.async { [weak self] in
+            guard let self, let c = self.config, let j = self.journal else { return }
+            for id in ids {
+                guard var f = j.fiche(id: id), f.etat == .retiree, f.a(Moteur.supprimeeApp) else { continue }
+                let fm = FileManager.default
+                if !f.raison.isEmpty, fm.fileExists(atPath: f.chemin), !fm.fileExists(atPath: f.raison) {
+                    try? fm.createDirectory(at: URL(fileURLWithPath: f.raison).deletingLastPathComponent(), withIntermediateDirectories: true)
+                    if (try? fm.moveItem(atPath: f.chemin, toPath: f.raison)) != nil { f.chemin = f.raison }
+                }
+                guard fm.fileExists(atPath: f.chemin) else {
+                    self.message = "Annulation impossible : \(f.nom) n'est plus dans la Corbeille."
+                    continue
+                }
+                let original = URL(fileURLWithPath: f.chemin)
+                let code = CodePassage.lire(f.codeRetenu)
+                let copie = Moteur.dossierServeur(pour: code, config: c).appendingPathComponent(f.nom)
+                if let infos = TraitementPhoto.infos(original) {
+                    let neuf = !fm.fileExists(atPath: copie.deletingLastPathComponent().path)
+                    try? TraitementPhoto.fabriquerCopie(de: original, vers: copie, cote: c.cote, qualite: c.qualite, cube: c.cube,
+                                                        copyright: code?.texte ?? infos.copyright, priseEXIF: infos.priseEXIF)
+                    self.galerie?.copieFaite(dans: copie.deletingLastPathComponent(), nouveau: neuf)
+                    f.copie = copie.path
+                }
+                f.retirer(Moteur.supprimeeApp)
+                f.raison = ""
+                f.etat = .envoyee
+                f.noter("HUGO", "suppression annulée : original remis, copie du serveur refaite")
+                j.mettreAJour(f)
+            }
+            self.dernierEnLigne = .distantPast
+        }
+    }
+
+    /// Les fiches de ces photos (revue d'une série validée), dans l'ordre de prise de vue.
+    public func fiches(ids: [Int64]) -> [FichePhoto] {
+        file.sync { ids.compactMap { journal?.fiche(id: $0) } }
+            .filter { [.copiee, .tampon, .envoyee, .recue].contains($0.etat) }
+            .sorted { ($0.prise ?? $0.recue) < ($1.prise ?? $1.recue) }
     }
 
     /// Rush : toutes les photos « À valider » partent tout de suite avec le code du photographe. La proposition du

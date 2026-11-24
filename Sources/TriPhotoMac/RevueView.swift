@@ -4,7 +4,8 @@ import TriPhotoCommun
 import TriPhotoMoteur
 
 /// Écran « Revue » (maquette 3) : une photo à la fois, par épreuve, pour reclasser vite (bonne, floue, sol, code),
-/// marquer une chute ou changer un code. ← → pour avancer, une lettre pour classer. Rien n'est supprimé ici.
+/// marquer une chute, changer un code ou supprimer. ← → pour avancer, une lettre pour classer, ⌫ pour supprimer
+/// (copie retirée du serveur, original à la Corbeille ; ⌘Z annule).
 struct RevueView: View {
     @EnvironmentObject var etat: Etat
     @ObservedObject var moteur: Moteur
@@ -16,9 +17,11 @@ struct RevueView: View {
     @State private var nouveauCode = ""
     @State private var changerCode = false
     @State private var corrections: [String] = []
+    @State private var supprimees: [FichePhoto] = []     // pour « Annuler la suppression »
 
     enum Ordre: String, CaseIterable, Identifiable {
         case douteuses = "Détection incertaine d'abord"
+        case aTrier = "Seulement sol, floues, code (à trier)"
         case belles = "Plus belles par couple d'abord"
         case heure = "Par heure"
         var id: String { rawValue }
@@ -52,6 +55,7 @@ struct RevueView: View {
         .onChange(of: boitier) { _ in charger() }
         .onChange(of: ordre) { _ in charger() }
         .onChange(of: etat.momentRevue?.heure) { _ in charger() }
+        .onChange(of: etat.photosRevue?.ids) { _ in charger() }
         .background(raccourcis)
     }
 
@@ -135,13 +139,17 @@ struct RevueView: View {
         let b = boitier
         let tri = ordre
         let moment = etat.momentRevue?.heure
+        let ids = etat.photosRevue?.ids
         DispatchQueue.global(qos: .userInitiated).async {
-            var l = moment.map { moteur.photosAutour($0) } ?? moteur.photosRevue(epreuve: ep)
+            var l = ids.map { moteur.fiches(ids: $0) } ?? moment.map { moteur.photosAutour($0) } ?? moteur.photosRevue(epreuve: ep)
             if !b.isEmpty { l = l.filter { $0.boitier == b } }
             switch tri {
             case .douteuses:
                 let marques = RevueView.douteuses(l)
                 l = l.filter { marques.contains($0.id) } + l.filter { !marques.contains($0.id) }
+            case .aTrier:
+                let marques = RevueView.douteuses(l)
+                l = l.filter { marques.contains($0.id) }
             case .belles:
                 l = RevueView.bellesDabord(l)
             case .heure:
@@ -165,6 +173,14 @@ struct RevueView: View {
     private var filtres: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Afficher").font(.system(size: 14, weight: .semibold))
+            if let p = etat.photosRevue {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(p.titre).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.attention)
+                    Button("Revenir à toutes les photos") { etat.photosRevue = nil }.buttonStyle(BoutonStyle())
+                }
+                .padding(10)
+                .background(Theme.carte, in: RoundedRectangle(cornerRadius: 6))
+            }
             if let m = etat.momentRevue {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(m.titre).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.attention)
@@ -234,6 +250,12 @@ struct RevueView: View {
                     Button(f.a("reseaux") ? "Réseaux ✓ (R)" : "Réseaux (R)") { basculer("reseaux") }
                         .buttonStyle(BoutonStyle(principal: f.a("reseaux")))
                     Spacer()
+                    if !supprimees.isEmpty {
+                        Button("Annuler la suppression (⌘Z)") { annulerSuppression() }.buttonStyle(BoutonStyle())
+                    }
+                    Button("Supprimer (⌫)") { supprimer() }
+                        .buttonStyle(BoutonStyle())
+                        .help("Retire la copie du serveur local et de la galerie en ligne, et met l'original à la Corbeille. Dans Lightroom, elle apparaît manquante : clic droit sur le dossier › Synchroniser le dossier.")
                     Button("Changer le code…") { nouveauCode = f.codeRetenu; changerCode = true }
                         .buttonStyle(BoutonStyle())
                 }
@@ -307,7 +329,7 @@ struct RevueView: View {
                 ForEach(Array(corrections.prefix(8).enumerated()), id: \.offset) { _, c in
                     Text(c).font(.system(size: 11)).foregroundStyle(Theme.texteDiscret)
                 }
-                Text("Chaque classement (bonne, floue, sol, code, chute, meilleure, réseaux) ajoute un exemple à la mémoire partagée ; l'enlever retire l'exemple. Rien n'est retiré du serveur ici.")
+                Text("Chaque classement (bonne, floue, sol, code, chute, meilleure, réseaux) ajoute un exemple à la mémoire partagée ; l'enlever retire l'exemple. Classer ne retire rien du serveur : seul « Supprimer » le fait (annulable).")
                     .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
             }
             .padding(14)
@@ -362,6 +384,23 @@ struct RevueView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { rafraichirCourante() }
     }
 
+    /// Supprimer la photo affichée : copie retirée du serveur (et de la galerie en ligne), original à la Corbeille.
+    private func supprimer() {
+        guard let f = courante else { return }
+        moteur.supprimer([f.id])
+        supprimees.append(f)
+        corrections.insert("\(f.origine) : supprimée", at: 0)
+        photos.remove(at: index)
+        if index >= photos.count { index = max(0, photos.count - 1) }
+    }
+
+    private func annulerSuppression() {
+        guard let f = supprimees.popLast() else { return }
+        moteur.annulerSuppression([f.id])
+        corrections.insert("\(f.origine) : suppression annulée", at: 0)
+        photos.insert(f, at: min(index, photos.count))
+    }
+
     private func avancer(_ pas: Int) {
         guard !photos.isEmpty else { return }
         index = min(max(0, index + pas), photos.count - 1)
@@ -378,6 +417,8 @@ struct RevueView: View {
             Button("") { basculerChute() }.keyboardShortcut("x", modifiers: [])
             Button("") { basculer("meilleure") }.keyboardShortcut("m", modifiers: [])
             Button("") { basculer("reseaux") }.keyboardShortcut("r", modifiers: [])
+            Button("") { supprimer() }.keyboardShortcut(.delete, modifiers: [])
+            Button("") { annulerSuppression() }.keyboardShortcut("z", modifiers: .command)
         }
         .opacity(0)
         .disabled(changerCode)

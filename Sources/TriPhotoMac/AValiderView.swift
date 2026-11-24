@@ -33,6 +33,7 @@ struct AValiderView: View {
                         }
                     }
                     carte00
+                    carteValidees
                 }
                 .padding(24)
             }
@@ -177,7 +178,10 @@ struct AValiderView: View {
                 Button("Ce n'est pas une photo de code") { if let pc = s.photoCode { moteur.pasUnePhotoDeCode(pc) } }
                     .buttonStyle(BoutonStyle())
             } else {
-                Button("Refuser (garder le code du photographe)") { moteur.garderCodePhotographe(Array(selection)) }
+                Button("Refuser (garder le code du photographe)") {
+                    etat.noterSerieValidee(Array(selection), titre: "\(selection.count) photo\(selection.count > 1 ? "s" : "") gardée\(selection.count > 1 ? "s" : "") en \(s.code.isEmpty ? "sans code" : s.code) · \(s.boitier)")
+                    moteur.garderCodePhotographe(Array(selection))
+                }
                     .buttonStyle(BoutonStyle())
                     .keyboardShortcut(.cancelAction)
             }
@@ -208,6 +212,7 @@ struct AValiderView: View {
 
     private func valider(_ s: SerieAValider) {
         guard let c = codeSaisi, !selection.isEmpty else { return }
+        etat.noterSerieValidee(Array(selection), titre: "\(selection.count) photo\(selection.count > 1 ? "s" : "") → \(c.texte) · \(s.boitier)")
         if s.genre == .photoCode, let pc = s.photoCode {
             if c.texte == pc.code {
                 moteur.utiliserPhotoCode(pc, pour: Array(selection))
@@ -253,6 +258,27 @@ struct AValiderView: View {
     }
 
     // MARK: - _00 et panneau de droite
+
+    /// Les séries déjà validées : un clic les ouvre dans la revue pour les trier (bonne, floue, sol, supprimer…).
+    @ViewBuilder
+    private var carteValidees: some View {
+        if !etat.seriesValidees.isEmpty {
+            Carte(titre: "Séries validées", sousTitre: "Pour les revoir et les trier dans la Revue, quand c'est calme.") {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(etat.seriesValidees.prefix(10).enumerated()), id: \.offset) { _, v in
+                        HStack {
+                            Text(v.heure.formatted(date: .omitted, time: .shortened)).font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(Theme.texteDiscret)
+                            Text(v.titre).font(.system(size: 12))
+                            Spacer()
+                            Button("Revoir et trier") { etat.voirPhotos(v.ids, titre: "Série validée : \(v.titre)") }
+                                .buttonStyle(BoutonStyle())
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     private var carte00: some View {
         Carte(titre: "\(r.sans00.count) photo\(r.sans00.count > 1 ? "s" : "") en _00 ou sans code aujourd'hui",

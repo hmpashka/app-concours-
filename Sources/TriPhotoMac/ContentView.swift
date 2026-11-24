@@ -101,6 +101,21 @@ struct Bandeau: View {
                 }
             }
             Spacer()
+            if moteur.actif {
+                let enPause = moteur.resume.enPause
+                Button {
+                    moteur.mettreEnPause(!enPause)
+                } label: {
+                    Label(enPause ? "Reprendre" : "Pause", systemImage: enPause ? "play.fill" : "pause.fill")
+                        .font(.system(size: 12, weight: enPause ? .semibold : .regular))
+                        .foregroundStyle(enPause ? Color.black : Theme.texte)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(enPause ? Theme.orange : Theme.bordure, in: RoundedRectangle(cornerRadius: 5))
+                }
+                .buttonStyle(.plain)
+                .help(enPause ? "Tout repart : serveur, Lightroom, galerie en ligne."
+                              : "Plus rien ne part (serveur, Lightroom, galerie en ligne). Les photos attendent dans la réception.")
+            }
             Menu {
                 Button(GenreCloture.journee.rawValue + "…") { etat.cloture = .journee }
                 Button(GenreCloture.finale.rawValue + "…") { etat.cloture = .finale }

@@ -82,6 +82,10 @@ final class Etat: ObservableObject {
     @Published var etatAccesDistance = ""
     /// « Voir les photos de ce moment » (incident d'un iPhone) : la revue montre les photos autour de cette heure.
     @Published var momentRevue: (heure: Date, titre: String)?
+    /// « Revoir » une série validée : la revue montre seulement ces photos (ids), pour les trier.
+    @Published var photosRevue: (ids: [Int64], titre: String)?
+    /// Les dernières séries validées ou refusées dans « À valider » (les plus récentes d'abord), pour les revoir.
+    @Published var seriesValidees: [(ids: [Int64], titre: String, heure: Date)] = []
     /// L'état en cours (pour les clics sur les notifications du Mac).
     static weak var courant: Etat?
 
@@ -138,8 +142,23 @@ final class Etat: ObservableObject {
 
     /// Ouvre la revue sur les photos prises autour d'une heure (incident).
     func voirMoment(_ heure: Date, titre: String) {
+        photosRevue = nil
         momentRevue = (heure, titre)
         ecran = .revue
+    }
+
+    /// Ouvre la revue sur ces photos seulement (série validée).
+    func voirPhotos(_ ids: [Int64], titre: String) {
+        momentRevue = nil
+        photosRevue = (ids, titre)
+        ecran = .revue
+    }
+
+    /// Note une série validée pour pouvoir la revoir ensuite (20 dernières).
+    func noterSerieValidee(_ ids: [Int64], titre: String) {
+        guard !ids.isEmpty else { return }
+        seriesValidees.insert((ids, titre, Date()), at: 0)
+        if seriesValidees.count > 20 { seriesValidees.removeLast(seriesValidees.count - 20) }
     }
 
     // MARK: - Panneaux

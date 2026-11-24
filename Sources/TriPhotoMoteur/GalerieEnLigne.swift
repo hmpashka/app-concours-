@@ -101,6 +101,7 @@ public struct EtatGalerieEnLigne: Sendable, Equatable {
     public var derniereReussite: Date?
     public var parMinute = 0.0
     public var pauseReseau = false
+    public var pauseManuelle = false      // bouton Pause de HUGO
     public var reseau: EtatReseau?
     public init() {}
     public var aFaire: Int { aEnvoyer + aSupprimer }
@@ -274,7 +275,17 @@ public final class GalerieEnLigne: @unchecked Sendable {
         }
     }
 
+    /// Bouton Pause de HUGO : plus aucun envoi ni suppression en ligne jusqu'à « Reprendre ».
+    public func mettreEnPause(_ p: Bool) {
+        file.async {
+            self.verrou.lock(); self._etat.pauseManuelle = p; self.verrou.unlock()
+            if !p { self.reessayerApres = .distantPast }
+            self.majEtat()
+        }
+    }
+
     private func tour() {
+        if etat.pauseManuelle { majEtat(); return }
         guard listeRecue, !enCours, Date() >= reessayerApres, !config.hote.isEmpty else { majEtat(); return }
         let (envoyer, supprimer) = aFaire()
         if envoyer.isEmpty && supprimer.isEmpty { forcer = false; majEtat(); return }
