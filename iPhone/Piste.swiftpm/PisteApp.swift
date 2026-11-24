@@ -72,8 +72,9 @@ enum Style {
 
     static func chargerPolices() {
         for nom in ["BarlowCondensed-BoldItalic", "BarlowCondensed-SemiBold", "BarlowCondensed-SemiBoldItalic"] {
-            if let url = Bundle.module.url(forResource: nom, withExtension: "ttf", subdirectory: "Polices")
-                ?? Bundle.module.url(forResource: nom, withExtension: "ttf") {
+            // app .swiftpm : les ressources sont dans le paquet de l'app (pas de Bundle.module)
+            if let url = Bundle.main.url(forResource: nom, withExtension: "ttf", subdirectory: "Polices")
+                ?? Bundle.main.url(forResource: nom, withExtension: "ttf") {
                 CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
             }
         }

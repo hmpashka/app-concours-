@@ -254,6 +254,12 @@ final class ServeurPiste: ObservableObject {
             let la = connectes.filter { $0.piste == p.nom && !$0.nom.isEmpty }.map(\.nom)
             if !la.isEmpty { info.append(la.joined(separator: ", ") + (la.count > 1 ? " y sont" : " y est")) }
             else if !p.photographe.isEmpty { info.append("prévue pour \(p.photographe)") }
+            // photographe attendu sur cette piste d'après la photo de synchro de son boîtier
+            for s in r.boitiersSynchro where s.piste == p.nom && !s.photographe.isEmpty && la.isEmpty && p.photographe.isEmpty {
+                info.append("prévue pour \(s.photographe)")
+                break
+            }
+            if info.isEmpty { info.append("Pas d'épreuve en cours") }
             return .init(nom: p.nom, info: info.joined(separator: " · "))
         }
         return AccueilPiste(concours: reg.nomConcours.isEmpty ? "Concours" : reg.nomConcours,

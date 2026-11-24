@@ -90,6 +90,7 @@ struct DirectView: View {
                         }
                     }
             }
+            .buttonStyle(.plain)
         }
     }
 
