@@ -125,6 +125,9 @@ struct ReglagesConcours: Codable, Equatable {
     var photosParRemise = 12
     var attenteRemiseMinutes = 10
 
+    // 8. Commandes de pack photo
+    var dossierListings = ""             // vide : iCloud Drive › Tri-photo Listings
+
     init() {}
 
     // Lecture tolérante : un réglage ajouté dans une version suivante prend sa valeur par défaut.
@@ -197,6 +200,7 @@ struct ReglagesConcours: Codable, Equatable {
         dossierRemises = lire(.dossierRemises, dossierRemises)
         photosParRemise = lire(.photosParRemise, photosParRemise)
         attenteRemiseMinutes = lire(.attenteRemiseMinutes, attenteRemiseMinutes)
+        dossierListings = lire(.dossierListings, dossierListings)
     }
 }
 

@@ -19,6 +19,10 @@ public enum DepuisPiste: Codable, Sendable, Equatable {
     case incident(heure: Double, note: String)
     /// « C'est changé » touché sur l'alerte de code.
     case alerteVue(boitier: String, attendu: String)
+    /// Commandes : chercher un client (nom, prénom ou cheval) dans les listings gardés sur le Mac.
+    case chercherClient(texte: String)
+    /// Commandes : une commande prise ou modifiée sur l'iPhone.
+    case commande(Commande)
 }
 
 // MARK: - Mac → iPhone
@@ -30,6 +34,10 @@ public enum VersPiste: Codable, Sendable, Equatable {
     case direct(DirectPiste)
     /// Les messages que cet iPhone doit voir (les 100 derniers).
     case messages([MessagePiste])
+    /// Réponse à une recherche de client.
+    case clients(texte: String, [ClientTrouve])
+    /// Les commandes du concours en cours (les 200 dernières).
+    case commandes([Commande])
 }
 
 public struct AccueilPiste: Codable, Sendable, Equatable {

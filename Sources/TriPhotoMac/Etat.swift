@@ -11,6 +11,7 @@ enum Ecran: String, CaseIterable, Identifiable {
     case revue = "Revue"
     case messages = "Messages"
     case memoire = "Mémoire"
+    case commandes = "Commandes"
     case reglages = "Réglages"
     var id: String { rawValue }
 }
@@ -30,6 +31,9 @@ final class Etat: ObservableObject {
             if Etat.reglagesGalerie(reglages) != Etat.reglagesGalerie(oldValue) { galerieEnLigneChangee() }
             if reglages.accesDistance != oldValue.accesDistance || reglages.portAccesDistance != oldValue.portAccesDistance {
                 reglerAccesDistance()
+            }
+            if reglages.dossierListings != oldValue.dossierListings {
+                if retourListings { retourListings = false } else { changerDossierListings(depuis: oldValue) }
             }
             if reglages.dossierMemoire != oldValue.dossierMemoire {
                 if retourMemoire { retourMemoire = false } else { changerDossierMemoire(depuis: oldValue) }
@@ -65,10 +69,13 @@ final class Etat: ObservableObject {
     @Published var messageAttribution = ""
     let serveur = ServeurPiste()
     @Published var messageMemoire = ""
+    /// Listings des concours et commandes de pack photo (dossier iCloud partagé entre les Mac).
+    let archives: Archives
     /// Ancien dossier de la mémoire, s'il y reste des vignettes pas encore téléchargées d'iCloud.
     @Published var ancienDossierMemoire: URL?
     /// Retour à l'ancien dossier de la mémoire après un choix refusé (rien à déplacer).
     var retourMemoire = false
+    var retourListings = false
     /// La mémoire partagée (dossier iCloud des stands).
     @Published var memoire: Memoire
     let acces = AccesDistance()
@@ -82,6 +89,7 @@ final class Etat: ObservableObject {
         let r = Stockage.lire(ReglagesConcours.self, nom: "reglages.json") ?? ReglagesConcours()
         reglages = r
         memoire = Memoire(dossier: Etat.dossierMemoire(r))
+        archives = Archives(dossier: Etat.dossierListings(r))
         concours = Stockage.lire(Concours.self, nom: "concours.json")
         entrainement = Entrainement()
         capture.zones = { [weak self] in self?.reglages.zonesIncrustation ?? [:] }
@@ -96,6 +104,13 @@ final class Etat: ObservableObject {
         serveur.concours = { [weak self] in self?.concours }
         serveur.surMessages = { [weak self] in self?.ecran == .messages }
         serveur.alerteVue = { m.alerteVue(boitier: $0) }
+        serveur.chercherClients = { [weak self] t in self?.chercherClients(t) ?? [] }
+        serveur.commandesDuConcours = { [weak self] in
+            guard let self else { return [] }
+            self.archives.relire(forcer: false)          // les commandes prises sur les autres Mac (toutes les 20 s)
+            return self.archives.commandes(concours: self.idConcours)
+        }
+        serveur.enregistrerCommande = { [weak self] k in self?.archives.enregistrer(k) }
         serveur.suivreEnDirect = { m.suivreEnDirect($0) }
         Etat.courant = self
         serveur.demarrer()
@@ -154,6 +169,7 @@ final class Etat: ObservableObject {
             reglages.cheminFFE = url.path
             if reglages.nomConcours.isEmpty { reglages.nomConcours = c.nom.capitalized }
             Stockage.ecrire(c, nom: "concours.json")
+            garderListing()
         } catch {
             erreurFFE = error.localizedDescription
         }
@@ -243,6 +259,7 @@ final class Etat: ObservableObject {
                                              memoire: r.detectionsActives ? memoire : nil,
                                              remises: configRemises()))
             if !fichierDebutExiste { creerFichierDebut(silencieux: true) }
+            garderListing()
             if chrono?.externe == true {
                 let m = moteur
                 capture.envoyer = { p, e in m.passagesExternes(p, erreur: e) }

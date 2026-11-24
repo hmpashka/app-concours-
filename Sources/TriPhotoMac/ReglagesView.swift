@@ -12,11 +12,12 @@ enum SectionReglages: String, CaseIterable, Identifiable {
     case envois = "5. Envois"
     case cloture = "6. Clôture"
     case memoire = "7. Mémoire, remises des prix"
+    case commandes = "8. Commandes de pack photo"
     case raccourcis = "Raccourcis clavier"
     case modeles = "Modèles de concours"
     var id: String { rawValue }
 
-    static let debut: [SectionReglages] = [.concours, .dossiers, .copies, .lightroom, .envois, .cloture, .memoire]
+    static let debut: [SectionReglages] = [.concours, .dossiers, .copies, .lightroom, .envois, .cloture, .memoire, .commandes]
     static let preferences: [SectionReglages] = [.raccourcis, .modeles]
 }
 
@@ -122,6 +123,7 @@ struct ReglagesView: View {
                         carteEnvois.id(SectionReglages.envois)
                         carteCloture.id(SectionReglages.cloture)
                         carteMemoire.id(SectionReglages.memoire)
+                        carteCommandes.id(SectionReglages.commandes)
                     }
                     .padding(24)
                     .frame(maxWidth: 820, alignment: .leading)
@@ -319,6 +321,20 @@ struct ReglagesView: View {
             }
             Text("Dans Lightroom : clic droit sur « Collections » › Importer des paramètres de collection dynamique, puis choisir les fichiers .lrsmcol.")
                 .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+        }
+    }
+
+    private var carteCommandes: some View {
+        Carte(titre: SectionReglages.commandes.rawValue,
+              sousTitre: "Les listings de chaque concours et les commandes sont gardés dans un dossier partagé par iCloud entre les Mac du stand. Le prix se règle par concours, dans l'écran Commandes.") {
+            ChoixChemin(titre: "Dossier des listings et commandes", aide: "Pas choisi : iCloud Drive › Tri-photo Listings",
+                        chemin: $etat.reglages.dossierListings)
+            if !etat.reglages.dossierListings.isEmpty {
+                Button("Revenir à iCloud Drive › Tri-photo Listings") { etat.reglages.dossierListings = "" }.buttonStyle(BoutonStyle())
+            }
+            Text(etat.archives.message.isEmpty ? "En changeant de dossier, tout son contenu y est déplacé. \(etat.archives.listings.count) concours gardés, \(etat.archives.commandes.count) commandes."
+                                               : etat.archives.message)
+                .font(.system(size: 11)).foregroundStyle(Theme.texteDiscret)
         }
     }
 

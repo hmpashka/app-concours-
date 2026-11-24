@@ -169,6 +169,7 @@ extension Etat {
             let url = fichierFin
             try ecrireEnGardantLAncien(texte, vers: url)
             messageAttribution = "Fichier de fin écrit : \(url.lastPathComponent) (\(engagesTerrain.count) engagés terrain)"
+            garderListing()
             return url
         } catch {
             messageAttribution = "Fichier de fin : \(error.localizedDescription)"

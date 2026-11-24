@@ -20,6 +20,7 @@ final class ServeurPiste: ObservableObject {
         var dernierAccueil: AccueilPiste?
         var dernierDirect: DirectPiste?
         var derniersMessages: [MessagePiste]?
+        var dernieresCommandes: [Commande]?
     }
 
     @Published private(set) var connectes: [Connecte] = []
@@ -36,6 +37,10 @@ final class ServeurPiste: ObservableObject {
     var surMessages: () -> Bool = { false }
     var alerteVue: ((String) -> Void)?
     var suivreEnDirect: ((Bool) -> Void)?
+    // Commandes de pack photo
+    var chercherClients: (String) -> [ClientTrouve] = { _ in [] }
+    var commandesDuConcours: () -> [Commande] = { [] }
+    var enregistrerCommande: ((Commande) -> Void)?
 
     private var ecoute: NWListener?
     private var minuterie: Timer?
@@ -118,6 +123,7 @@ final class ServeurPiste: ObservableObject {
             connectes[i].appareil = appareil
             connectes[i].dernierDirect = nil
             connectes[i].derniersMessages = nil
+            connectes[i].dernieresCommandes = nil
             if !nom.isEmpty && !personnes.contains(nom) {
                 personnes.append(nom)
                 Stockage.ecrire(personnes, nom: "personnes-piste.json")
@@ -135,6 +141,12 @@ final class ServeurPiste: ObservableObject {
                                  heure: heure, pour: "", incident: true))
         case .alerteVue(let boitier, _):
             alerteVue?(boitier)
+        case .chercherClient(let texte):
+            connectes[i].canal.envoyer(.clients(texte: texte, chercherClients(texte)))
+        case .commande(var k):
+            if k.par.isEmpty { k.par = connectes[i].nom.isEmpty ? "iPhone" : connectes[i].nom }
+            enregistrerCommande?(k)
+            actualiser()
         }
     }
 
@@ -207,6 +219,7 @@ final class ServeurPiste: ObservableObject {
         let r = resume()
         let reg = reglages()
         let accueil = fabriquerAccueil(r, reg)
+        let commandes = connectes.isEmpty ? [] : commandesDuConcours()
         for i in connectes.indices {
             let c = connectes[i]
             if c.dernierAccueil != accueil {
@@ -219,6 +232,11 @@ final class ServeurPiste: ObservableObject {
                     c.canal.envoyer(.direct(d))
                     connectes[i].dernierDirect = d
                 }
+            }
+            let ks = Array(commandes.prefix(200))
+            if c.dernieresCommandes != ks {
+                c.canal.envoyer(.commandes(ks))
+                connectes[i].dernieresCommandes = ks
             }
             let ms = Array(messages.filter { $0.pourPersonne(c.nom) }.suffix(100))
             if c.derniersMessages != ms {

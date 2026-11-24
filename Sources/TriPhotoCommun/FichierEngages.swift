@@ -23,6 +23,8 @@ public struct LigneEngage: Codable, Hashable, Sendable {
     public var sexe = ""
     public var robe = ""
     public var race = ""
+    /// Classement dans l'épreuve (fichier SIF avec résultats), vide sinon. Pas dans le CSV.
+    public var classement = ""
 
     public init(epreuve: String, nomEpreuve: String, date: String, dossard: String, nom: String, prenom: String,
                 role: String = "", club: String = "", cheval: String = "", titulaire: String = "", age: String = "",
@@ -191,6 +193,15 @@ public enum FichierEngages {
         return joursFR[cal.component(.weekday, from: d) - 1]
     }
 
+    /// « 22/11/2026 » → date.
+    public static func dateDepuisFR(_ s: String) -> Date? {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "Europe/Paris")
+        f.dateFormat = "dd/MM/yyyy"
+        return f.date(from: s)
+    }
+
     public static func dateISO(_ iso: String) -> Date? {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
@@ -245,6 +256,14 @@ public enum LecteurEngagesFFE {
 }
 
 private final class LecteurEngages: NSObject, XMLParserDelegate {
+    /// Classement lu dans les attributs (« classement » ou « clt »), vide si absent ou nul.
+    static func classement(_ a: [String: String]) -> String {
+        for k in ["classement", "clt"] {
+            if let v = a[k]?.trimmingCharacters(in: .whitespaces), let n = Int(v), n > 0 { return String(n) }
+        }
+        return ""
+    }
+
     var vuConcours = false
     var epreuves: [EpreuveEngages] = []
     private var pile: [String] = []
@@ -278,11 +297,16 @@ private final class LecteurEngages: NSObject, XMLParserDelegate {
             ligne = LigneEngage(epreuve: epreuve!.numero, nomEpreuve: epreuve!.nom, date: epreuve!.date,
                                 dossard: propre(a["dossard"]), nom: "", prenom: "",
                                 role: role.isEmpty ? "Cavalier" : role, titulaire: "Cheval / Poney Titulaire")
+            ligne?.classement = LecteurEngages.classement(a)
         case ("cavalier", "engagement"?) where ligne != nil:
             ligne?.nom = propre(a["nom"]).uppercased()
             ligne?.prenom = FichierEngages.prenomPropre(propre(a["prenom"]))
             let club = propre(a["nom_club"])
             if !club.isEmpty { ligne?.club = club; vuClubCavalier = true }
+        case (_, "engagement"?) where ligne != nil && (ligne?.classement.isEmpty ?? false)
+                && ["resultat", "resultats", "classement"].contains(balise.lowercased()) && !LecteurEngages.classement(a).isEmpty:
+            // résultats du SIF dans une balise à part (selon la version du fichier)
+            ligne?.classement = LecteurEngages.classement(a)
         case ("club", "engagement"?) where ligne != nil && !vuClubCavalier:
             ligne?.club = propre(a["nom"])
         case ("equide", "engagement"?) where ligne != nil:

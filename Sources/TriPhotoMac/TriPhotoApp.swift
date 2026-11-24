@@ -76,6 +76,7 @@ struct MenusTriPhoto: Commands {
             Button("Revue") { etat.ecran = .revue }.raccourci(raccourcis[.revue])
             Button("Messages") { etat.ecran = .messages }
             Button("Mémoire") { etat.ecran = .memoire }.raccourci(raccourcis[.memoire])
+            Button("Commandes") { etat.ecran = .commandes }
             Button("Réglages") { etat.ecran = .reglages }
         }
         CommandGroup(after: .sidebar) {

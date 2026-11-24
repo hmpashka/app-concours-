@@ -7,6 +7,7 @@ import TriPhotoCommun
 struct DirectView: View {
     @EnvironmentObject var liaison: Liaison
     @State private var montrerMessages = false
+    @State private var montrerCommandes = false
     @State private var montrerRenvoyer = false
     @State private var changerPiste = false
     @State private var incident: Date?
@@ -49,6 +50,7 @@ struct DirectView: View {
         .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 8)
         .sheet(isPresented: $montrerMessages) { MessagesPisteView() }
         .sheet(isPresented: $montrerRenvoyer) { RenvoyerView() }
+        .sheet(isPresented: $montrerCommandes) { CommandesPisteView() }
         .sheet(isPresented: $changerPiste) {
             ZStack { Style.fond; ChoixPisteView(fermer: { changerPiste = false }) }.foregroundStyle(Style.creme)
         }
@@ -78,6 +80,13 @@ struct DirectView: View {
                 }
             }
             Spacer()
+            Button { montrerCommandes = true } label: {
+                Image(systemName: "bag").font(.system(size: 17)).foregroundStyle(Style.creme)
+                    .frame(width: 44, height: 44)
+                    .background(.white.opacity(0.08), in: Circle())
+                    .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
             Button { montrerMessages = true } label: {
                 Image(systemName: "bubble.left").font(.system(size: 17)).foregroundStyle(Style.creme)
                     .frame(width: 44, height: 44)

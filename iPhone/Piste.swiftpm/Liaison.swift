@@ -13,6 +13,9 @@ final class Liaison: ObservableObject {
     @Published private(set) var accueil: AccueilPiste?
     @Published private(set) var direct: DirectPiste?
     @Published private(set) var messages: [MessagePiste] = []
+    @Published private(set) var clients: [ClientTrouve] = []      // réponse du Mac à la dernière recherche
+    @Published private(set) var rechercheFaite = ""
+    @Published private(set) var commandes: [Commande] = []        // commandes du concours en cours
     @Published private(set) var etat = "Recherche du Mac Tri-photo sur le wifi…"
 
     @Published var nom: String { didSet { UserDefaults.standard.set(nom, forKey: "nom"); direBonjour() } }
@@ -133,6 +136,8 @@ final class Liaison: ObservableObject {
         case .accueil(let a): accueil = a
         case .direct(let d): if d.piste == piste { direct = d }
         case .messages(let l): messages = l
+        case .clients(let texte, let l): rechercheFaite = texte; clients = l
+        case .commandes(let l): commandes = l
         }
     }
 
@@ -144,6 +149,19 @@ final class Liaison: ObservableObject {
         let t = texte.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
         envoyerOuGarder(.message(texte: t, pour: pour))
+    }
+
+    /// Cherche un client dans les listings gardés sur le Mac (nom, prénom ou cheval).
+    func chercher(client texte: String) {
+        let t = texte.trimmingCharacters(in: .whitespaces)
+        guard t.count >= 2 else { clients = []; rechercheFaite = t; return }
+        if connecte, let canal { canal.envoyer(.chercherClient(texte: t)) }
+    }
+
+    /// La commande part au Mac (gardée ici tant qu'il n'est pas joint).
+    func enregistrer(_ k: Commande) {
+        if let i = commandes.firstIndex(where: { $0.id == k.id }) { commandes[i] = k } else { commandes.insert(k, at: 0) }
+        envoyerOuGarder(.commande(k))
     }
 
     func incident(_ heure: Date) {
