@@ -51,11 +51,13 @@ public struct ConfigGalerieEnLigne: Sendable {
     public var depuis: Date
     /// Ce qui est déjà en ligne, pour ce concours (fichier JSON à côté du journal).
     public var fichierEtat: URL
+    /// Régulateur réseau (console UniFi) : pause quand la ligne internet est chargée par les autres. nil : sans.
+    public var unifi: ConfigUniFi?
 
     public init(protocole: Protocole, hote: String, port: Int, identifiant: String, motDePasse: String, dossier: String,
                 accepterCertificat: Bool, laNuit: Bool, heureNuit: Int, heureMatin: Int, limiteKo: Int, cote: Int,
                 qualite: Int, cube: FichierCube?, cubeDuServeur: Bool, numero: Bool, auteurParDefaut: String,
-                depuis: Date, fichierEtat: URL) {
+                depuis: Date, fichierEtat: URL, unifi: ConfigUniFi? = nil) {
         self.protocole = protocole
         self.hote = hote
         self.port = port
@@ -75,6 +77,7 @@ public struct ConfigGalerieEnLigne: Sendable {
         self.auteurParDefaut = auteurParDefaut
         self.depuis = depuis
         self.fichierEtat = fichierEtat
+        self.unifi = unifi
     }
 
     var portReel: Int { port > 0 ? port : protocole.portParDefaut }
@@ -97,6 +100,8 @@ public struct EtatGalerieEnLigne: Sendable, Equatable {
     public var attendLaNuit = false
     public var derniereReussite: Date?
     public var parMinute = 0.0
+    public var pauseReseau = false
+    public var reseau: EtatReseau?
     public init() {}
     public var aFaire: Int { aEnvoyer + aSupprimer }
 }
@@ -135,10 +140,14 @@ public final class GalerieEnLigne: @unchecked Sendable {
     /// Rien n'est fait tant que le moteur n'a pas donné la liste complète (sinon tout paraîtrait « à supprimer »).
     private var listeRecue = false
     private var suppressionBloquee = 0
+    private var reseau: ReseauUniFi?
+    private var debitPropre = 0.0                          // Mbit/s envoyés par le dernier lot
+    private var finDernierLot = Date.distantPast
     static let parLot = 20
 
     public init(config: ConfigGalerieEnLigne) {
         self.config = config
+        self.reseau = config.unifi.flatMap { $0.adresse.isEmpty || $0.cle.isEmpty ? nil : ReseauUniFi(config: $0) }
         if let d = try? Data(contentsOf: config.fichierEtat),
            let e = try? JSONDecoder().decode([String: String].self, from: d) { envoyees = e }
         let t = DispatchSource.makeTimerSource(queue: file)
@@ -160,6 +169,7 @@ public final class GalerieEnLigne: @unchecked Sendable {
         file.async {
             let autreConcours = c.fichierEtat != self.config.fichierEtat
             self.config = c
+            self.reseau = c.unifi.flatMap { $0.adresse.isEmpty || $0.cle.isEmpty ? nil : ReseauUniFi(config: $0) }
             if autreConcours {
                 self.envoyees = (try? Data(contentsOf: c.fichierEtat))
                     .flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
@@ -196,6 +206,15 @@ public final class GalerieEnLigne: @unchecked Sendable {
                                   copyright: String, auteur: String) throws {
         try TraitementPhoto.fabriquerCopieGalerie(de: url, vers: dest, cote: cote, qualite: qualite, cube: cube,
                                                   numero: numero, copyright: copyright, auteur: auteur)
+    }
+
+    /// Essai de la console UniFi (régulateur réseau) depuis les réglages.
+    public static func testerUniFi(_ c: ConfigUniFi, fini: @escaping @Sendable (Bool, String) -> Void) {
+        DispatchQueue.global(qos: .utility).async {
+            let r = ReseauUniFi(config: c)
+            let (ok, message) = r.tester()
+            fini(ok, message)
+        }
     }
 
     /// Essai de connexion : liste le dossier distant (le crée s'il manque).
@@ -236,6 +255,7 @@ public final class GalerieEnLigne: @unchecked Sendable {
         let depuis = Date().addingTimeInterval(-300)
         historique.removeAll { $0.0 < depuis }
         _etat.parMinute = Double(historique.reduce(0) { $0 + $1.1 }) / 5
+        _etat.reseau = reseau?.etat
         if suppressionBloquee > 0 {
             _etat.message = "\(suppressionBloquee) photos seraient à supprimer d'un coup de la galerie en ligne : rien n'est supprimé, par sécurité."
         }
@@ -259,6 +279,18 @@ public final class GalerieEnLigne: @unchecked Sendable {
         let (envoyer, supprimer) = aFaire()
         if envoyer.isEmpty && supprimer.isEmpty { forcer = false; majEtat(); return }
         if config.laNuit && !forcer && !config.estLaNuit() { majEtat(); return }
+        // Régulateur réseau : la ligne internet est chargée par les autres (stand, iPhone…) : on attend.
+        let propre = Date().timeIntervalSince(finDernierLot) < 30 ? debitPropre : 0
+        if let r = reseau, r.doitAttendre(propreMbit: propre) {
+            verrou.lock()
+            _etat.pauseReseau = true
+            _etat.message = r.etat.message
+            verrou.unlock()
+            reessayerApres = Date().addingTimeInterval(15)
+            majEtat()
+            return
+        }
+        verrou.lock(); _etat.pauseReseau = false; verrou.unlock()
         enCours = true
         majEtat()
         defer { enCours = false; majEtat() }
@@ -287,7 +319,15 @@ public final class GalerieEnLigne: @unchecked Sendable {
                 }
             }
             if !lot.isEmpty {
+                let debut = Date()
+                let octets = lot.reduce(0.0) { somme, element in
+                    let attributs = (try? FileManager.default.attributesOfItem(atPath: element.1.path)) ?? [:]
+                    return somme + ((attributs[.size] as? NSNumber)?.doubleValue ?? 0)
+                }
                 try t.envoyer(lot.map { ($0.1, $0.0.nom) })
+                let duree = max(0.5, Date().timeIntervalSince(debut))
+                debitPropre = octets * 8 / duree / 1_000_000
+                finDernierLot = Date()
                 for (p, _) in lot { envoyees[p.nom] = p.signature }
                 historique.append((Date(), lot.count))
                 sauver()

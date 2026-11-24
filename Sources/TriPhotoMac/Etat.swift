@@ -28,6 +28,9 @@ final class Etat: ObservableObject {
             guard reglages != oldValue else { return }
             Stockage.ecrire(reglages, nom: "reglages.json")
             if Etat.reglagesGalerie(reglages) != Etat.reglagesGalerie(oldValue) { galerieEnLigneChangee() }
+            if reglages.accesDistance != oldValue.accesDistance || reglages.portAccesDistance != oldValue.portAccesDistance {
+                reglerAccesDistance()
+            }
         }
     }
     @Published private(set) var concours: Concours?
@@ -48,12 +51,17 @@ final class Etat: ObservableObject {
     @Published var motDePasseGalerieEnLigne: String = Trousseau.lire("galerie-en-ligne") {
         didSet { Trousseau.ecrire("galerie-en-ligne", motDePasseGalerieEnLigne); galerieEnLigneChangee() }
     }
+    /// Clé API de la console UniFi (régulateur réseau) : dans le trousseau du Mac.
+    @Published var cleUniFi: String = Trousseau.lire("unifi") {
+        didSet { Trousseau.ecrire("unifi", cleUniFi); galerieEnLigneChangee() }
+    }
     @Published var montrerTerrain = false
     @Published var cloture: GenreCloture?
     /// Engagés terrain quand le tri ne tourne pas (sinon : ceux du moteur, qui ajoute aussi ceux du chrono).
     @Published var terrainHorsTri: [EngageTerrain] = []
     @Published var messageAttribution = ""
     let serveur = ServeurPiste()
+    let acces = AccesDistance()
     /// « Voir les photos de ce moment » (incident d'un iPhone) : la revue montre les photos autour de cette heure.
     @Published var momentRevue: (heure: Date, titre: String)?
     /// L'état en cours (pour les clics sur les notifications du Mac).
@@ -79,6 +87,10 @@ final class Etat: ObservableObject {
         Etat.courant = self
         serveur.demarrer()
         terrainHorsTri = fichierTerrain.map { Moteur.engagesTerrain(fichier: $0) } ?? []
+        acces.moteur = m
+        acces.code = { [weak self] in self?.reglages.codeAccesDistance ?? "" }
+        acces.etat = { [weak self] in self?.etatDistance() }
+        reglerAccesDistance()
     }
 
     /// Sources du chrono vues aujourd'hui (pour relier les pistes des réglages à celles du chrono).

@@ -19,7 +19,8 @@ extension Etat {
         [r.adresseFTPGalerie, r.protocoleGalerie.rawValue, "\(r.portGalerie)", r.identifiantGalerie, r.dossierGalerie,
          "\(r.accepterCertificatGalerie)", "\(r.galerieLaNuit)", "\(r.heureNuitGalerie)", "\(r.heureMatinGalerie)",
          "\(r.limiteKoGalerie)", r.auteurGalerie, "\(r.coteGalerie)", "\(r.qualiteGalerie)", "\(r.numeroIncruste)",
-         "\(r.cubeGalerieIdentique)", r.cubeGalerie, r.cubeServeur].joined(separator: "|")
+         "\(r.cubeGalerieIdentique)", r.cubeGalerie, r.cubeServeur, r.adresseUniFi, "\(r.montantMbitLigne)",
+         "\(r.seuilUniFi)"].joined(separator: "|")
     }
 
     /// Premier jour du concours (fichier FFE), sinon aujourd'hui moins les jours du concours.
@@ -58,7 +59,17 @@ extension Etat {
                                     limiteKo: r.limiteKoGalerie, cote: r.coteGalerie, qualite: r.qualiteGalerie, cube: cube,
                                     cubeDuServeur: r.cubeGalerieIdentique, numero: r.numeroIncruste,
                                     auteurParDefaut: r.auteurGalerie, depuis: debutConcours,
-                                    fichierEtat: Stockage.dossier.appendingPathComponent("galerie-en-ligne-\(cleConcours).json"))
+                                    fichierEtat: Stockage.dossier.appendingPathComponent("galerie-en-ligne-\(cleConcours).json"),
+                                    unifi: configUniFi())
+    }
+
+    /// Régulateur réseau : nil sans adresse ou sans clé API.
+    func configUniFi() -> ConfigUniFi? {
+        let r = reglages
+        guard !r.adresseUniFi.trimmingCharacters(in: .whitespaces).isEmpty, !cleUniFi.isEmpty else { return nil }
+        return ConfigUniFi(adresse: r.adresseUniFi, cle: cleUniFi, montantMbit: Double(r.montantMbitLigne),
+                           seuil: Double(r.seuilUniFi) / 100, empreinte: r.empreinteUniFi,
+                           sauverEmpreinte: { emp in Task { @MainActor in Etat.courant?.reglages.empreinteUniFi = emp } })
     }
 
     /// « ftp://ftp.site.fr/ » ou « sftp://site.fr » collés depuis FileZilla → « ftp.site.fr ».
@@ -215,5 +226,41 @@ extension Etat {
         } catch {
             return nil
         }
+    }
+
+    // MARK: - Accès à distance
+
+    func reglerAccesDistance() {
+        if reglages.accesDistance && reglages.codeAccesDistance.count >= 4 {
+            acces.demarrer(port: reglages.portAccesDistance)
+        } else {
+            acces.arreter()
+        }
+    }
+
+    /// Ce que voit la page à distance (tableau de bord, en lecture seule).
+    func etatDistance() -> EtatDistance {
+        let r = moteur.resume
+        let chrono: String
+        if let c = r.chrono {
+            chrono = c.ok == true ? "\(reglages.chronometrage.rawValue) OK" : "\(reglages.chronometrage.rawValue) : \(c.erreur)"
+        } else {
+            chrono = "Sans chrono"
+        }
+        var galerie = ""
+        if let g = r.galerieEnLigne {
+            galerie = g.aFaire == 0 ? "\(g.enLigne) en ligne" : (g.attendLaNuit ? "\(g.aFaire) pour la nuit" : "\(g.aFaire) à envoyer")
+        }
+        return EtatDistance(
+            concours: reglages.nomConcours.isEmpty ? (concours?.nom ?? "") : reglages.nomConcours,
+            actif: moteur.actif, recues: r.recues, parMinute: r.parMinute, enFile: r.enFile, retardSecondes: r.retardSecondes,
+            aValider: r.aValider, aRenvoyer: r.aRenvoyer.count, dansTampon: r.dansTampon, enErreur: r.enErreur,
+            chrono: chrono, galerie: galerie,
+            boitiers: r.boitiers.map { .init(nom: $0.nomAffiche, photos: $0.photos, derniere: $0.derniere?.timeIntervalSince1970) },
+            pistes: r.enPiste.map { .init(piste: $0.piste, epreuve: $0.passage.epreuve, dossard: $0.passage.dossard,
+                                          cavalier: $0.passage.cavalier, cheval: $0.passage.cheval, termine: $0.termine) },
+            alertes: r.alertes,
+            epreuves: (concours?.epreuves ?? []).map { .init(numero: $0.numero, nom: $0.nomDossier) },
+            heure: Date().timeIntervalSince1970)
     }
 }

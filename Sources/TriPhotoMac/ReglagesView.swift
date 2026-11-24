@@ -27,6 +27,8 @@ struct ReglagesView: View {
     @State private var testGalerie = ""
     @State private var testGalerieOK: Bool?
     @State private var testEnCours = false
+    @State private var testUniFi = ""
+    @State private var testUniFiOK: Bool?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -352,6 +354,8 @@ struct ReglagesView: View {
             Divider().overlay(Theme.bordure)
             galerieEnLigne
             Divider().overlay(Theme.bordure)
+            accesDistance
+            Divider().overlay(Theme.bordure)
             Toggle("Sauvegarde des originaux sur un 2e disque (option)", isOn: $etat.reglages.sauvegardeActive)
             if etat.reglages.sauvegardeActive {
                 ChoixChemin(titre: "Disque de sauvegarde", aide: nil, chemin: $etat.reglages.dossierSauvegarde)
@@ -452,6 +456,72 @@ struct ReglagesView: View {
                 }
             }
             Text("Une photo qui existe déjà en ligne est remplacée, une nouvelle est ajoutée, une photo supprimée dans Lightroom est supprimée en ligne. Seules les photos envoyées par l'app sont touchées.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            regulateurReseau
+        }
+    }
+
+    /// Accès à distance : page web en lecture seule (tableau de bord + revue), protégée par un code.
+    @ViewBuilder
+    private var accesDistance: some View {
+        Text("Accès à distance").font(.system(size: 13, weight: .semibold))
+        Toggle("Montrer le tableau de bord et la revue à un autre Mac ou un PC (lecture seule)", isOn: $etat.reglages.accesDistance)
+        if etat.reglages.accesDistance {
+            Ligne("Code d'accès · port") {
+                TextField("6 chiffres", text: $etat.reglages.codeAccesDistance).textFieldStyle(.roundedBorder).frame(width: 110)
+                Button("Nouveau code") { etat.reglages.codeAccesDistance = String(Int.random(in: 100_000...999_999)) }
+                    .buttonStyle(BoutonStyle())
+                TextField("8090", value: $etat.reglages.portAccesDistance, format: .number.grouping(.never))
+                    .textFieldStyle(.roundedBorder).frame(width: 70)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Dans le navigateur de l'autre ordinateur, sur le même réseau que ce Mac :")
+                    .font(.system(size: 11)).foregroundStyle(Theme.texteDiscret)
+                ForEach(AccesDistance.adresses(port: etat.reglages.portAccesDistance), id: \.self) { a in
+                    Text(a).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                }
+                Text("puis le code. Rien ne peut être réglé ni changé depuis cette page.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            }
+        }
+    }
+
+    /// Régulateur réseau : la console UniFi (UDM Pro) dit si la ligne internet est chargée.
+    @ViewBuilder
+    private var regulateurReseau: some View {
+        Text("Régulateur réseau (UniFi)").font(.system(size: 13, weight: .semibold)).padding(.top, 6)
+        Ligne("Console UniFi") {
+            TextField("192.168.1.1 (vide : pas de régulateur)", text: $etat.reglages.adresseUniFi).textFieldStyle(.roundedBorder)
+        }
+        if !etat.reglages.adresseUniFi.isEmpty {
+            Ligne("Clé API") {
+                SecureField("UniFi Network › Paramètres › Plan de contrôle › Intégrations (gardée dans le trousseau)",
+                            text: Binding(get: { etat.cleUniFi }, set: { etat.cleUniFi = $0 }))
+                    .textFieldStyle(.roundedBorder)
+            }
+            Ligne("Débit montant de la ligne") {
+                Stepper("\(etat.reglages.montantMbitLigne) Mbit/s", value: $etat.reglages.montantMbitLigne, in: 1...1000)
+            }
+            Ligne("Pause de la galerie") {
+                Stepper("quand les autres utilisent plus de \(etat.reglages.seuilUniFi) % de la ligne",
+                        value: $etat.reglages.seuilUniFi, in: 30...95, step: 5)
+            }
+            HStack {
+                Button("Tester la console") {
+                    guard let c = etat.configUniFi() else { return }
+                    testUniFi = "Essai en cours…"
+                    testUniFiOK = nil
+                    GalerieEnLigne.testerUniFi(c) { ok, m in Task { @MainActor in testUniFiOK = ok; testUniFi = m } }
+                }
+                .buttonStyle(BoutonStyle()).disabled(etat.cleUniFi.isEmpty)
+                if !etat.reglages.empreinteUniFi.isEmpty {
+                    Button("Oublier le certificat de la console") { etat.reglages.empreinteUniFi = "" }.buttonStyle(BoutonStyle())
+                }
+                if !testUniFi.isEmpty {
+                    Text(testUniFi).font(.system(size: 11)).foregroundStyle(testUniFiOK == false ? Theme.erreur : Theme.ok)
+                }
+            }
+            Text("Les photos des boîtiers et le serveur local passent toujours avant : seule la galerie en ligne attend, et reprend toute seule quand la ligne se libère.")
                 .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
         }
     }

@@ -102,6 +102,15 @@ struct ReglagesConcours: Codable, Equatable {
     var heureMatinGalerie = 7
     var limiteKoGalerie = 0              // Ko/s, 0 : sans limite
     var auteurGalerie = ""               // quand le boîtier n'a pas de photographe
+    // Régulateur réseau (console UniFi, UDM Pro). Clé API : trousseau du Mac.
+    var adresseUniFi = ""                // « 192.168.1.1 »
+    var montantMbitLigne = 10            // débit montant de la ligne internet du concours
+    var seuilUniFi = 70                  // % de la ligne utilisés par les autres → galerie en pause
+    var empreinteUniFi = ""
+    // Accès à distance (page en lecture seule)
+    var accesDistance = false
+    var portAccesDistance = 8090
+    var codeAccesDistance = String(Int.random(in: 100_000...999_999))
     var sauvegardeActive = false
     var dossierSauvegarde = ""
 
@@ -164,6 +173,13 @@ struct ReglagesConcours: Codable, Equatable {
         heureMatinGalerie = lire(.heureMatinGalerie, heureMatinGalerie)
         limiteKoGalerie = lire(.limiteKoGalerie, limiteKoGalerie)
         auteurGalerie = lire(.auteurGalerie, auteurGalerie)
+        adresseUniFi = lire(.adresseUniFi, adresseUniFi)
+        montantMbitLigne = lire(.montantMbitLigne, montantMbitLigne)
+        seuilUniFi = lire(.seuilUniFi, seuilUniFi)
+        empreinteUniFi = lire(.empreinteUniFi, empreinteUniFi)
+        accesDistance = lire(.accesDistance, accesDistance)
+        portAccesDistance = lire(.portAccesDistance, portAccesDistance)
+        codeAccesDistance = lire(.codeAccesDistance, codeAccesDistance)
         sauvegardeActive = lire(.sauvegardeActive, sauvegardeActive)
         dossierSauvegarde = lire(.dossierSauvegarde, dossierSauvegarde)
         dossierClotures = lire(.dossierClotures, dossierClotures)
