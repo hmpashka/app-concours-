@@ -370,3 +370,57 @@ extension Memoire {
         return (r.prete, Dictionary(uniqueKeysWithValues: categories().map { ($0.cle, $0.exemples) }), l)
     }
 }
+
+extension Memoire {
+    /// Change d'emplacement : tout le contenu (catégories, vignettes, fichiers ajoutés à la main) va dans le nouveau
+    /// dossier. Un exemple qui y existe déjà n'est pas doublé. Les vignettes encore dans iCloud (pas téléchargées)
+    /// sont demandées et restent dans l'ancien dossier : il suffit de refaire le déplacement plus tard.
+    /// Renvoie (déplacés, restés).
+    public func toutDeplacer(vers nouveau: URL) -> (deplaces: Int, restes: Int) {
+        let fm = FileManager.default
+        guard dossier.standardizedFileURL != nouveau.standardizedFileURL,
+              fm.fileExists(atPath: dossier.path) else { return (0, 0) }
+        // un dossier dans l'autre : on refuse (on déplacerait la mémoire dans elle-même)
+        let a = dossier.standardizedFileURL.path + "/", b = nouveau.standardizedFileURL.path + "/"
+        if a.hasPrefix(b) || b.hasPrefix(a) { return (-1, 0) }
+        try? fm.createDirectory(at: nouveau, withIntermediateDirectories: true)
+        var deplaces = 0, restes = 0
+        func deplacer(_ source: URL, _ cible: URL) {
+            let contenu = (try? fm.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey], options: [])) ?? []
+            for u in contenu {
+                let nom = u.lastPathComponent
+                if nom == ".DS_Store" { continue }
+                if (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                    let d = cible.appendingPathComponent(nom, isDirectory: true)
+                    try? fm.createDirectory(at: d, withIntermediateDirectories: true)
+                    deplacer(u, d)
+                    try? fm.removeItem(at: u.appendingPathComponent(".DS_Store"))
+                    if ((try? fm.contentsOfDirectory(atPath: u.path)) ?? ["?"]).isEmpty { try? fm.removeItem(at: u) }
+                    continue
+                }
+                if nom.hasPrefix(".") && nom.hasSuffix(".icloud") {
+                    // pas encore sur ce Mac : on la demande, elle partira au prochain déplacement
+                    try? fm.startDownloadingUbiquitousItem(at: source.appendingPathComponent(String(nom.dropFirst().dropLast(7))))
+                    restes += 1
+                    continue
+                }
+                let c = cible.appendingPathComponent(nom)
+                if fm.fileExists(atPath: c.path) {
+                    try? fm.trashItem(at: u, resultingItemURL: nil)     // déjà là-bas : pas de doublon
+                    deplaces += 1
+                } else if (try? fm.moveItem(at: u, to: c)) != nil {
+                    deplaces += 1
+                } else if (try? fm.copyItem(at: u, to: c)) != nil {
+                    try? fm.removeItem(at: u)
+                    deplaces += 1
+                } else {
+                    restes += 1
+                }
+            }
+        }
+        deplacer(dossier, nouveau)
+        try? fm.removeItem(at: dossier.appendingPathComponent(".DS_Store"))
+        if restes == 0, ((try? fm.contentsOfDirectory(atPath: dossier.path)) ?? ["?"]).isEmpty { try? fm.removeItem(at: dossier) }
+        return (deplaces, restes)
+    }
+}

@@ -1596,6 +1596,14 @@ extension Moteur {
         }
     }
 
+    /// Mémoire déplacée (ou détections coupées) pendant le tri.
+    public func reglerMemoire(_ m: Memoire?) {
+        file.async { [weak self] in
+            self?.config?.memoire = m
+            self?.reconnaissance = nil
+        }
+    }
+
     /// Refaire toutes les détections (après de gros changements dans la mémoire).
     public func refaireDetections() {
         file.async { [weak self] in

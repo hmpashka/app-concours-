@@ -327,6 +327,17 @@ struct ReglagesView: View {
               sousTitre: "La mémoire (vignettes seulement) est partagée entre les stands par iCloud et n'est jamais remise à zéro. Les détections tournent au calme et ne font que proposer.") {
             ChoixChemin(titre: "Dossier de la mémoire", aide: "Pas choisi : iCloud Drive › Tri-photo Mémoire",
                         chemin: $etat.reglages.dossierMemoire)
+            HStack {
+                if !etat.reglages.dossierMemoire.isEmpty {
+                    Button("Revenir à iCloud Drive › Tri-photo Mémoire") { etat.reglages.dossierMemoire = "" }.buttonStyle(BoutonStyle())
+                }
+                if etat.ancienDossierMemoire != nil {
+                    Button("Finir le déplacement") { etat.finirDeplacementMemoire() }.buttonStyle(BoutonStyle())
+                }
+            }
+            Text(etat.messageMemoire.isEmpty ? "En changeant de dossier, tout le contenu de la mémoire actuelle y est déplacé (rien n'est perdu ni doublé)."
+                                             : etat.messageMemoire)
+                .font(.system(size: 11)).foregroundStyle(etat.messageMemoire.isEmpty ? Theme.texteTresDiscret : Theme.texteDiscret)
             Toggle("Détections en tâche de fond pendant le tri", isOn: $etat.reglages.detectionsActives)
             Divider().overlay(Theme.bordure)
             Toggle("Copier les meilleures photos de chaque remise des prix (_99) dans Google Drive", isOn: $etat.reglages.remisesActives)

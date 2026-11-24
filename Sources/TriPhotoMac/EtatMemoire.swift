@@ -9,6 +9,47 @@ extension Etat {
         r.dossierMemoire.isEmpty ? Memoire.dossierParDefaut : URL(fileURLWithPath: r.dossierMemoire, isDirectory: true)
     }
 
+    /// Nouvel emplacement de la mémoire : tout ce qu'il y a dans l'ancien dossier y est déplacé (en arrière-plan).
+    func changerDossierMemoire(depuis ancien: ReglagesConcours) {
+        let avant = memoire
+        let neuve = Memoire(dossier: Etat.dossierMemoire(reglages))
+        memoire = neuve
+        moteur.reglerMemoire(reglages.detectionsActives ? neuve : nil)
+        messageMemoire = "Déplacement de la mémoire en cours…"
+        DispatchQueue.global(qos: .utility).async {
+            let r = avant.toutDeplacer(vers: neuve.dossier)
+            neuve.creer()
+            Task { @MainActor in
+                if r.deplaces < 0 {
+                    Etat.courant?.messageMemoire = "Rien n'a bougé : choisis un dossier qui n'est ni dans la mémoire actuelle, ni au-dessus d'elle."
+                    return
+                }
+                let s = r.deplaces > 1 ? "s" : ""
+                var t = "Mémoire déplacée : \(r.deplaces) fichier\(s) dans « \(neuve.dossier.lastPathComponent) »."
+                if r.restes > 0 {
+                    t += " \(r.restes) vignette\(r.restes > 1 ? "s" : "") encore dans iCloud, restée\(r.restes > 1 ? "s" : "") dans l'ancien dossier : bouton « Finir le déplacement » quand elles seront téléchargées."
+                }
+                Etat.courant?.messageMemoire = t
+                Etat.courant?.ancienDossierMemoire = r.restes > 0 ? avant.dossier : nil
+            }
+        }
+    }
+
+    /// Reprend le déplacement des vignettes restées dans l'ancien dossier (elles étaient encore dans iCloud).
+    func finirDeplacementMemoire() {
+        guard let a = ancienDossierMemoire else { return }
+        let neuve = memoire
+        DispatchQueue.global(qos: .utility).async {
+            let r = Memoire(dossier: a).toutDeplacer(vers: neuve.dossier)
+            Task { @MainActor in
+                Etat.courant?.messageMemoire = r.restes > 0
+                    ? "\(r.deplaces) déplacés, \(r.restes) encore dans iCloud : réessaie dans un moment."
+                    : "Déplacement fini (\(r.deplaces) fichiers)."
+                Etat.courant?.ancienDossierMemoire = r.restes > 0 ? a : nil
+            }
+        }
+    }
+
     /// Remises des prix : nil si l'option est coupée ou sans dossier Google Drive.
     func configRemises() -> ConfigRemises? {
         let r = reglages

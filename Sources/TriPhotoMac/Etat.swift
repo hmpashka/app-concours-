@@ -31,7 +31,7 @@ final class Etat: ObservableObject {
             if reglages.accesDistance != oldValue.accesDistance || reglages.portAccesDistance != oldValue.portAccesDistance {
                 reglerAccesDistance()
             }
-            if reglages.dossierMemoire != oldValue.dossierMemoire { memoire = Memoire(dossier: Etat.dossierMemoire(reglages)) }
+            if reglages.dossierMemoire != oldValue.dossierMemoire { changerDossierMemoire(depuis: oldValue) }
         }
     }
     @Published private(set) var concours: Concours?
@@ -62,6 +62,9 @@ final class Etat: ObservableObject {
     @Published var terrainHorsTri: [EngageTerrain] = []
     @Published var messageAttribution = ""
     let serveur = ServeurPiste()
+    @Published var messageMemoire = ""
+    /// Ancien dossier de la mémoire, s'il y reste des vignettes pas encore téléchargées d'iCloud.
+    @Published var ancienDossierMemoire: URL?
     /// La mémoire partagée (dossier iCloud des stands).
     @Published private(set) var memoire: Memoire
     let acces = AccesDistance()
