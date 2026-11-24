@@ -8,7 +8,7 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Bandeau(moteur: etat.moteur)
+            Bandeau(moteur: etat.moteur, serveur: etat.serveur)
             Divider().overlay(Theme.bordure)
             Group {
                 switch etat.ecran {
@@ -16,6 +16,7 @@ struct ContentView: View {
                 case .accueil: AccueilView(moteur: etat.moteur)
                 case .aValider: AValiderView(moteur: etat.moteur)
                 case .revue: RevueView(moteur: etat.moteur)
+                case .messages: MessagesView(serveur: etat.serveur)
                 case .memoire: BientotView(titre: "Mémoire", etape: 5,
                                            texte: "Exemples par catégorie, partagés entre les stands par iCloud.")
                 }
@@ -36,6 +37,17 @@ struct ContentView: View {
 struct Bandeau: View {
     @EnvironmentObject var etat: Etat
     @ObservedObject var moteur: Moteur
+    @ObservedObject var serveur: ServeurPiste
+
+    private func badge(_ e: Ecran) -> (Int, Color)? {
+        switch e {
+        case .aValider: return moteur.resume.series.isEmpty ? nil : (moteur.resume.series.count, Theme.orange)
+        case .messages:
+            let n = serveur.nonLus.values.reduce(0, +)
+            return n == 0 ? nil : (n, Theme.accent)
+        default: return nil
+        }
+    }
 
     private var sousTitre: String {
         var morceaux: [String] = [Date().formatted(.dateTime.weekday(.wide).day().month(.wide).locale(Locale(identifier: "fr_FR")))]
@@ -61,11 +73,11 @@ struct Bandeau: View {
                     Button { etat.ecran = e } label: {
                         HStack(spacing: 5) {
                             Text(e.rawValue)
-                            if e == .aValider && !moteur.resume.series.isEmpty {
-                                Text("\(moteur.resume.series.count)")
+                            if let (n, couleur) = badge(e) {
+                                Text("\(n)")
                                     .font(.system(size: 10, weight: .bold))
                                     .padding(.horizontal, 5).padding(.vertical, 1)
-                                    .background(Theme.orange, in: Capsule())
+                                    .background(couleur, in: Capsule())
                                     .foregroundStyle(Color.black)
                             }
                         }

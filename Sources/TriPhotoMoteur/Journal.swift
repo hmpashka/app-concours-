@@ -284,6 +284,31 @@ final class Journal {
         return sqlite3_step(st) == SQLITE_ROW ? fiche(st) : nil
     }
 
+    /// Nombre de photos parties par code depuis le début de la journée (« #12_03 » → 8).
+    func compteParCode(depuis: Date) -> [String: Int] {
+        let st = preparer("""
+        SELECT CASE WHEN codeFinal<>'' THEN codeFinal ELSE code END AS c, COUNT(*) FROM photos
+          WHERE etat IN ('envoyee','tampon','copiee','aValider') AND recue>=? GROUP BY c
+        """)
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, depuis)
+        var d: [String: Int] = [:]
+        while sqlite3_step(st) == SQLITE_ROW {
+            if let k = CodePassage.lire(texte(st, 0)) { d[k.texte, default: 0] += Int(sqlite3_column_int(st, 1)) }
+        }
+        return d
+    }
+
+    /// Photos d'un état modifiées depuis une heure donnée (les plus récentes d'abord).
+    func fiches(etat: EtatPhoto, majDepuis: Date, limite: Int = 50) -> [FichePhoto] {
+        let st = preparer("SELECT \(Journal.colonnes) FROM photos WHERE etat=? AND maj>=? ORDER BY maj DESC LIMIT ?")
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, etat.rawValue)
+        lier(st, 2, majDepuis)
+        sqlite3_bind_int(st, 3, Int32(limite))
+        return liste(st)
+    }
+
     func fiches(etat: EtatPhoto, limite: Int = 10_000) -> [FichePhoto] {
         let st = preparer("SELECT \(Journal.colonnes) FROM photos WHERE etat=? ORDER BY id LIMIT ?")
         defer { sqlite3_finalize(st) }

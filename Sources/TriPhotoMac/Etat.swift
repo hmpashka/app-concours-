@@ -9,6 +9,7 @@ enum Ecran: String, CaseIterable, Identifiable {
     case accueil = "Accueil"
     case aValider = "À valider"
     case revue = "Revue"
+    case messages = "Messages"
     case memoire = "Mémoire"
     case reglages = "Réglages"
     var id: String { rawValue }
@@ -34,6 +35,11 @@ final class Etat: ObservableObject {
     let entrainement: Entrainement
     let capture = CaptureHorseComp()
     @Published var montrerCapture = false
+    let serveur = ServeurPiste()
+    /// « Voir les photos de ce moment » (incident d'un iPhone) : la revue montre les photos autour de cette heure.
+    @Published var momentRevue: (heure: Date, titre: String)?
+    /// L'état en cours (pour les clics sur les notifications du Mac).
+    static weak var courant: Etat?
 
     init() {
         reglages = Stockage.lire(ReglagesConcours.self, nom: "reglages.json") ?? ReglagesConcours()
@@ -45,6 +51,28 @@ final class Etat: ObservableObject {
         if !reglages.dossierReception.isEmpty {
             entrainement.dossierCible = URL(fileURLWithPath: reglages.dossierReception)
         }
+        let m = moteur
+        serveur.resume = { m.resume }
+        serveur.reglages = { [weak self] in self?.reglages ?? ReglagesConcours() }
+        serveur.concours = { [weak self] in self?.concours }
+        serveur.surMessages = { [weak self] in self?.ecran == .messages }
+        serveur.alerteVue = { m.alerteVue(boitier: $0) }
+        serveur.suivreEnDirect = { m.suivreEnDirect($0) }
+        Etat.courant = self
+        serveur.demarrer()
+    }
+
+    /// Sources du chrono vues aujourd'hui (pour relier les pistes des réglages à celles du chrono).
+    func sourcesChrono(plus: String) -> [String] {
+        var l = Set(moteur.resume.suivis.keys)
+        if !plus.isEmpty { l.insert(plus) }
+        return l.sorted()
+    }
+
+    /// Ouvre la revue sur les photos prises autour d'une heure (incident).
+    func voirMoment(_ heure: Date, titre: String) {
+        momentRevue = (heure, titre)
+        ecran = .revue
     }
 
     // MARK: - Panneaux

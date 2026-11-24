@@ -19,6 +19,22 @@ struct ReglagesConcours: Codable, Equatable {
         var id = UUID()
         var nom: String
         var photographe: String
+        /// Nom de la piste dans le chrono (« source » HM Timing). Vide : trouvé tout seul.
+        var sourceChrono = ""
+
+        init(nom: String, photographe: String, sourceChrono: String = "") {
+            self.nom = nom
+            self.photographe = photographe
+            self.sourceChrono = sourceChrono
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = (try? c.decode(UUID.self, forKey: .id)) ?? UUID()
+            nom = (try? c.decode(String.self, forKey: .nom)) ?? "Piste"
+            photographe = (try? c.decode(String.self, forKey: .photographe)) ?? ""
+            sourceChrono = (try? c.decode(String.self, forKey: .sourceChrono)) ?? ""
+        }
     }
 
     // 1. Concours

@@ -61,7 +61,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
         <key>NSAllowsArbitraryLoads</key><true/>
         <key>NSAllowsLocalNetworking</key><true/>
     </dict>
-    <key>NSLocalNetworkUsageDescription</key><string>Tri-photo lit le chrono HM Timing et les boîtiers sur le réseau du concours.</string>
+    <key>NSLocalNetworkUsageDescription</key><string>Tri-photo lit le chrono HM Timing et parle aux iPhone des pistes sur le réseau du concours.</string>
+    <!-- les iPhone de l'app Piste trouvent le Mac tout seuls -->
+    <key>NSBonjourServices</key>
+    <array><string>_triphoto._tcp</string></array>
 </dict>
 </plist>
 PLIST

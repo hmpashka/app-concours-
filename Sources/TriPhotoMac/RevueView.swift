@@ -44,6 +44,7 @@ struct RevueView: View {
         .onChange(of: epreuve) { _ in charger() }
         .onChange(of: boitier) { _ in charger() }
         .onChange(of: douteusesDabord) { _ in charger() }
+        .onChange(of: etat.momentRevue?.heure) { _ in charger() }
         .background(raccourcis)
     }
 
@@ -85,8 +86,9 @@ struct RevueView: View {
         let ep = epreuve.isEmpty ? nil : epreuve
         let b = boitier
         let dabord = douteusesDabord
+        let moment = etat.momentRevue?.heure
         DispatchQueue.global(qos: .userInitiated).async {
-            var l = moteur.photosRevue(epreuve: ep)
+            var l = moment.map { moteur.photosAutour($0) } ?? moteur.photosRevue(epreuve: ep)
             if !b.isEmpty { l = l.filter { $0.boitier == b } }
             if dabord {
                 let marques = RevueView.douteuses(l)
@@ -110,6 +112,16 @@ struct RevueView: View {
     private var filtres: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Afficher").font(.system(size: 14, weight: .semibold))
+            if let m = etat.momentRevue {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(m.titre).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.attention)
+                    Text("Photos prises une minute avant et après \(m.heure.formatted(date: .omitted, time: .standard)), tous boîtiers.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.texteDiscret)
+                    Button("Revenir à toutes les photos") { etat.momentRevue = nil }.buttonStyle(BoutonStyle())
+                }
+                .padding(10)
+                .background(Theme.carte, in: RoundedRectangle(cornerRadius: 6))
+            }
             Text("Épreuve").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
             Picker("", selection: $epreuve) {
                 Text("Toutes les épreuves").tag("")

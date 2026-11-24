@@ -87,6 +87,21 @@ public struct ResumeMoteur {
     public var epreuveCourbe = ""
     public var alertes: [String] = []
 
+    // Étape 3 : app Piste
+    /// Ce qui se passe sur chaque piste, par nom de piste du chrono (« source »).
+    public var suivis: [String: SuiviPiste] = [:]
+    /// Boîtier → piste du chrono (apprise sur les photos au bon code).
+    public var boitierPiste: [String: String] = [:]
+    public var alertesCode: [AlerteCodePiste] = []
+    /// Photos parties par code aujourd'hui (« #12_03 » → 8).
+    public var compteParCode: [String: Int] = [:]
+    /// Photos renvoyées et bien arrivées ces 10 dernières minutes (nom d'origine).
+    public var bienArrivees: [FichePhoto] = []
+    /// Heure du chrono maintenant (horloge du Mac + écart).
+    public var heureChrono: Double = 0
+    /// Début du nom des photos d'un boîtier (« DERB ») → boîtier : retrouve le boîtier d'une photo illisible.
+    public var prefixeBoitier: [String: String] = [:]
+
     public init() {}
 }
 
@@ -169,6 +184,12 @@ public final class Moteur: ObservableObject {
     private var dernierCalcul = Date.distantPast
     private var cache00: [FichePhoto] = []
     private var cacheCourbe: (String, [CodeCompte]) = ("", [])
+    private var cacheCompte: [String: Int] = [:]
+    private var cacheBienArrivees: [FichePhoto] = []
+    private var nomsARenvoyer: [String: Int64] = [:]           // nom d'origine (minuscules) → photo mal arrivée
+    private var alertesVues: [String: Double] = [:]            // boîtier → heure de la dernière photo quand vue
+    private var direct = false                                  // des iPhone suivent les pistes
+    private var prefixeBoitier: [String: String] = [:]
 
     public static let dossierARenvoyer = "_À renvoyer"
     public static let dossierAAttribuer = "À attribuer"
@@ -179,6 +200,7 @@ public final class Moteur: ObservableObject {
     static let codeGarde = "Code du photographe gardé par HUGO"
     static let pasPhotoCode = "Pas une photo de code (HUGO)"
     static let sansChrono = "Partie sans vérification du chrono"
+    public static let bienArrivee = "Renvoyée : bien arrivée"
 
     // MARK: - Démarrer / arrêter
 
@@ -243,7 +265,8 @@ public final class Moteur: ObservableObject {
         }
 
         // Chrono : les passages, seulement quand des photos en ont besoin (quelques Ko toutes les 8 s au plus).
-        if let ch = chrono, !presentes.isEmpty || !enAttenteChrono.isEmpty || ch.ok == nil
+        // Des iPhone suivent les pistes : passages demandés toutes les 8 s même sans photo.
+        if let ch = chrono, !presentes.isEmpty || !enAttenteChrono.isEmpty || ch.ok == nil || direct
             || maintenant.timeIntervalSince(ch.vu ?? .distantPast) > 60 {
             ch.actualiserSiBesoin(depuis: maintenant.addingTimeInterval(-4 * 3600))
         }
@@ -305,6 +328,33 @@ public final class Moteur: ObservableObject {
             }
             fiche.boitier = infos.boitier
             fiche.prise = infos.prise
+
+            let prefixe = Moteur.prefixe(fiche.origine)
+            if !prefixe.isEmpty, !infos.boitier.isEmpty {
+                let bt = infos.boitier
+                // plusieurs boîtiers au même début de nom (« IMG_ ») : « * », la photo illisible est montrée à toutes les pistes
+                file.sync {
+                    if let avant = prefixeBoitier[prefixe] { if avant != bt { prefixeBoitier[prefixe] = "*" } }
+                    else { prefixeBoitier[prefixe] = bt }
+                }
+            }
+
+            // 1b. Photo renvoyée par le photographe (elle était mal arrivée) : l'ancienne, abîmée, va à la corbeille
+            //     et sort de la liste « à renvoyer » de l'iPhone.
+            let cleNom = fiche.origine.lowercased()
+            let idFiche = fiche.id
+            if let ancien = file.sync(execute: { nomsARenvoyer[cleNom] }), ancien != idFiche,
+               var vieille = file.sync(execute: { journal?.fiche(id: ancien) }), vieille.etat == .aRenvoyer {
+                try? FileManager.default.trashItem(at: URL(fileURLWithPath: vieille.chemin), resultingItemURL: nil)
+                vieille.etat = .retiree
+                vieille.erreur = Moteur.bienArrivee
+                let v = vieille
+                file.sync {
+                    journal?.mettreAJour(v)
+                    nomsARenvoyer[cleNom] = nil
+                    cacheBienArrivees.insert(v, at: 0)
+                }
+            }
 
             // 2. Code du photographe (Copyright). Un code validé par HUGO prend le pas.
             let codePhotographe = CodePassage.lire(infos.copyright)
@@ -569,6 +619,7 @@ public final class Moteur: ObservableObject {
         r.retardSecondes = vuesEnAttente.values.min().map { maintenant.timeIntervalSince($0) } ?? 0
         // à renvoyer : tant que le fichier abîmé est encore dans « _À renvoyer » (HUGO le supprime une fois renvoyé)
         r.aRenvoyer = j.fiches(etat: .aRenvoyer, limite: 500).filter { FileManager.default.fileExists(atPath: $0.chemin) }
+        nomsARenvoyer = Dictionary(r.aRenvoyer.map { ($0.origine.lowercased(), $0.id) }, uniquingKeysWith: { a, _ in a })
         r.doublons = j.fiches(etat: .doublon, limite: 500).filter { FileManager.default.fileExists(atPath: $0.chemin) }
         r.enErreur = compte[.erreur] ?? 0
         r.dansTampon = compte[.tampon] ?? 0
@@ -658,7 +709,79 @@ public final class Moteur: ObservableObject {
         for (b, v) in parBoitier where v.0 >= 10 && Double(v.1) / Double(v.0) > 0.4 {
             r.alertes.append("\(b) : \(v.1) photos sur \(v.0) en _00 ou sans code.")
         }
+        publierPistes(&r, journal: j, maintenant: maintenant)
         DispatchQueue.main.async { self.resume = r }
+    }
+
+    // MARK: - Pistes (app Piste sur les iPhone)
+
+    private func publierPistes(_ r: inout ResumeMoteur, journal j: Journal, maintenant: Date) {
+        if maintenant.timeIntervalSince(dernierCalcul) < 1 {       // recalculé en même temps que la courbe (10 s)
+            cacheCompte = j.compteParCode(depuis: debutJournee)
+            cacheBienArrivees = j.fiches(etat: .retiree, majDepuis: maintenant.addingTimeInterval(-600))
+                .filter { $0.erreur == Moteur.bienArrivee }
+        }
+        r.compteParCode = cacheCompte
+        r.bienArrivees = cacheBienArrivees.filter { maintenant.timeIntervalSince($0.maj) < 600 }
+        r.boitierPiste = pisteDuBoitier
+        r.prefixeBoitier = prefixeBoitier
+        guard let ch = chrono else { return }
+        let t = maintenant.timeIntervalSince1970 + ch.ecart
+        r.heureChrono = t
+        let ps = ch.passages
+        for source in Set(ps.map(\.source)) {
+            r.suivis[source] = SuiviPiste.calculer(source: source, passages: ps, concours: config?.concours, maintenant: t)
+        }
+        // dernières photos de chaque boîtier (code du photographe, tel que réglé sur le boîtier)
+        var photos: [String: [(code: String, prise: Double)]] = [:]
+        var derniere: [String: Double] = [:]
+        for f in j.dernieres(150) where ![.aRenvoyer, .doublon, .ecartee].contains(f.etat) {
+            guard let p = f.prise, !f.boitier.isEmpty else { continue }
+            let h = ch.heureChrono(p)
+            photos[f.boitier, default: []].append((code: f.code, prise: h))
+            derniere[f.boitier] = max(derniere[f.boitier] ?? 0, h)
+        }
+        for (b, l) in photos {
+            guard let source = pisteDuBoitier[b], let s = r.suivis[source],
+                  let a = SuiviPiste.alerteCode(boitier: b, photos: l, suivi: s) else { continue }
+            if let vue = alertesVues[b], (derniere[b] ?? 0) <= vue { continue }    // « c'est changé » : on attend la photo suivante
+            r.alertesCode.append(a)
+            r.alertes.append("\(b) (\(source)) : photos encore en \(a.ancien), l'épreuve \(s.epreuve) a commencé.")
+        }
+        // couple sans aucune photo alors que le boîtier de la piste travaille
+        for (source, s) in r.suivis {
+            guard let p = s.precedent, let fin = p.fin ?? s.enPiste?.debut, fin + 60 < t, t - fin < 900,
+                  p.code.special == nil, (cacheCompte[p.code.texte] ?? 0) == 0 else { continue }
+            let actif = pisteDuBoitier.contains { $0.value == source && t - (derniere[$0.key] ?? 0) < 600 }
+            if actif { r.alertes.append("\(source) : aucune photo de \(p.code.texte) (\(p.cavalier)).") }
+        }
+    }
+
+    /// « DERB1340-35.JPG » → « DERB », « IMG_8812.JPG » → « IMG_ ».
+    public static func prefixe(_ nom: String) -> String {
+        String(nom.prefix { !$0.isNumber }).uppercased()
+    }
+
+    /// Des iPhone suivent les pistes : le chrono est interrogé toutes les 8 s, même sans photo à vérifier.
+    public func suivreEnDirect(_ actif: Bool) { file.async { [weak self] in self?.direct = actif } }
+
+    /// « C'est changé » touché sur l'iPhone : l'alerte ne revient que si la photo suivante a encore l'ancien code.
+    public func alerteVue(boitier: String) {
+        file.async { [weak self] in
+            guard let self, let j = self.journal, let ch = self.chrono else { return }
+            let h = j.dernieres(150).filter { $0.boitier == boitier }.compactMap(\.prise).map(ch.heureChrono).max() ?? 0
+            self.alertesVues[boitier] = h
+        }
+    }
+
+    /// Photos prises autour d'une heure (bouton INCIDENT d'un iPhone), tous boîtiers.
+    public func photosAutour(_ heure: Date, secondes: Double = 60) -> [FichePhoto] {
+        file.sync {
+            (journal?.dernieres(3000) ?? []).filter {
+                guard let p = $0.prise else { return false }
+                return abs(p.timeIntervalSince(heure)) <= secondes && ![.aRenvoyer, .doublon, .ecartee, .photoCode].contains($0.etat)
+            }.sorted { ($0.prise ?? .distantPast) < ($1.prise ?? .distantPast) }
+        }
     }
 
     // MARK: - Doublons (décision de HUGO)

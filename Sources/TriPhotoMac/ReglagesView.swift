@@ -220,11 +220,18 @@ struct ReglagesView: View {
                 HStack {
                     TextField("Piste", text: $piste.nom).textFieldStyle(.roundedBorder).frame(width: 200)
                     TextField("Photographe", text: $piste.photographe).textFieldStyle(.roundedBorder)
+                    Picker("", selection: $piste.sourceChrono) {
+                        Text("Chrono : trouvé tout seul").tag("")
+                        ForEach(etat.sourcesChrono(plus: piste.sourceChrono), id: \.self) { Text("Chrono : \($0)").tag($0) }
+                    }
+                    .labelsHidden().frame(width: 200)
                     Button("Retirer") { etat.reglages.pistes.removeAll { $0.id == piste.id } }
                         .buttonStyle(BoutonStyle())
                         .disabled(etat.reglages.pistes.count <= 1)
                 }
             }
+            Text("Les iPhone de l'app Piste voient ces pistes. « Chrono » relie chaque piste à celle du chrono (utile s'il y en a plusieurs).")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
             Button("Ajouter une piste") {
                 etat.reglages.pistes.append(.init(nom: "Piste \(etat.reglages.pistes.count + 1)", photographe: ""))
             }
