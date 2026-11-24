@@ -192,7 +192,12 @@ final class Liaison: ObservableObject {
 final class NotifsPiste: NSObject, UNUserNotificationCenterDelegate {
     static let partage = NotifsPiste()
     private var demande = false
-    private var premiereListe = true
+    /// Heure du dernier message déjà signalé, gardée même quand l'app est fermée :
+    /// à la réouverture, le Mac renvoie tout l'historique, mais rien n'est signalé deux fois.
+    private var dernierVu: Double {
+        get { UserDefaults.standard.object(forKey: "dernierMessageVu") as? Double ?? Date().timeIntervalSince1970 }
+        set { UserDefaults.standard.set(newValue, forKey: "dernierMessageVu") }
+    }
 
     func demander() {
         guard !demande else { return }
@@ -204,10 +209,10 @@ final class NotifsPiste: NSObject, UNUserNotificationCenterDelegate {
 
     /// Nouveaux messages pour moi (ou pour tout le monde), écrits par quelqu'un d'autre.
     func nouveaux(_ l: [MessagePiste], avant: [MessagePiste], moi: String) {
-        // la première liste reçue après l'ouverture, c'est l'historique : pas de bulles
-        if premiereListe { premiereListe = false; return }
+        let depuis = dernierVu
+        dernierVu = max(depuis, l.map(\.heure).max() ?? depuis)
         let connus = Set(avant.map(\.id))
-        for m in l where !connus.contains(m.id) && m.qui != moi && (m.pour.isEmpty || m.pour == moi) {
+        for m in l where m.heure > depuis && !connus.contains(m.id) && m.qui != moi && (m.pour.isEmpty || m.pour == moi) {
             let n = UNMutableNotificationContent()
             n.title = m.incident ? "Incident · \(m.qui)" : (m.qui == "Stand" ? "Stand" : m.qui) + (m.pour.isEmpty ? " · à tous" : "")
             n.body = m.texte

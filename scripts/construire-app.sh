@@ -38,6 +38,8 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/$NOM.icns"
 rm -rf "$ICONSET"
 # icônes des deux thèmes (le Dock prend celle du thème choisi)
 cp Ressources/Icone-bleuOr.png Ressources/Icone-graphite.png "$APP/Contents/Resources/"
+# sons du Mac dans l'app : les bulles de notification ne savent jouer que les sons rangés dans l'app
+cp /System/Library/Sounds/*.aiff "$APP/Contents/Resources/" 2>/dev/null || true
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

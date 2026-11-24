@@ -149,13 +149,13 @@ final class Notifieur {
 
     /// Bouton « Essayer » des réglages : un son et une bulle avec « Répondre », sans tenir compte des préférences.
     func essayer() {
-        dernierSon = .distantPast
-        jouer(Preferences.partagees.reglage(.message).son.isEmpty ? "Pop" : Preferences.partagees.reglage(.message).son)
-        guard possible else { return }
+        let son = Preferences.partagees.reglage(.message).son.isEmpty ? "Pop" : Preferences.partagees.reglage(.message).son
+        guard possible else { dernierSon = .distantPast; jouer(son); return }
         demanderAutorisation()
         let n = UNMutableNotificationContent()
         n.title = "Essai · Groom Pix"
         n.body = "Si tu vois cette bulle, les notifications marchent. Passe la souris dessus pour voir « Répondre »."
+        n.sound = UNNotificationSound(named: UNNotificationSoundName("\(son).aiff"))
         n.categoryIdentifier = Notifieur.categorieMessage
         n.userInfo = ["essai": "1", "ecran": Ecran.messages.rawValue]
         // une seconde plus tard : laisse le temps à la fenêtre d'autorisation
@@ -179,9 +179,8 @@ final class Notifieur {
         let r = p.reglage(e)
         if p.mode == .rush && !r.enRush { return }
         guard r.affichage == .banniere || r.affichage == .alerte else { return }
-        jouer(r.son)
         if r.affichage == .alerte { NSApp.requestUserAttention(.criticalRequest) }
-        guard possible else { return }
+        guard possible else { jouer(r.son); return }
         // regroupement : à partir de 3 en une minute, une seule notification mise à jour
         let maintenant = Date()
         var l = (recents[e] ?? []).filter { maintenant.timeIntervalSince($0) < 60 }
@@ -197,13 +196,25 @@ final class Notifieur {
             n.title = titre
             n.body = texte
         }
-        n.sound = nil                                        // le son est joué par l'app
+        // Le son part AVEC la bulle (son du Mac choisi dans les réglages), comme les autres apps.
+        // Le son joué par l'app ne sert plus que si le Mac refuse les bulles.
+        if !r.son.isEmpty && p.mode != .silencieux { n.sound = UNNotificationSound(named: UNNotificationSoundName("\(r.son).aiff")) }
         n.threadIdentifier = e.rawValue
         if (e == .message || e == .incident) && l.count < 3 { n.categoryIdentifier = Notifieur.categorieMessage }
         var info: [String: String] = infos
         info["ecran"] = e.ecran.rawValue
         n.userInfo = info
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: ident, content: n, trigger: nil))
+        let demande = UNNotificationRequest(identifier: ident, content: n, trigger: nil)
+        let son = r.son
+        UNUserNotificationCenter.current().getNotificationSettings { reg in
+            let bulles = reg.authorizationStatus == .authorized || reg.authorizationStatus == .provisional
+            if bulles && reg.soundSetting != .disabled {
+                UNUserNotificationCenter.current().add(demande)
+            } else {
+                UNUserNotificationCenter.current().add(demande)
+                Task { @MainActor in Notifieur.partage.jouer(son) }
+            }
+        }
     }
 
     /// Surveille le moteur : nouvelles séries à valider, doublons, erreurs, boîtiers silencieux, remises copiées.
