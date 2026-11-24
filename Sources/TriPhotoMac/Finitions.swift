@@ -300,7 +300,7 @@ struct CarteLicence: View {
 
     var body: some View {
         Carte(titre: SectionReglages.protection.rawValue,
-              sousTitre: "Même compte et même page d'administration que tes autres logiciels : live.hmphotographie.fr/admin › Mes abonnés › Groom Pix. De là, tu vois chaque Mac (dernier signal, ville approximative) et tu peux bloquer un Mac volé ou suspendre un compte.") {
+              sousTitre: "Licence vérifiée par HM Photographie sur live.hmphotographie.fr. En cas de vol, HM Photographie peut bloquer ce Mac à distance.") {
             Ligne("Ce Mac") {
                 Text("\(Licence.nomCeMac) · \(Licence.poste.prefix(12))").font(.system(size: 13))
             }
@@ -317,7 +317,6 @@ struct CarteLicence: View {
             }
             HStack {
                 Button("Vérifier maintenant") { l.signaler() }.buttonStyle(BoutonStyle())
-                Button("Ouvrir la page d'administration") { NSWorkspace.shared.open(Licence.pageAdmin) }.buttonStyle(BoutonStyle())
                 Button("Déconnecter ce Mac") { confirmer = true }.buttonStyle(BoutonStyle())
             }
             if !l.message.isEmpty { Text(l.message).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret) }

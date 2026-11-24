@@ -19,7 +19,6 @@ final class Licence: ObservableObject {
 
     nonisolated static let site = URL(string: "https://live.hmphotographie.fr")!
     nonisolated static let produit = "groompix"
-    static let pageAdmin = URL(string: "https://live.hmphotographie.fr/admin")!
     /// Clé publique des licences HM (la même que HM TIMINGS, serveur/licence.py).
     nonisolated static let clePublique = "e10bdabb55d9e13b6e7e94575cc044982e7ebc69d478a7b8482883f0b71bf876"
     static let joursMax = 6.0
