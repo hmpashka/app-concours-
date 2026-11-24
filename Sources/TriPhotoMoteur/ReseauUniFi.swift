@@ -94,10 +94,16 @@ final class ReseauUniFi: NSObject, URLSessionDelegate, @unchecked Sendable {
                     calmeDepuis = nil
                 }
             }
-            _etat = EtatReseau(ok: true,
-                               message: sature ? String(format: "Ligne internet chargée (%.1f Mbit/s par les autres) : galerie en pause.", autres)
-                                               : String(format: "Ligne internet : %.1f Mbit/s envoyés, %.1f reçus.", montant, rx / 1_000_000),
-                               montantMbit: montant, descendantMbit: rx / 1_000_000, autresMbit: autres, sature: sature, le: Date())
+            var e = EtatReseau()
+            e.ok = true
+            e.message = sature ? String(format: "Ligne internet chargée (%.1f Mbit/s par les autres) : galerie en pause.", autres)
+                               : String(format: "Ligne internet : %.1f Mbit/s envoyés, %.1f reçus.", montant, rx / 1_000_000)
+            e.montantMbit = montant
+            e.descendantMbit = rx / 1_000_000
+            e.autresMbit = autres
+            e.sature = sature
+            e.le = Date()
+            _etat = e
             verrou.unlock()
         } catch {
             // Console injoignable : la galerie n'est pas bloquée pour autant (débit maximum des réglages).
