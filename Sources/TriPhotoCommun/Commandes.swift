@@ -249,7 +249,7 @@ public struct Commande: Codable, Sendable, Equatable, Identifiable, Hashable {
         let l = choix.filter { $0.concours == c }
         let tarif = client.tarifs[c] ?? .parDefaut
         let lignes = l.map { Ligne(epreuve: $0.epreuve, nomEpreuve: $0.nomEpreuve, dossard: $0.dossard, cheval: $0.cheval, remise: $0.remise) }
-        let n = Set(l.map { normaliser($0.cheval) }).count
+        let n = Set(l.map { Commandes.normaliser($0.cheval) }).count
         return Commande(concours: c, nomConcours: l[0].nomConcours, nom: client.nom, prenom: client.prenom, lignes: lignes,
                         prix: tarif.prix(chevaux: n), par: par)
     }
