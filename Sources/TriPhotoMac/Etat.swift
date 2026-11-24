@@ -31,6 +31,7 @@ final class Etat: ObservableObject {
             if reglages.accesDistance != oldValue.accesDistance || reglages.portAccesDistance != oldValue.portAccesDistance {
                 reglerAccesDistance()
             }
+            if reglages.dossierMemoire != oldValue.dossierMemoire { memoire = Memoire(dossier: Etat.dossierMemoire(reglages)) }
         }
     }
     @Published private(set) var concours: Concours?
@@ -61,6 +62,8 @@ final class Etat: ObservableObject {
     @Published var terrainHorsTri: [EngageTerrain] = []
     @Published var messageAttribution = ""
     let serveur = ServeurPiste()
+    /// La mémoire partagée (dossier iCloud des stands).
+    @Published private(set) var memoire: Memoire
     let acces = AccesDistance()
     @Published var etatAccesDistance = ""
     /// « Voir les photos de ce moment » (incident d'un iPhone) : la revue montre les photos autour de cette heure.
@@ -69,7 +72,9 @@ final class Etat: ObservableObject {
     static weak var courant: Etat?
 
     init() {
-        reglages = Stockage.lire(ReglagesConcours.self, nom: "reglages.json") ?? ReglagesConcours()
+        let r = Stockage.lire(ReglagesConcours.self, nom: "reglages.json") ?? ReglagesConcours()
+        reglages = r
+        memoire = Memoire(dossier: Etat.dossierMemoire(r))
         concours = Stockage.lire(Concours.self, nom: "concours.json")
         entrainement = Entrainement()
         capture.zones = { [weak self] in self?.reglages.zonesIncrustation ?? [:] }
@@ -227,7 +232,9 @@ final class Etat: ObservableObject {
                                                      Task { @MainActor in Etat.courant?.reglages.empreinteGalerieStand = emp }
                                                  }),
                                              galerieEnLigne: configGalerieEnLigne(),
-                                             fichierTerrain: fichierTerrain))
+                                             fichierTerrain: fichierTerrain,
+                                             memoire: r.detectionsActives ? memoire : nil,
+                                             remises: configRemises()))
             if !fichierDebutExiste { creerFichierDebut(silencieux: true) }
             if chrono?.externe == true {
                 let m = moteur

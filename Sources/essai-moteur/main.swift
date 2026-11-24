@@ -60,6 +60,50 @@ if let ffe = option("--attribution") {
     }
 }
 
+// --collections f.xml [--sortie dossier] : collections dynamiques Lightroom (.lrsmcol), une par épreuve.
+if let ffe = option("--collections") {
+    let sortie = option("--sortie")
+    do {
+        let e = try LecteurEngagesFFE.lire(fichier: URL(fileURLWithPath: (ffe as NSString).expandingTildeInPath))
+        if let sortie {
+            let n = try CollectionsLightroom.ecrire(e, dans: URL(fileURLWithPath: (sortie as NSString).expandingTildeInPath, isDirectory: true))
+            print("\(n) collections → \(sortie)")
+        } else {
+            for c in CollectionsLightroom.collections(e) { print("== \(c.fichier)\n\(c.contenu)") }
+        }
+        exit(0)
+    } catch {
+        quitter("Collections : \(error.localizedDescription)")
+    }
+}
+
+// --memoire dossier-memoire photo1.jpg [photo2.jpg…] : ce que la mémoire reconnaît sur ces photos (sans rien modifier).
+// --memoire-ajouter dossier-memoire categorie photo1.jpg… : ajoute des vignettes (pour préparer un essai).
+if let dossier = option("--memoire-ajouter") {
+    guard args.count >= 2 else { quitter("Usage : essai-moteur --memoire-ajouter dossier categorie photos…") }
+    let m = Memoire(dossier: URL(fileURLWithPath: (dossier as NSString).expandingTildeInPath, isDirectory: true))
+    m.creer()
+    let cat = args[0]
+    var ok = 0
+    for p in args.dropFirst() where (try? m.ajouter(photo: URL(fileURLWithPath: (p as NSString).expandingTildeInPath), categorie: cat)) != nil { ok += 1 }
+    print("\(ok) vignettes ajoutées à « \(cat) »")
+    exit(0)
+}
+if let dossier = option("--memoire") {
+    let m = Memoire(dossier: URL(fileURLWithPath: (dossier as NSString).expandingTildeInPath, isDirectory: true))
+    let cache = FileManager.default.temporaryDirectory.appendingPathComponent("essai-empreintes", isDirectory: true)
+    let t0 = Date()
+    let e = m.essai(args.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }, cache: cache)
+    print("Mémoire : " + e.comptes.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", ")
+          + (e.prete ? " (prête)" : " (pas encore prête : 20 exemples par catégorie)"))
+    for (u, r, v, t) in e.resultats {
+        print(String(format: "%@ : %@ %d %% · belle %.2f · visage %.2f · %.0f ms", u.lastPathComponent, r.texte, r.confiance,
+                     r.belle, v, t * 1000))
+    }
+    print(String(format: "Total %.1f s (empreintes des exemples comprises)", Date().timeIntervalSince(t0)))
+    exit(0)
+}
+
 // --copie-galerie photo.jpg sortie.jpg [--cube f.cube] : une copie de galerie (numéro incrusté) pour la regarder.
 if let photo = option("--copie-galerie") {
     guard let sortie = args.first else { quitter("Usage : essai-moteur --copie-galerie photo.jpg sortie.jpg [--cube f.cube]") }

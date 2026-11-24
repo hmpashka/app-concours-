@@ -117,6 +117,14 @@ struct ReglagesConcours: Codable, Equatable {
     // 6. Clôture
     var dossierClotures = ""
 
+    // 7. Mémoire (étape 5) et remises des prix
+    var dossierMemoire = ""              // vide : iCloud Drive › Tri-photo Mémoire
+    var detectionsActives = true
+    var remisesActives = false
+    var dossierRemises = ""              // dossier Google Drive sur le Mac (« Mon Drive › Remises des prix »)
+    var photosParRemise = 12
+    var attenteRemiseMinutes = 10
+
     init() {}
 
     // Lecture tolérante : un réglage ajouté dans une version suivante prend sa valeur par défaut.
@@ -183,6 +191,12 @@ struct ReglagesConcours: Codable, Equatable {
         sauvegardeActive = lire(.sauvegardeActive, sauvegardeActive)
         dossierSauvegarde = lire(.dossierSauvegarde, dossierSauvegarde)
         dossierClotures = lire(.dossierClotures, dossierClotures)
+        dossierMemoire = lire(.dossierMemoire, dossierMemoire)
+        detectionsActives = lire(.detectionsActives, detectionsActives)
+        remisesActives = lire(.remisesActives, remisesActives)
+        dossierRemises = lire(.dossierRemises, dossierRemises)
+        photosParRemise = lire(.photosParRemise, photosParRemise)
+        attenteRemiseMinutes = lire(.attenteRemiseMinutes, attenteRemiseMinutes)
     }
 }
 

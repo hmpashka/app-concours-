@@ -11,11 +11,12 @@ enum SectionReglages: String, CaseIterable, Identifiable {
     case lightroom = "4. Lightroom, tampon"
     case envois = "5. Envois"
     case cloture = "6. Clôture"
+    case memoire = "7. Mémoire, remises des prix"
     case raccourcis = "Raccourcis clavier"
     case modeles = "Modèles de concours"
     var id: String { rawValue }
 
-    static let debut: [SectionReglages] = [.concours, .dossiers, .copies, .lightroom, .envois, .cloture]
+    static let debut: [SectionReglages] = [.concours, .dossiers, .copies, .lightroom, .envois, .cloture, .memoire]
     static let preferences: [SectionReglages] = [.raccourcis, .modeles]
 }
 
@@ -120,6 +121,7 @@ struct ReglagesView: View {
                         carteLightroom.id(SectionReglages.lightroom)
                         carteEnvois.id(SectionReglages.envois)
                         carteCloture.id(SectionReglages.cloture)
+                        carteMemoire.id(SectionReglages.memoire)
                     }
                     .padding(24)
                     .frame(maxWidth: 820, alignment: .leading)
@@ -307,6 +309,42 @@ struct ReglagesView: View {
             }
             Text("Avant le déplacement : écriture IPTC dans l'original (code, cavalier, cheval, épreuve, CHUTE), sans toucher l'image.")
                 .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            Divider().overlay(Theme.bordure)
+            HStack {
+                Button("Créer les collections dynamiques Lightroom") {
+                    if let u = etat.creerCollectionsLightroom() { etat.montrerDansLeFinder(u) }
+                }
+                .buttonStyle(BoutonStyle()).disabled(etat.reglages.cheminFFE.isEmpty)
+                .help("Une collection par épreuve (code #NN_ dans un champ, pas rejetée, prise pendant le concours), comme l'ancien outil.")
+            }
+            Text("Dans Lightroom : clic droit sur « Collections » › Importer des paramètres de collection dynamique, puis choisir les fichiers .lrsmcol.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+        }
+    }
+
+    private var carteMemoire: some View {
+        Carte(titre: SectionReglages.memoire.rawValue,
+              sousTitre: "La mémoire (vignettes seulement) est partagée entre les stands par iCloud et n'est jamais remise à zéro. Les détections tournent au calme et ne font que proposer.") {
+            ChoixChemin(titre: "Dossier de la mémoire", aide: "Pas choisi : iCloud Drive › Tri-photo Mémoire",
+                        chemin: $etat.reglages.dossierMemoire)
+            Toggle("Détections en tâche de fond pendant le tri", isOn: $etat.reglages.detectionsActives)
+            Divider().overlay(Theme.bordure)
+            Toggle("Copier les meilleures photos de chaque remise des prix (_99) dans Google Drive", isOn: $etat.reglages.remisesActives)
+            if etat.reglages.remisesActives {
+                ChoixChemin(titre: "Dossier Google Drive", aide: "Un dossier de Google Drive sur ce Mac (app Google Drive), partagé avec l'organisation",
+                            chemin: $etat.reglages.dossierRemises)
+                Ligne("Photos par remise") {
+                    Stepper("\(etat.reglages.photosParRemise) photos", value: $etat.reglages.photosParRemise, in: 1...60)
+                }
+                Ligne("Remise finie après") {
+                    Stepper("\(etat.reglages.attenteRemiseMinutes) min sans nouvelle photo _99", value: $etat.reglages.attenteRemiseMinutes, in: 2...60)
+                }
+                Text("Choix : netteté, visages (nets, yeux ouverts), ressemblance aux « Meilleures » de la mémoire ; les photos floues, du sol ou de code sont écartées, celles que tu marques « Meilleure » (M) passent d'abord. Ce sont les copies du serveur (avec le .cube) qui partent, une seule fois, un dossier par épreuve.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+                if !etat.moteur.resume.remises.message.isEmpty {
+                    Text(etat.moteur.resume.remises.message).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+                }
+            }
         }
     }
 

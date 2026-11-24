@@ -26,12 +26,17 @@ public struct ConfigMoteur {
     public var galerieEnLigne: ConfigGalerieEnLigne?
     /// Les engagés terrain du concours (fichier JSON). nil : pas d'engagés terrain gardés.
     public var fichierTerrain: URL?
+    /// Étape 5 : mémoire partagée (détections en tâche de fond). nil : pas de détections.
+    public var memoire: Memoire?
+    /// Remises des prix (_99) : les meilleures photos copiées dans un dossier Google Drive. nil : pas de copie.
+    public var remises: ConfigRemises?
 
     public init(reception: URL, importLightroom: URL, tampon: URL?, serveur: URL, cote: Int, qualite: Int,
                 cube: FichierCube?, concours: Concours?, tailleLot: Int, silenceMinutes: Int,
                 retarderSiOccupe: Bool, journal: URL, travailLightroom: URL? = nil, chrono: ConfigChrono? = nil,
                 attente00Minutes: Double = 2, galerie: ConfigGalerie? = nil,
-                galerieEnLigne: ConfigGalerieEnLigne? = nil, fichierTerrain: URL? = nil) {
+                galerieEnLigne: ConfigGalerieEnLigne? = nil, fichierTerrain: URL? = nil,
+                memoire: Memoire? = nil, remises: ConfigRemises? = nil) {
         self.reception = reception
         self.importLightroom = importLightroom
         self.tampon = tampon
@@ -50,6 +55,8 @@ public struct ConfigMoteur {
         self.galerie = galerie
         self.galerieEnLigne = galerieEnLigne
         self.fichierTerrain = fichierTerrain
+        self.memoire = memoire
+        self.remises = remises
     }
 }
 
@@ -125,6 +132,10 @@ public struct ResumeMoteur {
     // Étape 4 : galerie en ligne, engagés terrain
     public var galerieEnLigne: EtatGalerieEnLigne?
     public var engagesTerrain: [EngageTerrain] = []
+
+    // Étape 5 : mémoire, détections, remises des prix
+    public var detections = EtatDetections()
+    public var remises = EtatRemises()
 
     public init() {}
 }
@@ -226,6 +237,20 @@ public final class Moteur: ObservableObject {
     private var terrain: [EngageTerrain] = []
     private var dernierTerrain = Date.distantPast
     private var forcerTampon = false
+    // Étape 5 : détections en tâche de fond (une photo à la fois, priorité la plus basse, seulement au calme)
+    private let detections: OperationQueue = {
+        let q = OperationQueue()
+        q.name = "tri-photo.detections"
+        q.qualityOfService = .background
+        q.maxConcurrentOperationCount = 1
+        return q
+    }()
+    private var reconnaissance: Reconnaissance?
+    private var dernierDetection = Date.distantPast
+    private var etatDetections = EtatDetections()
+    private var dernierRemises = Date.distantPast
+    private var remisesFaites: [String: [String]] = [:]       // dossier de l'épreuve → noms des photos copiées
+    private var etatRemises = EtatRemises()
     private var fichierSynchro: URL? { config.map { $0.journal.deletingLastPathComponent().appendingPathComponent("boitiers-synchro.json") } }
 
     public static let dossierARenvoyer = "_À renvoyer"
@@ -259,6 +284,8 @@ public final class Moteur: ObservableObject {
             }
             self.dernierEnLigne = .distantPast
             self.chargerTerrain()
+            self.reconnaissance = nil
+            self.chargerRemises()
             self.chargerSynchro()
             self.enAttenteChrono = [:]
             let t = DispatchSource.makeTimerSource(queue: file)
@@ -338,6 +365,8 @@ public final class Moteur: ObservableObject {
             dernierEnLigne = maintenant
             e.synchroniser(photosEnLigne(journal: j, config: g))
         }
+        detecterSiCalme(journal: j, config: c, maintenant: maintenant)
+        copierRemisesSiBesoin(journal: j, config: c, maintenant: maintenant)
         publier(journal: j, maintenant: maintenant)
     }
 
@@ -718,6 +747,8 @@ public final class Moteur: ObservableObject {
         r.ecartChrono = chrono?.ecart ?? 0
         r.galerie = galerie?.etat
         r.galerieEnLigne = enLigne?.etat
+        r.detections = etatDetections
+        r.remises = etatRemises
         r.engagesTerrain = terrain
         r.recentes = j.dernieres(12).map { ResumeMoteur.Recente(id: $0.id, nom: $0.nom, code: $0.codeRetenu, boitier: $0.boitier, etat: $0.etat) }
         r.chargeLightroom = charge
@@ -1181,6 +1212,17 @@ public final class Moteur: ObservableObject {
         }
     }
 
+    /// Marque de la revue en plus du classement (« meilleure », « reseaux ») : pour la mémoire et les remises des prix.
+    public func marquer(_ id: Int64, _ drapeau: String, _ actif: Bool) {
+        file.async { [weak self] in
+            guard let j = self?.journal, var f = j.fiche(id: id) else { return }
+            if actif { f.marquer(drapeau) } else {
+                f.drapeaux = f.drapeaux.split(separator: "|").filter { $0 != drapeau }.joined(separator: "|")
+            }
+            j.mettreAJour(f)
+        }
+    }
+
     /// Photos pour l'écran de revue (lecture seule, depuis n'importe quel fil).
     public func photosRevue(epreuve: String?) -> [FichePhoto] {
         file.sync { journal?.fichesRevue(epreuve: epreuve) ?? [] }
@@ -1453,3 +1495,203 @@ extension Moteur {
     }
 }
 
+
+// MARK: - Étape 5 : mémoire, détections, remises des prix
+
+/// Remises des prix : où copier les meilleures photos (dossier synchronisé par Google Drive sur le Mac).
+public struct ConfigRemises: Sendable {
+    public var dossier: URL
+    /// Nombre de photos copiées par remise des prix.
+    public var photos: Int
+    /// La remise est finie quand aucune photo _99 de l'épreuve n'est arrivée depuis tant de minutes.
+    public var attenteMinutes: Double
+    public var depuis: Date
+    public var fichierEtat: URL
+
+    public init(dossier: URL, photos: Int = 12, attenteMinutes: Double = 10, depuis: Date, fichierEtat: URL) {
+        self.dossier = dossier
+        self.photos = photos
+        self.attenteMinutes = attenteMinutes
+        self.depuis = depuis
+        self.fichierEtat = fichierEtat
+    }
+}
+
+public struct EtatDetections: Sendable, Equatable {
+    /// La mémoire a assez d'exemples (20 par catégorie) pour proposer quelque chose.
+    public var prete = false
+    public var regardees = 0
+    public var enAttente = 0
+    public var message = ""
+    public init() {}
+}
+
+public struct EtatRemises: Sendable, Equatable {
+    /// Épreuve (dossier) → nombre de photos copiées dans Google Drive.
+    public var copiees: [String: Int] = [:]
+    public var enCours: [String] = []
+    public var message = ""
+    public init() {}
+}
+
+extension Moteur {
+    /// Une détection toutes les 3 s au plus, et seulement au calme : rien en réception ni en cours de traitement,
+    /// Lightroom pas trop occupé. Le tri des photos passe toujours avant.
+    private func detecterSiCalme(journal j: Journal, config c: ConfigMoteur, maintenant: Date) {
+        guard let m = c.memoire, maintenant.timeIntervalSince(dernierDetection) >= 3 else { return }
+        dernierDetection = maintenant
+        etatDetections.enAttente = j.compterADetecter()
+        guard detections.operationCount == 0 else { return }
+        guard vuesEnAttente.isEmpty, enCours.isEmpty, enAttenteChrono.isEmpty, charge < 0.35 else {
+            etatDetections.message = "En pause : le tri des photos passe d'abord."
+            return
+        }
+        let lot = j.fichesADetecter(limite: 6)
+        if reconnaissance == nil {
+            reconnaissance = Reconnaissance(memoire: m, cache: c.journal.deletingLastPathComponent()
+                .appendingPathComponent("Empreintes", isDirectory: true))
+        }
+        guard let r = reconnaissance else { return }
+        let travail = c.travailLightroom
+        detections.addOperation { [weak self] in self?.detecter(lot, reconnaissance: r, travail: travail) }
+    }
+
+    /// Tourne sur la file des détections (priorité la plus basse). Ne fait que noter des propositions.
+    private func detecter(_ lot: [FichePhoto], reconnaissance r: Reconnaissance, travail: URL?) {
+        let avant = r.prete
+        r.actualiser()
+        let prete = r.prete
+        if prete && !avant { file.sync { journal?.oublierDetections(seulementSansMemoire: true) } }
+        var vues = 0
+        for f in lot {
+            let est99 = CodePassage.lire(f.codeRetenu)?.special == .remiseDesPrix
+            var texte = "?"
+            var res = Reconnu()
+            var visage = -1.0
+            if prete || est99 {
+                let copie = f.copie.isEmpty ? nil : URL(fileURLWithPath: f.copie)
+                let url = Moteur.trouverOriginal(f, travail: travail)
+                    ?? copie.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+                if let url {
+                    if prete {
+                        if let im = Memoire.image(url, cote: 384), let v = Reconnaissance.empreinte(im) { res = r.reconnaitre(v) }
+                        texte = res.texte
+                    }
+                    if est99, let im = Memoire.image(url, cote: 1024) { visage = Reconnaissance.qualiteVisage(im) }
+                } else {
+                    texte = "-"
+                }
+            }
+            let id = f.id, t = texte, conf = res.confiance, belle = res.belle, vis = visage
+            file.sync { journal?.noterDetection(id: id, detection: t, confiance: conf, belle: belle, visage: vis) }
+            vues += 1
+        }
+        let n = vues
+        file.async { [weak self] in
+            guard let self else { return }
+            self.etatDetections.prete = prete
+            self.etatDetections.regardees += n
+            self.etatDetections.message = prete ? "La mémoire regarde les photos au calme."
+                : "La mémoire attend 20 exemples par catégorie (bonne et au moins une autre)."
+        }
+    }
+
+    /// Refaire toutes les détections (après de gros changements dans la mémoire).
+    public func refaireDetections() {
+        file.async { [weak self] in
+            self?.journal?.oublierDetections()
+            self?.reconnaissance = nil        // relue entièrement au prochain lot
+        }
+    }
+
+    // MARK: Remises des prix
+
+    private func chargerRemises() {
+        remisesFaites = [:]
+        etatRemises = EtatRemises()
+        guard let f = config?.remises?.fichierEtat, let d = try? Data(contentsOf: f),
+              let l = try? JSONDecoder().decode([String: [String]].self, from: d) else { return }
+        remisesFaites = l
+        etatRemises.copiees = l.mapValues(\.count)
+    }
+
+    private func sauverRemises() {
+        guard let f = config?.remises?.fichierEtat, let d = try? JSONEncoder().encode(remisesFaites) else { return }
+        try? d.write(to: f, options: .atomic)
+    }
+
+    /// Note de chaque photo de remise : netteté (rang dans sa remise), visage (yeux ouverts, net), ressemblance aux
+    /// « meilleures » de la mémoire. Les photos floues, du sol ou de code (classées par HUGO ou reconnues) sont écartées.
+    static func meilleuresRemise(_ l: [FichePhoto], n: Int) -> [FichePhoto] {
+        let mauvaises: Set<String> = ["floue", "sol", "code"]
+        let bonnes = l.filter { f in
+            !mauvaises.contains(f.classe) && !mauvaises.contains(String(f.detection.split(separator: "|").first ?? ""))
+        }
+        let nettetes = bonnes.map(\.nettete).sorted()
+        func rang(_ x: Double) -> Double {
+            guard nettetes.count > 1 else { return 1 }
+            return Double(nettetes.lastIndex(of: x) ?? 0) / Double(nettetes.count - 1)
+        }
+        func note(_ f: FichePhoto) -> Double {
+            (f.a("meilleure") ? 10 : 0) + 0.45 * rang(f.nettete) + 0.35 * max(f.visage, 0) + 0.2 * max(f.belle, 0)
+        }
+        return Array(bonnes.sorted { note($0) > note($1) }.prefix(n))
+    }
+
+    /// Une fois par minute, au calme : chaque remise des prix finie (plus de photo _99 depuis 10 min) voit ses
+    /// meilleures photos (copies du serveur local, avec le .cube) copiées dans Google Drive, une seule fois.
+    private func copierRemisesSiBesoin(journal j: Journal, config c: ConfigMoteur, maintenant: Date) {
+        guard let rc = c.remises, maintenant.timeIntervalSince(dernierRemises) >= 60 else { return }
+        dernierRemises = maintenant
+        guard vuesEnAttente.isEmpty, enCours.isEmpty, etatRemises.enCours.isEmpty else { return }
+        let parEpreuve = Dictionary(grouping: j.fiches99(depuis: rc.depuis)) { CodePassage.lire($0.codeRetenu)?.epreuve ?? "" }
+        var travail: [(dossier: String, photos: [FichePhoto])] = []
+        for (ep, l) in parEpreuve where !ep.isEmpty {
+            guard let derniere = l.map(\.recue).max(),
+                  maintenant.timeIntervalSince(derniere) >= rc.attenteMinutes * 60 else { continue }
+            // on laisse aux visages le temps d'être regardés (au plus 20 minutes après la fin de la remise)
+            if l.contains(where: { $0.detection.isEmpty }) && maintenant.timeIntervalSince(derniere) < 20 * 60 { continue }
+            let dossier = c.concours?.epreuve(numero: ep)?.nomDossier ?? NomDossier.pourEpreuve(numero: ep, nom: "")
+            let faites = Set(remisesFaites[dossier] ?? [])
+            let reste = rc.photos - faites.count
+            guard reste > 0 else { continue }
+            let choix = Moteur.meilleuresRemise(l.filter { !faites.contains($0.nom) }, n: reste)
+                .filter { !$0.copie.isEmpty }
+            if !choix.isEmpty { travail.append((dossier, choix)) }
+        }
+        guard !travail.isEmpty else { return }
+        etatRemises.enCours = travail.map(\.dossier)
+        let racine = rc.dossier
+        detections.addOperation { [weak self] in
+            var copiees: [(String, String)] = []
+            var erreur = ""
+            let fm = FileManager.default
+            for t in travail {
+                let d = racine.appendingPathComponent(t.dossier, isDirectory: true)
+                do {
+                    try fm.createDirectory(at: d, withIntermediateDirectories: true)
+                    for f in t.photos {
+                        let cible = d.appendingPathComponent(f.nom)
+                        if !fm.fileExists(atPath: cible.path) { try fm.copyItem(at: URL(fileURLWithPath: f.copie), to: cible) }
+                        copiees.append((t.dossier, f.nom))
+                    }
+                } catch {
+                    erreur = "Remise des prix \(t.dossier) : \(error.localizedDescription)"
+                }
+            }
+            self?.file.async {
+                guard let self else { return }
+                for (d, n) in copiees { self.remisesFaites[d, default: []].append(n) }
+                self.sauverRemises()
+                self.etatRemises.copiees = self.remisesFaites.mapValues(\.count)
+                self.etatRemises.enCours = []
+                self.etatRemises.message = erreur.isEmpty
+                    ? (copiees.isEmpty ? self.etatRemises.message : "\(copiees.count) photos de remise des prix copiées dans Google Drive.")
+                    : erreur
+            }
+        }
+    }
+
+    /// Photos de remise des prix du concours, pour la clôture.
+    public func etatRemisesMaintenant() -> EtatRemises { file.sync { etatRemises } }
+}

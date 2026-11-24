@@ -46,6 +46,11 @@ public struct FichePhoto: Identifiable, Sendable {
     public var cavalier: String = ""      // d'après le code final et le fichier FFE
     public var cheval: String = ""
     public var drapeaux: String = ""      // décisions de HUGO déjà prises (« codeGarde », « pasPhotoCode »…)
+    // Étape 5 : mémoire et détections (en tâche de fond, seulement des propositions)
+    public var detection: String = ""     // catégorie que la mémoire reconnaît (« floue », « sol »…), « - » : rien de sûr
+    public var confianceDetection: Int = 0
+    public var belle: Double = -1         // ressemblance aux « meilleures » de la mémoire (0 à 1), -1 : pas calculée
+    public var visage: Double = -1        // qualité du meilleur visage (yeux ouverts, net), -1 : aucun visage ou pas calculée
 
     public func a(_ d: String) -> Bool { drapeaux.split(separator: "|").contains { $0 == d } }
     public mutating func marquer(_ d: String) { if !a(d) { drapeaux = drapeaux.isEmpty ? d : drapeaux + "|" + d } }
@@ -121,10 +126,13 @@ final class Journal {
         ("classe", "TEXT NOT NULL DEFAULT ''"), ("chute", "INTEGER NOT NULL DEFAULT 0"),
         ("cavalier", "TEXT NOT NULL DEFAULT ''"), ("cheval", "TEXT NOT NULL DEFAULT ''"),
         ("drapeaux", "TEXT NOT NULL DEFAULT ''"),
+        ("detection", "TEXT NOT NULL DEFAULT ''"), ("confianceDetection", "INTEGER NOT NULL DEFAULT 0"),
+        ("belle", "REAL NOT NULL DEFAULT -1"), ("visage", "REAL NOT NULL DEFAULT -1"),
     ]
 
     private static let colonnes = "id, origine, nom, boitier, prise, code, etat, chemin, copie, erreur, recue, maj, "
-        + "proposition, raison, confiance, codeFinal, serie, historique, scene, nettete, classe, chute, cavalier, cheval, drapeaux"
+        + "proposition, raison, confiance, codeFinal, serie, historique, scene, nettete, classe, chute, cavalier, cheval, drapeaux, "
+        + "detection, confianceDetection, belle, visage"
 
     private func fiche(_ st: OpaquePointer?) -> FichePhoto {
         var f = FichePhoto(id: sqlite3_column_int64(st, 0), origine: texte(st, 1), nom: texte(st, 2), boitier: texte(st, 3),
@@ -144,6 +152,10 @@ final class Journal {
         f.cavalier = texte(st, 22)
         f.cheval = texte(st, 23)
         f.drapeaux = texte(st, 24)
+        f.detection = texte(st, 25)
+        f.confianceDetection = Int(sqlite3_column_int(st, 26))
+        f.belle = sqlite3_column_double(st, 27)
+        f.visage = sqlite3_column_double(st, 28)
         return f
     }
 
@@ -168,7 +180,7 @@ final class Journal {
         let st = preparer("""
         UPDATE photos SET nom=?, code=?, etat=?, chemin=?, copie=?, erreur=?, maj=?, boitier=?, prise=?,
           proposition=?, raison=?, confiance=?, codeFinal=?, serie=?, historique=?, scene=?, nettete=?, classe=?,
-          chute=?, cavalier=?, cheval=?, drapeaux=? WHERE id=?
+          chute=?, cavalier=?, cheval=?, drapeaux=?, detection=?, confianceDetection=?, belle=?, visage=? WHERE id=?
         """)
         defer { sqlite3_finalize(st) }
         lier(st, 1, f.nom); lier(st, 2, f.code); lier(st, 3, f.etat.rawValue); lier(st, 4, f.chemin)
@@ -177,7 +189,9 @@ final class Journal {
         lier(st, 13, f.codeFinal); lier(st, 14, f.serie); lier(st, 15, f.historique); lier(st, 16, f.scene)
         sqlite3_bind_double(st, 17, f.nettete); lier(st, 18, f.classe); sqlite3_bind_int(st, 19, f.chute ? 1 : 0)
         lier(st, 20, f.cavalier); lier(st, 21, f.cheval); lier(st, 22, f.drapeaux)
-        sqlite3_bind_int64(st, 23, f.id)
+        lier(st, 23, f.detection); sqlite3_bind_int(st, 24, Int32(f.confianceDetection))
+        sqlite3_bind_double(st, 25, f.belle); sqlite3_bind_double(st, 26, f.visage)
+        sqlite3_bind_int64(st, 27, f.id)
         sqlite3_step(st)
     }
 
@@ -332,6 +346,47 @@ final class Journal {
         defer { sqlite3_finalize(st) }
         lier(st, 1, depuis)
         return liste(st)
+    }
+
+    /// Photos parties pas encore regardées par la mémoire (les plus récentes d'abord : utile tout de suite en revue).
+    func fichesADetecter(limite: Int) -> [FichePhoto] {
+        let st = preparer("SELECT \(Journal.colonnes) FROM photos WHERE etat IN ('copiee','tampon','envoyee') AND detection='' ORDER BY id DESC LIMIT ?")
+        defer { sqlite3_finalize(st) }
+        sqlite3_bind_int(st, 1, Int32(limite))
+        return liste(st)
+    }
+
+    /// Note le résultat de la mémoire sans toucher au reste de la fiche (le moteur a pu la changer entre-temps).
+    func noterDetection(id: Int64, detection: String, confiance: Int, belle: Double, visage: Double) {
+        let st = preparer("UPDATE photos SET detection=?, confianceDetection=?, belle=?, visage=? WHERE id=?")
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, detection); sqlite3_bind_int(st, 2, Int32(confiance))
+        sqlite3_bind_double(st, 3, belle); sqlite3_bind_double(st, 4, visage)
+        sqlite3_bind_int64(st, 5, id)
+        sqlite3_step(st)
+    }
+
+    /// Détections à refaire : toutes (la mémoire a beaucoup changé) ou seulement celles faites sans mémoire prête (« ? »).
+    func oublierDetections(seulementSansMemoire: Bool = false) {
+        executer(seulementSansMemoire ? "UPDATE photos SET detection='' WHERE detection='?'"
+                                      : "UPDATE photos SET detection='' WHERE detection<>''")
+    }
+
+    func compterADetecter() -> Int {
+        let st = preparer("SELECT COUNT(*) FROM photos WHERE etat IN ('copiee','tampon','envoyee') AND detection=''")
+        defer { sqlite3_finalize(st) }
+        return sqlite3_step(st) == SQLITE_ROW ? Int(sqlite3_column_int(st, 0)) : 0
+    }
+
+    /// Photos de remise des prix (code _99) parties depuis une date.
+    func fiches99(depuis: Date) -> [FichePhoto] {
+        let st = preparer("""
+        SELECT \(Journal.colonnes) FROM photos WHERE etat IN ('copiee','tampon','envoyee') AND recue>=?
+          AND (codeFinal LIKE '%99%' OR (codeFinal='' AND code LIKE '%99%')) ORDER BY id
+        """)
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, depuis)
+        return liste(st).filter { CodePassage.lire($0.codeRetenu)?.special == .remiseDesPrix }
     }
 
     func dernieres(_ n: Int) -> [FichePhoto] {

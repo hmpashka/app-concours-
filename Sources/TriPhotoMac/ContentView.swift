@@ -17,8 +17,7 @@ struct ContentView: View {
                 case .aValider: AValiderView(moteur: etat.moteur)
                 case .revue: RevueView(moteur: etat.moteur)
                 case .messages: MessagesView(serveur: etat.serveur)
-                case .memoire: BientotView(titre: "Mémoire", etape: 5,
-                                           texte: "Exemples par catégorie, partagés entre les stands par iCloud.")
+                case .memoire: MemoireView(moteur: etat.moteur)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -38,7 +38,7 @@ extension Etat {
         return Calendar.current.date(byAdding: .day, value: max(1, reglages.nombreJours) - 1, to: debutConcours) ?? debutConcours
     }
 
-    private var cleConcours: String {
+    var cleConcours: String {
         let n = concours?.numero ?? ""
         return NomDossier.nettoyer(n.isEmpty ? (reglages.nomConcours.isEmpty ? "concours" : reglages.nomConcours) : n)
     }
@@ -125,7 +125,7 @@ extension Etat {
         return d
     }
 
-    private var nomConcoursFichier: String { reglages.nomConcours.isEmpty ? (concours?.nom ?? "") : reglages.nomConcours }
+    var nomConcoursFichier: String { reglages.nomConcours.isEmpty ? (concours?.nom ?? "") : reglages.nomConcours }
 
     var fichierDebut: URL {
         dossierAttribution.appendingPathComponent(FichierEngages.nomFichier(concours: nomConcoursFichier, dernierJour: finConcours))
@@ -138,7 +138,7 @@ extension Etat {
 
     var fichierDebutExiste: Bool { FileManager.default.fileExists(atPath: fichierDebut.path) }
 
-    private func epreuvesEngages() throws -> [EpreuveEngages] {
+    func epreuvesEngages() throws -> [EpreuveEngages] {
         guard !reglages.cheminFFE.isEmpty else {
             throw NSError(domain: "TriPhoto", code: 3, userInfo: [NSLocalizedDescriptionKey: "Charge d'abord le fichier FFE."])
         }
