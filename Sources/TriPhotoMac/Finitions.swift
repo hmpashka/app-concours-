@@ -63,7 +63,7 @@ struct NomApp: View {
     }
 }
 
-/// Ouverture : 1,5 s au plus, un clic ou une touche la passe. Son seulement si choisi dans les réglages.
+/// Ouverture : 2,5 s, un clic ou une touche la passe. Son seulement si choisi dans les réglages.
 struct EcranOuverture: View {
     var fini: () -> Void
     @State private var logo = false
@@ -91,10 +91,11 @@ struct EcranOuverture: View {
         .onTapGesture { fini() }
         .onAppear {
             if Preferences.partagees.sonOuverture { Notifieur.partage.jouer("Glass") }
-            withAnimation(.easeOut(duration: 0.5)) { logo = true }
-            withAnimation(.easeOut(duration: 0.4).delay(0.35)) { nom = true }
-            withAnimation(.easeInOut(duration: 0.9).delay(0.5)) { barre = 1 }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { fini() }
+            // 2,5 s (HUGO, 24/11) : le temps de lire le logo et de voir la barre se remplir
+            withAnimation(.easeOut(duration: 0.7)) { logo = true }
+            withAnimation(.easeOut(duration: 0.5).delay(0.5)) { nom = true }
+            withAnimation(.easeInOut(duration: 1.5).delay(0.8)) { barre = 1 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { fini() }
         }
         .background(ToucheQuelconque(action: fini))
     }
