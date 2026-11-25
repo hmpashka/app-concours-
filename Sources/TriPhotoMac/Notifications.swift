@@ -160,12 +160,15 @@ final class Notifieur {
         let n = UNMutableNotificationContent()
         n.title = "Essai · Groom Pix"
         n.body = "Si tu vois cette bulle, les notifications marchent. Passe la souris dessus pour voir « Répondre »."
-        n.sound = UNNotificationSound(named: UNNotificationSoundName("\(son).aiff"))
+        n.sound = .default
         n.categoryIdentifier = Notifieur.categorieMessage
         n.userInfo = ["essai": "1", "ecran": Ecran.messages.rawValue]
         // une seconde plus tard : laisse le temps à la fenêtre d'autorisation
         let t = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "essai", content: n, trigger: t))
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "essai", content: n, trigger: t)) { err in
+            let texte = err.map { "macOS refuse la bulle : \($0.localizedDescription)" }
+            Task { @MainActor in Notifieur.partage.erreurAutorisation = texte }
+        }
     }
 
     func jouer(_ son: String) {
@@ -203,7 +206,8 @@ final class Notifieur {
         }
         // Le son part AVEC la bulle (son du Mac choisi dans les réglages), comme les autres apps.
         // Le son joué par l'app ne sert plus que si le Mac refuse les bulles.
-        if !r.son.isEmpty && p.mode != .silencieux { n.sound = UNNotificationSound(named: UNNotificationSoundName("\(r.son).aiff")) }
+        // son du Mac (« Réglages Système › Notifications ») : le seul que macOS joue à coup sûr avec la bulle
+        if !r.son.isEmpty && p.mode != .silencieux { n.sound = .default }
         n.threadIdentifier = e.rawValue
         if (e == .message || e == .incident) && l.count < 3 { n.categoryIdentifier = Notifieur.categorieMessage }
         var info: [String: String] = infos
