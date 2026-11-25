@@ -114,6 +114,19 @@ namespace Loupedeck.GroomPixPlugin
         protected override BitmapImage GetAdjustmentImage(String actionParameter, PluginImageSize imageSize)
         {
             if (actionParameter != "roue") return null;
+            try
+            {
+                return ImageRoue(imageSize);
+            }
+            catch (Exception ex)
+            {
+                Journal.Ecrire($"image roue : {ex}");
+                return null;
+            }
+        }
+
+        private static BitmapImage ImageRoue(PluginImageSize imageSize)
+        {
             var e = GroomPix.Etat;
             using var b = new BitmapBuilder(imageSize);
             if (e == null)
@@ -128,10 +141,10 @@ namespace Loupedeck.GroomPixPlugin
                 var (fond, texte) = Dessin.Couleurs(e.message.incident ? Dessin.Genre.Erreur : Dessin.Genre.Attention);
                 b.Clear(fond);
                 var qui = String.IsNullOrEmpty(e.message.piste) ? e.message.qui : $"{e.message.qui} · {e.message.piste}";
-                b.DrawText(qui, w / 10, h * 14 / 100, w * 8 / 10, h * 16 / 100, Dessin.Creme, Math.Max(10, h / 11));
+                Dessin.Texte(b, qui, w / 10, h * 14 / 100, w * 8 / 10, h * 16 / 100, Dessin.Creme, Math.Max(10, h / 11));
                 var t = e.message.texte.Length > 70 ? e.message.texte.Substring(0, 70) + "…" : e.message.texte;
-                b.DrawText(t, w / 8, h * 32 / 100, w * 6 / 8, h * 46 / 100, texte, Math.Max(10, h / 10));
-                b.DrawText("appuie : lire", w / 4, h * 78 / 100, w / 2, h * 10 / 100, Dessin.Or, Math.Max(8, h / 16));
+                Dessin.Texte(b, t, w / 8, h * 32 / 100, w * 6 / 8, h * 46 / 100, texte, Math.Max(10, h / 10));
+                Dessin.Texte(b, "appuie : lire", w / 4, h * 78 / 100, w / 2, h * 10 / 100, Dessin.Or, Math.Max(8, h / 16));
                 return b.ToImage();
             }
             var code = e.revue?.code ?? e.serie?.proposition ?? "";
@@ -147,7 +160,7 @@ namespace Loupedeck.GroomPixPlugin
             if (code.Length > 0)
             {
                 b.FillRectangle(0, h * 70 / 100, w, h * 30 / 100, new BitmapColor(0, 0, 0, 190));
-                b.DrawText(code.TrimStart('#'), 0, h * 70 / 100, w, h * 20 / 100, Dessin.Or, Math.Max(12, h / 7));
+                Dessin.Texte(b, code.TrimStart('#'), 0, h * 70 / 100, w, h * 20 / 100, Dessin.Or, Math.Max(12, h / 7));
             }
             else if (photo == null)
             {

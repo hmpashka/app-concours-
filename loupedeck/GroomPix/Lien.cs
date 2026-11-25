@@ -84,6 +84,29 @@ namespace Loupedeck.GroomPixPlugin
         public Boolean incident { get; set; }
     }
 
+    /// Journal de diagnostic : /tmp/groompix-loupedeck.log (≈ 200 Ko au plus). Erreurs et « répond / ne répond plus ».
+    public static class Journal
+    {
+        private const String Chemin = "/tmp/groompix-loupedeck.log";
+        private static readonly Object _v = new Object();
+
+        public static void Ecrire(String texte)
+        {
+            try
+            {
+                lock (_v)
+                {
+                    var f = new System.IO.FileInfo(Chemin);
+                    if (f.Exists && f.Length > 200_000) f.Delete();
+                    System.IO.File.AppendAllText(Chemin, $"{DateTime.Now:HH:mm:ss.fff} {texte}\n");
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
     /// Le lien avec Groom Pix : http://127.0.0.1:8095 (ce Mac seulement). L'état est lu une fois par seconde
     /// (≈ 1 Ko) ; les boutons partent tout de suite. Si Groom Pix est fermé, Etat vaut null et les touches sont grises.
     public static class GroomPix
@@ -95,6 +118,8 @@ namespace Loupedeck.GroomPixPlugin
         private static readonly Object _verrou = new Object();
         private static readonly Dictionary<Int64, BitmapImage> _photos = new Dictionary<Int64, BitmapImage>();
         private static readonly HashSet<Int64> _enCours = new HashSet<Int64>();
+        private static readonly System.Text.RegularExpressions.Regex HeureJson =
+            new System.Text.RegularExpressions.Regex("\"heure\":[0-9.eE+-]+");
         private static readonly JsonSerializerOptions Options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
         /// Dernier état reçu, null si Groom Pix ne répond pas.
@@ -112,6 +137,7 @@ namespace Loupedeck.GroomPixPlugin
 
         public static void Demarrer()
         {
+            Journal.Ecrire("Demarrer");
             if (_minuterie != null) return;
             _minuterie = new Timer(_ => _ = Lire(), null, 0, 1000);
         }
@@ -129,20 +155,25 @@ namespace Loupedeck.GroomPixPlugin
             {
                 texte = await Client.GetStringAsync(Adresse + "/etat").ConfigureAwait(false);
             }
-            catch
+            catch (Exception ex)
             {
+                if (Etat != null) Journal.Ecrire("Lire /etat : " + ex.GetType().Name + " : " + ex.Message + (ex.InnerException != null ? " / " + ex.InnerException.Message : ""));
                 texte = "";
             }
+            // l'heure change à chaque lecture : on l'ignore pour ne redessiner que si quelque chose a vraiment changé
+            var comparable = HeureJson.Replace(texte, "");
             lock (_verrou)
             {
-                if (texte == _dernier) return;
-                _dernier = texte;
+                if (comparable == _dernier) return;
+                _dernier = comparable;
             }
             EtatGP e = null;
             if (texte.Length > 0)
             {
-                try { e = JsonSerializer.Deserialize<EtatGP>(texte, Options); } catch { e = null; }
+                try { e = JsonSerializer.Deserialize<EtatGP>(texte, Options); }
+                catch (Exception ex) { Journal.Ecrire("JSON : " + ex.Message); e = null; }
             }
+            if ((e == null) != (Etat == null)) Journal.Ecrire(e == null ? "Groom Pix ne répond plus" : $"état reçu (écran {e.ecran})");
             Etat = e;
             Change?.Invoke(null, EventArgs.Empty);
         }

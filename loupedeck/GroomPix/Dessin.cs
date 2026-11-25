@@ -1,6 +1,8 @@
 namespace Loupedeck.GroomPixPlugin
 {
     using System;
+    using System.Linq;
+    using System.Reflection;
 
     /// Couleurs de Groom Pix (bleu nuit et or) et dessin d'une touche : un gros chiffre ou mot, un petit rappel dessous.
     /// Les touches du CT font environ 1,5 cm : jamais plus de deux lignes.
@@ -39,12 +41,12 @@ namespace Loupedeck.GroomPixPlugin
             var police = n <= 2 ? h * 42 / 100 : n <= 4 ? h * 30 / 100 : n <= 6 ? h * 22 / 100 : h * 16 / 100;
             if (String.IsNullOrEmpty(petit))
             {
-                b.DrawText(gros ?? "", 0, 0, w, h, texte, police);
+                Texte(b, gros ?? "", 0, 0, w, h, texte, police);
             }
             else
             {
-                b.DrawText(gros ?? "", 0, h * 6 / 100, w, h * 64 / 100, texte, police);
-                b.DrawText(petit, 0, h * 66 / 100, w, h * 28 / 100, genre == Genre.Normal ? Or : texte, Math.Max(9, h * 13 / 100));
+                Texte(b, gros ?? "", 0, h * 6 / 100, w, h * 64 / 100, texte, police);
+                Texte(b, petit, 0, h * 66 / 100, w, h * 28 / 100, genre == Genre.Normal ? Or : texte, Math.Max(9, h * 13 / 100));
             }
         }
 
@@ -59,6 +61,36 @@ namespace Loupedeck.GroomPixPlugin
                 case Genre.Eteint: return (Gris, GrisTexte);
                 default: return (Nuit, Creme);
             }
+        }
+
+        private static MethodInfo _drawText;
+
+        /// BitmapBuilder.DrawText(texte, x, y, l, h, couleur, taille) quelle que soit la version du logiciel Loupedeck :
+        /// la 6.4 a ajouté un paramètre « fontName » à la fin (un module compilé avant plantait : MissingMethodException).
+        public static void Texte(BitmapBuilder b, String texte, Int32 x, Int32 y, Int32 l, Int32 h, BitmapColor couleur, Int32 taille)
+        {
+            var m = _drawText ??= typeof(BitmapBuilder).GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .Where(k => k.Name == "DrawText")
+                .Select(k => (k, p: k.GetParameters()))
+                .Where(t => t.p.Length >= 9 && t.p[1].ParameterType == typeof(Int32) && t.p[5].ParameterType == typeof(BitmapColor?))
+                .OrderBy(t => t.p.Length)
+                .Select(t => t.k)
+                .First();
+            var ps = m.GetParameters();
+            var args = new Object[ps.Length];
+            args[0] = texte ?? "";
+            args[1] = x;
+            args[2] = y;
+            args[3] = l;
+            args[4] = h;
+            args[5] = (BitmapColor?)couleur;
+            args[6] = taille;
+            for (var i = 7; i < ps.Length; i++)
+            {
+                args[i] = ps[i].HasDefaultValue ? ps[i].DefaultValue
+                        : ps[i].ParameterType == typeof(Int32) ? (Object)(-1) : null;
+            }
+            m.Invoke(b, args);
         }
 
         /// Groom Pix fermé ou pont coupé : touche grise.

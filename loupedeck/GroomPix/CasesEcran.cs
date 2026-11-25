@@ -34,6 +34,19 @@ namespace Loupedeck.GroomPixPlugin
 
         protected override BitmapImage GetCommandImage(String actionParameter, PluginImageSize imageSize)
         {
+            try
+            {
+                return this.Image(actionParameter, imageSize);
+            }
+            catch (Exception ex)
+            {
+                Journal.Ecrire($"image case {actionParameter} : {ex}");
+                return null;
+            }
+        }
+
+        private BitmapImage Image(String actionParameter, PluginImageSize imageSize)
+        {
             var e = GroomPix.Etat;
             if (e == null) return Dessin.Ferme(imageSize, actionParameter == "1" ? "fermé" : "");
             var n = Int32.TryParse(actionParameter, out var k) ? k : 0;
