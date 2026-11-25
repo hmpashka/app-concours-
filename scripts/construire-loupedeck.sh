@@ -28,7 +28,8 @@ echo "→ .NET : $(dotnet --version)"
 # 2. Outil de Logitech pour les modules
 if ! command -v logiplugintool >/dev/null 2>&1; then
     echo "→ Installation de LogiPluginTool…"
-    dotnet tool install --global LogiPluginTool
+    # 6.1.x : gabarit .NET 8 (les versions 6.4+ demandent .NET 10, refusé par le logiciel Loupedeck 6.2)
+    dotnet tool install --global LogiPluginTool --version 6.1.4.22672
 fi
 
 # 3. Gabarit officiel + nos fichiers
@@ -55,6 +56,8 @@ ICONE="$(find "$PROJET" -name 'Icon256x256.png' | head -1)"
 if [ -n "$ICONE" ] && [ -f "$ICI/Ressources/Icone-1024.png" ]; then
     sips -z 256 256 "$ICI/Ressources/Icone-1024.png" --out "$ICONE" >/dev/null
 fi
+
+mkdir -p "$HOME/Library/Application Support/Logi/LogiPluginService/Plugins"
 
 # 4. Construction : le gabarit déclare lui-même le module au logiciel Loupedeck (fichier .link) et le recharge
 cd "$PROJET"
