@@ -10,6 +10,8 @@ namespace Loupedeck.GroomPixPlugin
     {
         public CasesEcran() : base()
         {
+            // « widget » : l'image remplit toute la case et le logiciel n'écrit pas le nom par-dessus
+            this.IsWidget = true;
             for (var i = 1; i <= 12; i++)
             {
                 this.AddParameter(i.ToString(), $"Case {i:00} de l'écran", "Groom Pix · Écran tactile");

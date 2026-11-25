@@ -6,15 +6,15 @@ namespace Loupedeck.GroomPixPlugin
     /// Les molettes (et la grande roue) : tourner = un cran dans Groom Pix, appuyer = revenir au départ.
     public class MolettesGroomPix : PluginDynamicAdjustment
     {
-        private static readonly (String cle, String ordre, String appui, String libelle)[] Liste =
+        private static readonly (String cle, String ordre, String appui, String libelle, String court)[] Liste =
         {
-            ("photo", "photo", "photo.premiere", "Photo précédente / suivante (appui : première)"),
-            ("serie", "serie", "serie.ouvrir", "Série à valider (appui : la première)"),
-            ("ecran", "ecran", "ecran.accueil", "Écran de l'app (appui : Accueil)"),
-            ("epreuve", "epreuve", "epreuve.toutes", "Épreuve de la revue (appui : toutes)"),
-            ("filtre", "filtre", "filtre.toutes", "Filtre de la revue (appui : Toutes)"),
-            ("zoom", "zoom", "zoom.ajuster", "Zoom sur la photo (appui : ajuster)"),
-            ("roue", "photo", "messageLu", "Grande roue : défiler les photos + messages"),
+            ("photo", "photo", "photo.premiere", "Photo précédente / suivante (appui : première)", "PHOTO"),
+            ("serie", "serie", "serie.ouvrir", "Série à valider (appui : la première)", "SÉRIE"),
+            ("ecran", "ecran", "ecran.accueil", "Écran de l'app (appui : Accueil)", "ÉCRAN"),
+            ("epreuve", "epreuve", "epreuve.toutes", "Épreuve de la revue (appui : toutes)", "ÉPREUVE"),
+            ("filtre", "filtre", "filtre.toutes", "Filtre de la revue (appui : Toutes)", "FILTRE"),
+            ("zoom", "zoom", "zoom.ajuster", "Zoom sur la photo (appui : ajuster)", "ZOOM"),
+            ("roue", "photo", "messageLu", "Grande roue : défiler les photos + messages", "PHOTOS"),
         };
 
         private readonly Dictionary<String, Int32> _index = new Dictionary<String, Int32>();
@@ -23,6 +23,9 @@ namespace Loupedeck.GroomPixPlugin
 
         public MolettesGroomPix() : base(true)
         {
+            // « widget » : le module dessine toute la bande (libellé court + valeur) et tout le rond de la roue ;
+            // sinon le logiciel écrit le long libellé par-dessus, coupé
+            this.IsWidget = true;
             for (var i = 0; i < Liste.Length; i++)
             {
                 _index[Liste[i].cle] = i;
@@ -110,17 +113,24 @@ namespace Loupedeck.GroomPixPlugin
             }
         }
 
-        /// Image de la molette ; pour la grande roue : le message non lu, sinon la photo affichée avec son code.
+        protected override String GetAdjustmentDisplayName(String actionParameter, PluginImageSize imageSize) =>
+            _index.TryGetValue(actionParameter, out var i) ? Liste[i].court : "";
+
+        /// Image de la molette : libellé court + valeur ; pour la grande roue : le message non lu, sinon la photo affichée avec son code.
         protected override BitmapImage GetAdjustmentImage(String actionParameter, PluginImageSize imageSize)
         {
-            if (actionParameter != "roue") return null;
             try
             {
+                if (actionParameter != "roue")
+                {
+                    var court = _index.TryGetValue(actionParameter, out var i) ? Liste[i].court : "";
+                    return Dessin.Bande(imageSize, court, this.GetAdjustmentValue(actionParameter), GroomPix.Etat != null);
+                }
                 return ImageRoue(imageSize);
             }
             catch (Exception ex)
             {
-                Journal.Ecrire($"image roue : {ex}");
+                Journal.Ecrire($"image molette {actionParameter} : {ex}");
                 return null;
             }
         }

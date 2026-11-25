@@ -93,6 +93,23 @@ namespace Loupedeck.GroomPixPlugin
             m.Invoke(b, args);
         }
 
+        /// Bande d'une molette : libellé court en or en haut (« PHOTO »), valeur en gros dessous (« 3/12 »).
+        public static BitmapImage Bande(PluginImageSize taille, String libelle, String valeur, Boolean ouvert)
+        {
+            using var b = new BitmapBuilder(taille);
+            var (fond, texte) = Couleurs(ouvert ? Genre.Normal : Genre.Eteint);
+            b.Clear(fond);
+            var w = b.Width;
+            var h = b.Height;
+            var cote = Math.Min(w, h);
+            Texte(b, libelle ?? "", 0, h * 8 / 100, w, h * 30 / 100, ouvert ? Or : texte, Math.Max(9, cote * 17 / 100));
+            var v = String.IsNullOrEmpty(valeur) ? "—" : valeur;
+            var n = Math.Max(1, v.Length);
+            var police = n <= 3 ? cote * 34 / 100 : n <= 5 ? cote * 26 / 100 : n <= 8 ? cote * 19 / 100 : cote * 14 / 100;
+            Texte(b, v, 0, h * 40 / 100, w, h * 52 / 100, texte, Math.Max(9, police));
+            return b.ToImage();
+        }
+
         /// Groom Pix fermé ou pont coupé : touche grise.
         public static BitmapImage Ferme(PluginImageSize taille, String petit = "fermé") => Touche(taille, "GP", petit, Genre.Eteint);
 

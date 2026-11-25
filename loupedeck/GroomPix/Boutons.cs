@@ -42,6 +42,8 @@ namespace Loupedeck.GroomPixPlugin
 
         public BoutonsGroomPix() : base()
         {
+            // posés sur l'écran tactile : image plein cadre, sans le nom par-dessus
+            this.IsWidget = true;
             for (var i = 0; i < Liste.Length; i++)
             {
                 var cle = Cle(i);
@@ -71,6 +73,9 @@ namespace Loupedeck.GroomPixPlugin
             if (GroomPix.Etat == null || !_index.TryGetValue(actionParameter, out var i)) return;
             GroomPix.Envoyer(Liste[i].ordre, Liste[i].pas);
         }
+
+        protected override String GetCommandDisplayName(String actionParameter, PluginImageSize imageSize) =>
+            _index.TryGetValue(actionParameter, out var i) ? Liste[i].petit : "";
 
         protected override BitmapImage GetCommandImage(String actionParameter, PluginImageSize imageSize)
         {
