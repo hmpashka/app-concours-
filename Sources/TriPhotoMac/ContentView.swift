@@ -76,13 +76,15 @@ struct Bandeau: View {
                 Text(etat.reglages.nomConcours.isEmpty ? "Nouveau concours" : etat.reglages.nomConcours)
                     .font(.system(size: 15, weight: .semibold))
                 Text(sousTitre).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+                    .lineLimit(2).truncationMode(.tail)
             }
-            Spacer()
-            HStack(spacing: 4) {
+            .layoutPriority(0)
+            Spacer(minLength: 8)
+            HStack(spacing: 2) {
                 ForEach(Ecran.allCases) { e in
                     Button { etat.ecran = e } label: {
                         HStack(spacing: 5) {
-                            Text(e.rawValue)
+                            Text(e.rawValue).lineLimit(1).fixedSize()
                             if let (n, couleur) = badge(e) {
                                 Text("\(n)")
                                     .font(.system(size: 10, weight: .bold))
@@ -93,14 +95,16 @@ struct Bandeau: View {
                         }
                             .font(.system(size: 13, weight: etat.ecran == e ? .semibold : .regular))
                             .foregroundStyle(etat.ecran == e ? Theme.texte : Theme.texteDiscret)
-                            .padding(.horizontal, 14)
+                            .padding(.horizontal, 10)
                             .padding(.vertical, 9)
                             .background(etat.ecran == e ? Theme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 5))
                     }
                     .buttonStyle(BoutonPlat())
                 }
             }
-            Spacer()
+            .fixedSize()            // les onglets ne se coupent jamais lettre par lettre : le titre à gauche cède la place
+            .layoutPriority(1)
+            Spacer(minLength: 8)
             if moteur.actif {
                 let enPause = moteur.resume.enPause
                 Button {

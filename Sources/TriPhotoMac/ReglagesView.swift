@@ -231,28 +231,28 @@ struct ReglagesView: View {
             Text("Pour chaque piste, choisis son chrono. Si un HM Timing chronomètre plusieurs pistes, choisis aussi laquelle.")
                 .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
             HStack {
-                Text("Piste").frame(width: 160, alignment: .leading)
-                Text("Photographe").frame(width: 150, alignment: .leading)
-                Text("Chrono").frame(width: 210, alignment: .leading)
-                Text("Piste dans ce chrono").frame(width: 190, alignment: .leading)
+                Text("Piste").frame(minWidth: 90, maxWidth: 160, alignment: .leading)
+                Text("Photographe").frame(minWidth: 90, maxWidth: 150, alignment: .leading)
+                Text("Chrono").frame(minWidth: 140, maxWidth: 210, alignment: .leading)
+                Text("Piste dans ce chrono").frame(minWidth: 130, maxWidth: 190, alignment: .leading)
                 Spacer()
             }
             .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.texteDiscret)
             ForEach($etat.reglages.pistes) { $piste in
                 HStack {
-                    TextField("Piste", text: $piste.nom).textFieldStyle(.roundedBorder).frame(width: 160)
-                    TextField("Photographe", text: $piste.photographe).textFieldStyle(.roundedBorder).frame(width: 150)
+                    TextField("Piste", text: $piste.nom).textFieldStyle(.roundedBorder).frame(minWidth: 90, maxWidth: 160)
+                    TextField("Photographe", text: $piste.photographe).textFieldStyle(.roundedBorder).frame(minWidth: 90, maxWidth: 150)
                     Picker("", selection: $piste.chrono) {
                         Text(etat.reglages.chronos.count == 1 ? etat.reglages.chronos[0].nom : "Trouvé tout seul").tag("")
                         ForEach(etat.reglages.chronos) { c in Text("\(c.genre == .horseComp ? "H&C" : "HM") · \(c.nom)").tag(c.id.uuidString) }
                         Text("Aucun chrono").tag(ReglagesConcours.Piste.aucun)
                     }
-                    .labelsHidden().frame(width: 210)
+                    .labelsHidden().frame(minWidth: 140, maxWidth: 210)
                     .onChange(of: piste.chrono) { _ in piste.sourceChrono = "" }
-                    pisteDansChrono($piste).frame(width: 190, alignment: .leading)
+                    pisteDansChrono($piste).frame(minWidth: 130, maxWidth: 190, alignment: .leading)
                     Spacer()
                     Button("Retirer") { etat.reglages.pistes.removeAll { $0.id == piste.id } }
-                        .buttonStyle(BoutonStyle())
+                        .buttonStyle(BoutonStyle()).fixedSize()
                         .disabled(etat.reglages.pistes.count <= 1)
                 }
             }
@@ -853,37 +853,48 @@ struct LigneChrono: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Text(chrono.genre == .hmTiming ? "HM TIMING" : "HORSE & COMP")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(Theme.surAccent)
-                .padding(.horizontal, 6).padding(.vertical, 3)
-                .background(chrono.genre == .hmTiming ? Theme.accent : Theme.orange, in: RoundedRectangle(cornerRadius: 4))
-                .frame(width: 96, alignment: .leading)
-            TextField("Nom", text: $chrono.nom).textFieldStyle(.roundedBorder).frame(width: 170)
-            if chrono.genre == .hmTiming {
-                TextField("192.168.1.20:8080", text: $chrono.adresse).textFieldStyle(.roundedBorder).frame(width: 170)
-                SecureField("Régie", text: $chrono.codeRegie).textFieldStyle(.roundedBorder).frame(width: 80)
-                SecureField("Tech", text: $chrono.codeTech).textFieldStyle(.roundedBorder).frame(width: 80)
-            } else {
-                Text(chrono.urlIncrustation.isEmpty ? "Page d'incrustation à régler" : chrono.urlIncrustation)
-                    .font(.system(size: 12)).lineLimit(1).truncationMode(.middle).frame(width: 200, alignment: .leading)
-                Button(chrono.zones["dossard"] == nil ? "Régler la page et les zones…" : "Page et zones…") {
-                    etat.captureChoisie = chrono.id.uuidString
-                    etat.montrerCapture = true
+        // deux lignes : les champs, puis le voyant et les boutons (rien n'est écrasé dans une fenêtre moyenne)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(chrono.genre == .hmTiming ? "HM TIMING" : "HORSE & COMP")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Theme.surAccent)
+                    .lineLimit(1).fixedSize()
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(chrono.genre == .hmTiming ? Theme.accent : Theme.orange, in: RoundedRectangle(cornerRadius: 4))
+                TextField("Nom du chrono", text: $chrono.nom).textFieldStyle(.roundedBorder).frame(minWidth: 120, maxWidth: 200)
+                if chrono.genre == .hmTiming {
+                    TextField("Adresse (192.168.1.20:8080)", text: $chrono.adresse).textFieldStyle(.roundedBorder)
+                        .frame(minWidth: 150, maxWidth: 240)
+                    SecureField("Code régie", text: $chrono.codeRegie).textFieldStyle(.roundedBorder).frame(minWidth: 80, maxWidth: 110)
+                    SecureField("Code tech", text: $chrono.codeTech).textFieldStyle(.roundedBorder).frame(minWidth: 80, maxWidth: 110)
+                } else {
+                    Text(chrono.urlIncrustation.isEmpty ? "Page d'incrustation à régler" : chrono.urlIncrustation)
+                        .font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
+                        .frame(minWidth: 120, maxWidth: 300, alignment: .leading)
                 }
-                .buttonStyle(BoutonStyle(principal: chrono.zones["dossard"] == nil))
+                Spacer(minLength: 0)
             }
-            voyant
-            Spacer(minLength: 0)
-            if chrono.genre == .hmTiming {
-                Button(enTest ? "…" : "Tester") { tester() }.buttonStyle(BoutonStyle()).disabled(enTest || !chrono.pret)
+            HStack(spacing: 10) {
+                voyant
+                Spacer(minLength: 8)
+                if chrono.genre == .hmTiming {
+                    Button(enTest ? "Test en cours…" : "Tester") { tester() }
+                        .buttonStyle(BoutonStyle()).fixedSize()
+                        .disabled(enTest || !chrono.pret)
+                } else {
+                    Button(chrono.zones["dossard"] == nil ? "Régler la page et les zones…" : "Page et zones…") {
+                        etat.captureChoisie = chrono.id.uuidString
+                        etat.montrerCapture = true
+                    }
+                    .buttonStyle(BoutonStyle(principal: chrono.zones["dossard"] == nil)).fixedSize()
+                }
+                Button("Retirer") { etat.reglages.chronos.removeAll { $0.id == chrono.id } }
+                    .buttonStyle(BoutonStyle()).fixedSize()
+                    .help("Les pistes de ce chrono passent « trouvé tout seul ».")
             }
-            Button("Retirer") { etat.reglages.chronos.removeAll { $0.id == chrono.id } }
-                .buttonStyle(BoutonStyle())
-                .help("Les pistes de ce chrono passent « trouvé tout seul ».")
         }
-        .padding(8)
+        .padding(10)
         .background(Theme.carte, in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.bordure))
     }
@@ -908,8 +919,8 @@ struct LigneChrono: View {
         }()
         return HStack(spacing: 5) {
             Circle().fill(v.0).frame(width: 8, height: 8)
-            Text(v.1).font(.system(size: 11)).foregroundStyle(v.0)
-                .lineLimit(2).frame(maxWidth: 230, alignment: .leading)
+            Text(v.1).font(.system(size: 12)).foregroundStyle(v.0)
+                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
         }
     }
 
