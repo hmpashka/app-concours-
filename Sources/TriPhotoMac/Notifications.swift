@@ -172,7 +172,8 @@ final class Notifieur {
     }
 
     func jouer(_ son: String) {
-        guard !son.isEmpty, Preferences.partagees.mode != .silencieux else { return }
+        let son = son.isEmpty ? "Pop" : son
+        guard Preferences.partagees.mode != .silencieux else { return }
         guard Date().timeIntervalSince(dernierSon) > 0.8 else { return }   // jamais une rafale de sons
         dernierSon = Date()
         let fichier = URL(fileURLWithPath: "/System/Library/Sounds/\(son).aiff")
@@ -207,7 +208,8 @@ final class Notifieur {
         // Le son part AVEC la bulle (son du Mac choisi dans les réglages), comme les autres apps.
         // Le son joué par l'app ne sert plus que si le Mac refuse les bulles.
         // son du Mac (« Réglages Système › Notifications ») : le seul que macOS joue à coup sûr avec la bulle
-        if !r.son.isEmpty && p.mode != .silencieux { n.sound = .default }
+        // toujours un son avec la bulle, sauf en mode Silencieux (un son « — » dans les réglages n'y change rien)
+        if p.mode != .silencieux { n.sound = .default }
         n.threadIdentifier = e.rawValue
         if (e == .message || e == .incident) && l.count < 3 { n.categoryIdentifier = Notifieur.categorieMessage }
         var info: [String: String] = infos
