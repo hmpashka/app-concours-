@@ -39,6 +39,8 @@ targets:
       path: Piste/Info.plist
       properties:
         CFBundleDisplayName: Groom Pix
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.photography
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
@@ -70,6 +72,8 @@ targets:
       path: Widget/Info.plist
       properties:
         CFBundleDisplayName: Groom Pix
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
 schemes:
