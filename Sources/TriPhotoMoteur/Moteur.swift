@@ -306,6 +306,7 @@ public final class Moteur: ObservableObject {
             self.enAttenteChrono = [:]
             self.pause = false
             self.enLigne?.mettreEnPause(false)
+            self.minuterie?.cancel()       // « Démarrer » cliqué deux fois : jamais deux minuteries en même temps
             let t = DispatchSource.makeTimerSource(queue: file)
             t.schedule(deadline: .now(), repeating: 1.0, leeway: .milliseconds(200))
             t.setEventHandler { [weak self] in self?.tour() }

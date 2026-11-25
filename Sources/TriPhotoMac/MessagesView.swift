@@ -117,7 +117,9 @@ struct MessagesView: View {
     }
 
     private func envoyer() {
-        serveur.envoyerDuStand(texte, pour: conv)
+        let t = texte.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }               // Entrée tapée deux fois : jamais de message vide
+        serveur.envoyerDuStand(t, pour: conv)
         texte = ""
     }
 

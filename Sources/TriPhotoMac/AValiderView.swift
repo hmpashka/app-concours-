@@ -15,7 +15,21 @@ struct AValiderView: View {
     @State private var enGrand: DepartVisionneuse?      // photo en grand (double-clic, ou bouton « Photo »)
 
     private var r: ResumeMoteur { moteur.resume }
-    private var serie: SerieAValider? { r.series.first { $0.id == choisie } ?? r.series.first }
+    /// Séries que HUGO vient de traiter : cachées quelques secondes, le temps que le moteur les retire. En rush,
+    /// Entrée ou Échap tapés deux fois de suite ne revalident jamais la même série : on passe à la suivante.
+    @State private var traitees: [String: Date] = [:]
+    private var series: [SerieAValider] {
+        let maintenant = Date()
+        return r.series.filter { s in traitees[s.id].map { maintenant.timeIntervalSince($0) > 4 } ?? true }
+    }
+    private var serie: SerieAValider? { series.first { $0.id == choisie } ?? series.first }
+
+    private func traitee(_ s: SerieAValider) {
+        traitees[s.id] = Date()
+        traitees = traitees.filter { Date().timeIntervalSince($0.value) < 30 }
+        serieDeLaSelection = ""
+        choisie = nil
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -60,15 +74,15 @@ struct AValiderView: View {
 
     // MARK: - Loupedeck CT
 
-    private var normales: [SerieAValider] { r.series.filter { $0.genre != .rush } }
+    private var normales: [SerieAValider] { series.filter { $0.genre != .rush } }
 
     private var signatureLoupedeck: String {
-        "\(serie?.id ?? "")|\(r.series.count)|\(selection.count)|\(saisie)"
+        "\(serie?.id ?? "")|\(series.count)|\(selection.count)|\(saisie)"
     }
 
     private func publierLoupedeck() {
         guard let s = serie else { etat.infoSerieLoupedeck = nil; etat.photoLoupedeck = nil; return }
-        let l = r.series
+        let l = series
         etat.infoSerieLoupedeck = EtatLoupedeck.Serie(
             position: (l.firstIndex { $0.id == s.id } ?? 0) + 1, total: l.count, code: s.code,
             proposition: codeSaisi?.texte ?? s.proposition, photos: selection.count, photoCode: s.genre == .photoCode)
@@ -77,7 +91,7 @@ struct AValiderView: View {
 
     /// Boutons du Loupedeck : série suivante / précédente, Valider (comme Entrée), Ignorer (comme Échap).
     private func recevoirLoupedeck(_ o: OrdreLoupedeck) {
-        let l = r.series
+        let l = series
         switch o.nom {
         case "serie", "photo":
             guard !l.isEmpty else { return }
@@ -90,8 +104,9 @@ struct AValiderView: View {
         case "ignorer":
             guard let s = serie else { return }
             if s.genre == .photoCode {
-                if let pc = s.photoCode { moteur.utiliserPhotoCode(pc, pour: []) }
+                if let pc = s.photoCode { moteur.utiliserPhotoCode(pc, pour: []); traitee(s) }
             } else if !selection.isEmpty {
+                traitee(s)
                 etat.noterSerieValidee(Array(selection), titre: "\(selection.count) photo\(selection.count > 1 ? "s" : "") gardée\(selection.count > 1 ? "s" : "") en \(s.code.isEmpty ? "sans code" : s.code) · \(s.boitier)")
                 moteur.garderCodePhotographe(Array(selection))
             }
@@ -113,8 +128,8 @@ struct AValiderView: View {
 
     private var listeSeries: some View {
         VStack(alignment: .leading, spacing: 8) {
-            let normales = r.series.filter { $0.genre != .rush }
-            let rushs = r.series.filter { $0.genre == .rush }
+            let normales = series.filter { $0.genre != .rush }
+            let rushs = series.filter { $0.genre == .rush }
             HStack {
                 Text("Séries à valider").font(.system(size: 14, weight: .semibold))
                 Spacer()
@@ -240,15 +255,16 @@ struct AValiderView: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(codeSaisi == nil || selection.isEmpty)
             if s.genre == .photoCode {
-                Button("Ignorer la photo de code") { if let pc = s.photoCode { moteur.utiliserPhotoCode(pc, pour: []) } }
+                Button("Ignorer la photo de code") { if let pc = s.photoCode { moteur.utiliserPhotoCode(pc, pour: []); traitee(s) } }
                     .buttonStyle(BoutonStyle())
                     .keyboardShortcut(.cancelAction)
-                Button("Ce n'est pas une photo de code") { if let pc = s.photoCode { moteur.pasUnePhotoDeCode(pc) } }
+                Button("Ce n'est pas une photo de code") { if let pc = s.photoCode { moteur.pasUnePhotoDeCode(pc); traitee(s) } }
                     .buttonStyle(BoutonStyle())
             } else {
                 Button("Refuser (garder le code du photographe)") {
                     etat.noterSerieValidee(Array(selection), titre: "\(selection.count) photo\(selection.count > 1 ? "s" : "") gardée\(selection.count > 1 ? "s" : "") en \(s.code.isEmpty ? "sans code" : s.code) · \(s.boitier)")
                     moteur.garderCodePhotographe(Array(selection))
+                    traitee(s)
                 }
                     .buttonStyle(BoutonStyle())
                     .keyboardShortcut(.cancelAction)
@@ -291,7 +307,7 @@ struct AValiderView: View {
         } else {
             moteur.appliquer(code: c.texte, a: Array(selection))
         }
-        serieDeLaSelection = ""
+        traitee(s)
     }
 
     // MARK: - Saisie : code ou nom

@@ -278,6 +278,10 @@ final class Etat: ObservableObject {
                 throw NSError(domain: "TriPhoto", code: 2, userInfo: [NSLocalizedDescriptionKey:
                     "La réception, l'import Lightroom et le serveur local doivent être trois dossiers différents."])
             }
+            if let t = tampon?.standardizedFileURL, [reception, importLR, serveur].map(\.standardizedFileURL).contains(t) {
+                throw NSError(domain: "TriPhoto", code: 2, userInfo: [NSLocalizedDescriptionKey:
+                    "Le dossier tampon doit être un dossier à part (ni la réception, ni l'import Lightroom, ni le serveur local)."])
+            }
             var cube: FichierCube?
             if !r.cubeServeur.isEmpty { cube = try FichierCube(fichier: URL(fileURLWithPath: r.cubeServeur)) }
             // Les chronos : chaque HM Timing réglé, chaque Horse & Comp ; le mode entraînement remplace les HM Timing.

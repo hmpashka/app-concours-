@@ -30,6 +30,7 @@ struct RevueView: View {
     @State private var galerie = false
     @State private var choix: Set<Int64> = []             // photos choisies dans la galerie (⇧ / ⌘ clic)
     @State private var etiquettes: [Int64: String] = [:]  // « sol », « floue », « code » proposés (calculés au chargement)
+    @State private var chargement = 0                     // n° du dernier chargement demandé (frappe rapide)
     @State private var colonnes = 5                       // colonnes de la galerie (pour ↑ ↓)
     @AppStorage("revue.tailleVignette") private var taille: Double = 160
 
@@ -377,6 +378,8 @@ struct RevueView: View {
         let pisteDe = pisteParBoitier
         let heures = parHeure ? (RevueView.minutes(heureDe), RevueView.minutes(heureA)) : nil
         let texte = recherche.trimmingCharacters(in: .whitespaces).lowercased()
+        chargement += 1
+        let numero = chargement
         DispatchQueue.global(qos: .userInitiated).async {
             var l = ids.map { moteur.fiches(ids: $0) } ?? moment.map { moteur.photosAutour($0) } ?? moteur.photosRevue(epreuve: ep)
             if !b.isEmpty { l = l.filter { $0.boitier == b } }
@@ -412,6 +415,7 @@ struct RevueView: View {
             }
             let cats = RevueView.aTraiter(l)
             DispatchQueue.main.async {
+                guard numero == chargement else { return }   // un chargement plus récent est en route : on l'attend
                 let garde = courante?.id
                 photos = l
                 etiquettes = cats
@@ -552,35 +556,54 @@ struct RevueView: View {
         .padding(20)
     }
 
+    /// Les boutons sous la photo. Fenêtre étroite (deux panneaux ouverts sur un petit écran) : ils passent sur deux
+    /// lignes, puis en lettres seules, mais ne sont jamais coupés (Supprimer et Changer le code restent visibles).
     private func boutons(_ f: FichePhoto) -> some View {
-        HStack(spacing: 8) {
-            ForEach(classes) { c in
-                Button("\(c.nom) (\(String(c.touche).uppercased()))") { classer(c.cle) }
-                    .buttonStyle(BoutonStyle(principal: f.classe == c.cle))
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { classement(f, court: false); Spacer(minLength: 8); actions(court: false, f) }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) { classement(f, court: false) }
+                HStack(spacing: 8) { Spacer(minLength: 0); actions(court: false, f) }
             }
-            Button(f.chute ? "Chute ✓ (X)" : "Chute (X)") { basculerChute() }
-                .buttonStyle(BoutonStyle(principal: f.chute))
-            Button(f.a("meilleure") ? "Meilleure ✓ (M)" : "Meilleure (M)") { basculer("meilleure") }
-                .buttonStyle(BoutonStyle(principal: f.a("meilleure")))
-            Button(f.a("reseaux") ? "Réseaux ✓ (R)" : "Réseaux (R)") { basculer("reseaux") }
-                .buttonStyle(BoutonStyle(principal: f.a("reseaux")))
-            Spacer()
-            if !retours.isEmpty {
-                Button("Annuler (⌘Z)") { annulerSuppression() }.buttonStyle(BoutonStyle())
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) { classement(f, court: true) }
+                HStack(spacing: 6) { Spacer(minLength: 0); actions(court: true, f) }
             }
-            if ordre.drapeauRetrait != nil {
-                Button("Retirer de la sélection (⌫)") { supprimer() }
-                    .buttonStyle(BoutonStyle())
-                    .help("La photo n'est plus retenue dans ce filtre. Elle reste sur le serveur et dans Lightroom.")
-            }
-            if suppressionPermise {
-                Button("Supprimer (⌫)") { supprimer() }
-                    .buttonStyle(BoutonStyle())
-                    .help("Retire la copie du serveur local et de la galerie en ligne, et met l'original à la Corbeille. Dans Lightroom, elle apparaît manquante : clic droit sur le dossier › Synchroniser le dossier.")
-            }
-            Button("Changer le code…") { nouveauCode = f.codeRetenu; changerCode = true }
-                .buttonStyle(BoutonStyle())
         }
+    }
+
+    @ViewBuilder
+    private func classement(_ f: FichePhoto, court: Bool) -> some View {
+        ForEach(classes) { c in
+            Button(court ? String(c.touche).uppercased() : "\(c.nom) (\(String(c.touche).uppercased()))") { classer(c.cle) }
+                .buttonStyle(BoutonStyle(principal: f.classe == c.cle))
+                .help(c.nom)
+        }
+        Button(court ? "X" : f.chute ? "Chute ✓ (X)" : "Chute (X)") { basculerChute() }
+            .buttonStyle(BoutonStyle(principal: f.chute)).help("Chute")
+        Button(court ? "M" : f.a("meilleure") ? "Meilleure ✓ (M)" : "Meilleure (M)") { basculer("meilleure") }
+            .buttonStyle(BoutonStyle(principal: f.a("meilleure"))).help("Meilleure")
+        Button(court ? "R" : f.a("reseaux") ? "Réseaux ✓ (R)" : "Réseaux (R)") { basculer("reseaux") }
+            .buttonStyle(BoutonStyle(principal: f.a("reseaux"))).help("Réseaux sociaux")
+    }
+
+    @ViewBuilder
+    private func actions(court: Bool, _ f: FichePhoto) -> some View {
+        if !retours.isEmpty {
+            Button(court ? "⌘Z" : "Annuler (⌘Z)") { annulerSuppression() }.buttonStyle(BoutonStyle()).help("Annuler")
+        }
+        if ordre.drapeauRetrait != nil {
+            Button(court ? "Retirer ⌫" : "Retirer de la sélection (⌫)") { supprimer() }
+                .buttonStyle(BoutonStyle())
+                .help("La photo n'est plus retenue dans ce filtre. Elle reste sur le serveur et dans Lightroom.")
+        }
+        if suppressionPermise {
+            Button(court ? "Suppr. ⌫" : "Supprimer (⌫)") { supprimer() }
+                .buttonStyle(BoutonStyle())
+                .help("Retire la copie du serveur local et de la galerie en ligne, et met l'original à la Corbeille. Dans Lightroom, elle apparaît manquante : clic droit sur le dossier › Synchroniser le dossier.")
+        }
+        Button(court ? "Code…" : "Changer le code…") { nouveauCode = f.codeRetenu; changerCode = true }
+            .buttonStyle(BoutonStyle())
     }
 
     @ViewBuilder
@@ -669,7 +692,7 @@ struct RevueView: View {
 
     private func marque(_ t: String) -> some View {
         Text(t).font(.system(size: 9, weight: .bold)).padding(.horizontal, 4).padding(.vertical, 1)
-            .background(Theme.accent, in: RoundedRectangle(cornerRadius: 3)).foregroundStyle(Theme.fond)
+            .background(Theme.accent, in: RoundedRectangle(cornerRadius: 3)).foregroundStyle(Theme.surAccent)
     }
 
     /// Ce que dit l'étiquette d'une vignette : le classement de HUGO (sûr), sinon ce que l'app soupçonne (« sol ? »).

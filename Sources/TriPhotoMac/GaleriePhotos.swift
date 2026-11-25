@@ -21,7 +21,7 @@ struct SelecteurVue: View {
             Label(titre, systemImage: icone)
                 .font(.system(size: 12, weight: actif ? .semibold : .regular))
                 .padding(.horizontal, 10).padding(.vertical, 4)
-                .foregroundStyle(actif ? Theme.fond : Theme.texte)
+                .foregroundStyle(actif ? Theme.surAccent : Theme.texte)
                 .background(actif ? Theme.accent : Color.clear)
         }
         .buttonStyle(BoutonPlat())
@@ -104,7 +104,7 @@ struct Visionneuse: View {
                             Label("Choisie", systemImage: "checkmark.circle.fill")
                                 .font(.system(size: 12, weight: .semibold)).padding(6)
                                 .background(Theme.accent, in: RoundedRectangle(cornerRadius: 5))
-                                .foregroundStyle(Theme.fond).padding(8)
+                                .foregroundStyle(Theme.surAccent).padding(8)
                         }
                     }
                     .onTapGesture(count: 2) { fermer() }
