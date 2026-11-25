@@ -33,6 +33,22 @@ if let e = fm.enumerator(at: sourceURL, includingPropertiesForKeys: nil, options
 }
 sources.sort { $0.lastPathComponent < $1.lastPathComponent }
 guard sources.count >= 40 else { print("Il faut au moins 40 photos JPEG dans \(sourceURL.path)"); exit(1) }
+// Les photos d'essai sont souvent dans un dossier iCloud (Bureau partagé) : sur un autre Mac, elles ne sont
+// téléchargées qu'à la première lecture, ce qui faussait la rafale (c'était iCloud qui était lent, pas le moteur).
+// On les copie donc d'abord dans un dossier local, hors chrono.
+do {
+    let local = fm.temporaryDirectory.appendingPathComponent("essai-extreme-sources-\(UUID().uuidString.prefix(6))", isDirectory: true)
+    try? fm.createDirectory(at: local, withIntermediateDirectories: true)
+    let t = Date()
+    var copiees: [URL] = []
+    for u in sources.prefix(300) {
+        let d = local.appendingPathComponent(u.lastPathComponent)
+        if let data = try? Data(contentsOf: u), (try? data.write(to: d)) != nil { copiees.append(d) }
+    }
+    print("Photos copiées en local avant les essais : \(copiees.count) en \(Int(Date().timeIntervalSince(t))) s")
+    guard copiees.count >= 40 else { print("Impossible de lire assez de photos (iCloud ?)"); exit(1) }
+    sources = copiees
+}
 let cube = cheminCube.flatMap { try? FichierCube(fichier: URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath)) }
 
 // MARK: - Outils
