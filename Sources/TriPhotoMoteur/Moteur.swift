@@ -353,7 +353,10 @@ public final class Moteur: ObservableObject {
             if vuesEnAttente[chemin] == nil && enAttenteChrono[chemin] == nil { vuesEnAttente[chemin] = maintenant }
             // Prête quand sa taille n'a pas bougé depuis le tour précédent (le boîtier a fini de l'écrire).
             defer { tailles[chemin] = taille }
-            guard taille > 0, tailles[chemin] == taille else { continue }
+            // Un fichier vide (transfert raté) est mis « à renvoyer » au bout d'une minute : il ne bloque jamais la
+            // file d'attente ni la clôture.
+            let vide = taille == 0 && maintenant.timeIntervalSince(vuesEnAttente[chemin] ?? enAttenteChrono[chemin] ?? maintenant) > 60
+            guard tailles[chemin] == taille, taille > 0 || vide else { continue }
             enCours.insert(chemin)
             ouvriers.addOperation { [weak self] in self?.traiter(url, config: c) }
         }
@@ -421,6 +424,17 @@ public final class Moteur: ObservableObject {
         do {
             // 1. Contrôle : photo mal transférée → mise de côté, à redemander au boîtier (nom d'origine).
             guard let infos = TraitementPhoto.infos(url), !TraitementPhoto.estAbimee(url) else {
+                // Transfert lent (wifi du boîtier qui hésite) : le fichier a encore bougé il y a peu, il est peut-être
+                // en train d'arriver. On le reprend un peu plus tard au lieu de le déclarer abîmé trop tôt.
+                let modif = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                if Date().timeIntervalSince(modif) < 20 {
+                    file.sync {
+                        enCours.remove(chemin)
+                        tailles[chemin] = nil
+                        reessayerApres[chemin] = Date().addingTimeInterval(5)
+                    }
+                    return
+                }
                 let cote = c.reception.appendingPathComponent(Moteur.dossierARenvoyer, isDirectory: true)
                 try FileManager.default.createDirectory(at: cote, withIntermediateDirectories: true)
                 let dest = cote.appendingPathComponent(Renommage.libre(fiche.origine) {
@@ -1159,7 +1173,7 @@ public final class Moteur: ObservableObject {
                 guard let infos = TraitementPhoto.infos(nouvelle) else { throw TraitementPhoto.Erreur.illisible(nouvelle.lastPathComponent) }
                 // La photo garde le code de la première : celui validé par HUGO s'il y en a un, sinon celui du boîtier.
                 let code = CodePassage.lire(premiere.codeFinal) ?? CodePassage.lire(premiere.code) ?? CodePassage.lire(infos.copyright)
-                if !premiere.copie.isEmpty {
+                if !premiere.copie.isEmpty, fm.fileExists(atPath: c.serveur.path) {
                     try TraitementPhoto.fabriquerCopie(de: nouvelle, vers: URL(fileURLWithPath: premiere.copie), cote: c.cote,
                                                        qualite: c.qualite, cube: c.cube,
                                                        copyright: code?.texte ?? infos.copyright, priseEXIF: infos.priseEXIF)
@@ -1335,7 +1349,7 @@ public final class Moteur: ObservableObject {
                 let original = URL(fileURLWithPath: f.chemin)
                 let code = CodePassage.lire(f.codeRetenu)
                 let copie = Moteur.dossierServeur(pour: code, config: c).appendingPathComponent(f.nom)
-                if let infos = TraitementPhoto.infos(original) {
+                if fm.fileExists(atPath: c.serveur.path), let infos = TraitementPhoto.infos(original) {
                     let neuf = !fm.fileExists(atPath: copie.deletingLastPathComponent().path)
                     try? TraitementPhoto.fabriquerCopie(de: original, vers: copie, cote: c.cote, qualite: c.qualite, cube: c.cube,
                                                         copyright: code?.texte ?? infos.copyright, priseEXIF: infos.priseEXIF)
@@ -1477,6 +1491,11 @@ public final class Moteur: ObservableObject {
         guard var f = file.sync(execute: { journal?.fiche(id: id) }) else { return }
         guard let original = Moteur.trouverOriginal(f, travail: travail) else {
             file.sync { message = "Recodage impossible : l'original de \(f.nom) est introuvable." }
+            return
+        }
+        guard FileManager.default.fileExists(atPath: c.serveur.path) else {
+            // serveur débranché : surtout ne pas recréer son dossier en local (il cacherait le vrai au retour)
+            file.sync { message = "Recodage de \(f.nom) impossible : serveur local introuvable (\(c.serveur.path))." }
             return
         }
         do {
