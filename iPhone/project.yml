@@ -44,7 +44,7 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSSupportsLiveActivities: true
         NSSupportsLiveActivitiesFrequentUpdates: true
-        NSLocalNetworkUsageDescription: "L'app Piste trouve le Mac Groom Pix sur le wifi du concours."
+        NSLocalNetworkUsageDescription: "Groom Pix trouve le Mac du stand sur le wifi du concours."
         NSBonjourServices: [_triphoto._tcp]
         UIBackgroundModes: [remote-notification]
         ITSAppUsesNonExemptEncryption: false
