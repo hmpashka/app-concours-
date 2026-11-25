@@ -161,7 +161,7 @@ final class APNs: ObservableObject {
         guard pret else { dernierEtat = "Il manque la clé .p8 ou le Key ID."; return }
         let avec = iphones.filter { !$0.notifications.isEmpty }
         guard !avec.isEmpty else {
-            dernierEtat = "Aucun iPhone connu : ouvre Groom Pix Piste une fois sur le wifi du stand."
+            dernierEtat = "Aucun iPhone connu : ouvre Groom Pix sur l’iPhone une fois sur le wifi du stand."
             return
         }
         dernierEtat = "Essai envoyé à \(avec.map(\.nom).joined(separator: ", "))…"
@@ -261,7 +261,7 @@ struct CarteNotificationsIphone: View {
             }
             Divider().overlay(Theme.bordure)
             if apns.iphones.isEmpty {
-                Text("Aucun iPhone encore connu. Ouvre Groom Pix Piste une fois sur le wifi du stand et accepte les notifications.")
+                Text("Aucun iPhone encore connu. Ouvre Groom Pix sur l’iPhone une fois sur le wifi du stand et accepte les notifications.")
                     .font(.system(size: 12)).foregroundStyle(Theme.texteTresDiscret)
             } else {
                 ForEach(apns.iphones) { p in

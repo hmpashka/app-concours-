@@ -1,5 +1,5 @@
 #!/bin/bash
-# Construit l'app iPhone « Groom Pix Piste » et son widget d'écran verrouillé, et l'installe sur l'iPhone branché.
+# Construit l'app iPhone « Groom Pix » et son widget d'écran verrouillé, et l'installe sur l'iPhone branché.
 #   ./scripts/construire-iphone.sh            → construit seulement
 #   ./scripts/construire-iphone.sh installer  → construit puis installe sur l'iPhone branché (déverrouillé)
 #   ./scripts/construire-iphone.sh testflight → construit la version « Release » et l'envoie sur App Store Connect
@@ -64,7 +64,7 @@ xcodebuild -project GroomPixPiste.xcodeproj -scheme GroomPixPiste -configuration
   > "$ICI/build/iphone.log" 2>&1 || { grep -E "error:" "$ICI/build/iphone.log" | sort -u; echo "BUILD FAILED (journal : build/iphone.log)"; exit 1; }
 echo "BUILD SUCCEEDED"
 
-APP="$DD/Build/Products/Debug-iphoneos/Groom Pix Piste.app"
+APP="$DD/Build/Products/Debug-iphoneos/Groom Pix.app"
 [ -d "$APP" ] || { echo "Construction ratée."; exit 1; }
 echo "Prêt : $APP"
 

@@ -1,4 +1,4 @@
-# App iPhone « Groom Pix Piste » + son widget d'écran verrouillé (Live Activity, Dynamic Island).
+# App iPhone « Groom Pix » + son widget d'écran verrouillé (Live Activity, Dynamic Island).
 # Projet Xcode fabriqué par XcodeGen : `xcodegen` dans ce dossier (voir scripts/construire-iphone.sh).
 # Le projet .xcodeproj n'est pas gardé dans le dépôt : il est refait à chaque construction.
 name: GroomPixPiste
@@ -31,14 +31,14 @@ targets:
         product: TriPhotoCommun
     settings:
       base:
-        PRODUCT_NAME: "Groom Pix Piste"
+        PRODUCT_NAME: "Groom Pix"
         PRODUCT_BUNDLE_IDENTIFIER: fr.hmtimings.piste
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
       path: Piste/Info.plist
       properties:
-        CFBundleDisplayName: Groom Pix Piste
+        CFBundleDisplayName: Groom Pix
         LSApplicationCategoryType: public.app-category.photography
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
@@ -69,7 +69,7 @@ targets:
     info:
       path: Widget/Info.plist
       properties:
-        CFBundleDisplayName: Groom Pix Piste
+        CFBundleDisplayName: Groom Pix
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
 schemes:
