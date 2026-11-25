@@ -583,9 +583,25 @@ public final class Moteur: ObservableObject {
                 let nom = Renommage.nom(origine: fiche.origine, priseEXIF: infos.priseEXIF,
                                         secours: (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate)
                 let id = fiche.id
+                // Reprise après un plantage (ou une erreur) entre le dépôt pour Lightroom et le retrait de la
+                // réception : le fichier déjà déposé sous ce nom est le NÔTRE, pas un doublon.
+                let dejaANous = fiche.nom == nom && !fiche.copie.isEmpty && (fiche.etat == .copiee || fiche.etat == .erreur)
                 let pris = file.sync { journal?.nomDejaUtilise(nom, sauf: id) ?? false }
-                    || FileManager.default.fileExists(atPath: destination.appendingPathComponent(nom).path)
-                    || FileManager.default.fileExists(atPath: c.importLightroom.appendingPathComponent(nom).path)
+                    || (!dejaANous && FileManager.default.fileExists(atPath: destination.appendingPathComponent(nom).path))
+                    || (!dejaANous && FileManager.default.fileExists(atPath: c.importLightroom.appendingPathComponent(nom).path))
+                if dejaANous, !FileManager.default.fileExists(atPath: destination.appendingPathComponent(nom).path),
+                   let dansLR = Moteur.trouverOriginal(FichePhoto(origine: fiche.origine, nom: nom, boitier: "", prise: nil, code: "",
+                                                                  etat: .envoyee, chemin: "", copie: "", erreur: "", recue: Date(), maj: Date()),
+                                                       travail: c.travailLightroom) {
+                    // Lightroom l'a déjà importée : on ne la redépose pas (pas de double dans le catalogue).
+                    // L'exemplaire resté en réception va à la Corbeille (récupérable).
+                    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                    fiche.chemin = dansLR.path
+                    fiche.etat = .envoyee
+                    fiche.erreur = ""
+                    terminer(fiche, chemin: chemin)
+                    return
+                }
                 if pris {
                     let cote = c.reception.appendingPathComponent(Moteur.dossierDoublons, isDirectory: true)
                     try FileManager.default.createDirectory(at: cote, withIntermediateDirectories: true)
@@ -1140,19 +1156,18 @@ public final class Moteur: ObservableObject {
             }
             do {
                 guard let infos = TraitementPhoto.infos(nouvelle) else { throw TraitementPhoto.Erreur.illisible(nouvelle.lastPathComponent) }
-                let code = CodePassage.lire(infos.copyright)
+                // La photo garde le code de la première : celui validé par HUGO s'il y en a un, sinon celui du boîtier.
+                let code = CodePassage.lire(premiere.codeFinal) ?? CodePassage.lire(premiere.code) ?? CodePassage.lire(infos.copyright)
                 if !premiere.copie.isEmpty {
                     try TraitementPhoto.fabriquerCopie(de: nouvelle, vers: URL(fileURLWithPath: premiere.copie), cote: c.cote,
                                                        qualite: c.qualite, cube: c.cube,
                                                        copyright: code?.texte ?? infos.copyright, priseEXIF: infos.priseEXIF)
                 }
-                var motsCles: [String] = []
-                if let code, let couple = c.concours?.couple(pour: code) {
-                    motsCles += [couple.cavalier, couple.cheval].filter { !$0.isEmpty }
-                }
                 // la nouvelle version est d'abord écrite à côté, puis l'ancienne part à la corbeille
                 let provisoire = cible.deletingLastPathComponent().appendingPathComponent(".remplacement-\(cible.lastPathComponent)")
-                try TraitementPhoto.copierAvecIPTC(de: nouvelle, vers: provisoire, motsCles: motsCles, codeOrigine: code?.texte ?? "")
+                try TraitementPhoto.copierAvecIPTC(de: nouvelle, vers: provisoire, motsCles: Moteur.motsCles(premiere, code: code, config: c),
+                                                   codeOrigine: premiere.code.isEmpty ? (CodePassage.lire(infos.copyright)?.texte ?? "") : premiere.code,
+                                                   copyright: premiere.codeFinal.isEmpty ? nil : premiere.codeFinal)
                 try fm.trashItem(at: cible, resultingItemURL: nil)
                 try fm.moveItem(at: provisoire, to: cible)
                 try fm.removeItem(at: nouvelle)
@@ -1328,7 +1343,9 @@ public final class Moteur: ObservableObject {
                 }
                 f.retirer(Moteur.supprimeeApp)
                 f.raison = ""
-                f.etat = .envoyee
+                // Remise dans le dossier tampon : elle y attend son lot (sinon elle n'irait jamais à Lightroom).
+                let dansTampon = c.tampon.map { f.chemin.hasPrefix($0.standardizedFileURL.path + "/") } ?? false
+                f.etat = dansTampon ? .tampon : .envoyee
                 f.noter("HUGO", "suppression annulée : original remis, copie du serveur refaite")
                 j.mettreAJour(f)
             }

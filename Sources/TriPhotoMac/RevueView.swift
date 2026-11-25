@@ -24,6 +24,7 @@ struct RevueView: View {
     @State private var heureDe = Calendar.current.date(bySettingHour: 8, minute: 0, second: 0, of: Date()) ?? Date()
     @State private var heureA = Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: Date()) ?? Date()
     @State private var recherche = ""                    // code, cavalier ou cheval
+    @FocusState private var saisieActive: Bool           // on tape dans la recherche : les lettres ne classent pas
     @State private var zoom: CGFloat = 1                 // molette du Loupedeck
     // Vue galerie (HUGO 25/11, comme la Bibliothèque de Lightroom) : G la grille, E / Entrée la photo en grand.
     @State private var galerie = false
@@ -470,6 +471,9 @@ struct RevueView: View {
                 }
             }
             TextField("Code, cavalier ou cheval", text: $recherche).textFieldStyle(.roundedBorder)
+                .focused($saisieActive)
+                .onSubmit { saisieActive = false }
+                .onExitCommand { saisieActive = false }
             Text("Filtre").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
             Picker("", selection: $ordre) {
                 Section("Toutes les photos") { ForEach(Ordre.du(.toutes)) { Text($0.rawValue).tag($0) } }
@@ -916,6 +920,6 @@ struct RevueView: View {
             Button("") { annulerSuppression() }.keyboardShortcut("z", modifiers: .command)
         }
         .opacity(0)
-        .disabled(changerCode)
+        .disabled(changerCode || saisieActive)
     }
 }
