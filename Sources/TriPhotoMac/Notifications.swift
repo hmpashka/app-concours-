@@ -160,7 +160,9 @@ final class Notifieur {
         let n = UNMutableNotificationContent()
         n.title = "Essai · Groom Pix"
         n.body = "Si tu vois cette bulle, les notifications marchent. Passe la souris dessus pour voir « Répondre »."
-        n.sound = .default
+        n.sound = nil
+        dernierSon = .distantPast
+        jouer(son)
         n.categoryIdentifier = Notifieur.categorieMessage
         n.userInfo = ["essai": "1", "ecran": Ecran.messages.rawValue]
         // une seconde plus tard : laisse le temps à la fenêtre d'autorisation
@@ -208,8 +210,8 @@ final class Notifieur {
         // Le son part AVEC la bulle (son du Mac choisi dans les réglages), comme les autres apps.
         // Le son joué par l'app ne sert plus que si le Mac refuse les bulles.
         // son du Mac (« Réglages Système › Notifications ») : le seul que macOS joue à coup sûr avec la bulle
-        // toujours un son avec la bulle, sauf en mode Silencieux (un son « — » dans les réglages n'y change rien)
-        if p.mode != .silencieux { n.sound = .default }
+        // le son choisi pour CET événement est joué par l'app (macOS ne sait jouer avec la bulle que son propre son)
+        n.sound = nil
         n.threadIdentifier = e.rawValue
         if (e == .message || e == .incident) && l.count < 3 { n.categoryIdentifier = Notifieur.categorieMessage }
         var info: [String: String] = infos
@@ -219,12 +221,9 @@ final class Notifieur {
         let son = r.son
         UNUserNotificationCenter.current().getNotificationSettings { reg in
             let bulles = reg.authorizationStatus == .authorized || reg.authorizationStatus == .provisional
-            if bulles && reg.soundSetting != .disabled {
-                UNUserNotificationCenter.current().add(demande)
-            } else {
-                UNUserNotificationCenter.current().add(demande)
-                Task { @MainActor in Notifieur.partage.jouer(son) }
-            }
+            _ = bulles
+            UNUserNotificationCenter.current().add(demande)
+            Task { @MainActor in Notifieur.partage.jouer(son) }
         }
     }
 
