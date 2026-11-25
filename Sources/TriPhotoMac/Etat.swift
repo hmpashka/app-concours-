@@ -23,6 +23,7 @@ final class Etat: ObservableObject {
     @Published var ecran: Ecran = .reglages
     @Published var panneauGauche = true
     @Published var panneauDroit = true
+    @Published var pleinEcran = false            // Revue : la photo seule sur fond noir (touche P)
     @Published var montrerEntrainement = false
 
     @Published var reglages: ReglagesConcours {

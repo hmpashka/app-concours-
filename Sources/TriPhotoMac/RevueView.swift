@@ -87,19 +87,9 @@ struct RevueView: View {
     private var courante: FichePhoto? { photos.indices.contains(index) ? photos[index] : nil }
 
     var body: some View {
-        HStack(spacing: 0) {
-            if etat.panneauGauche {
-                ScrollView { filtres }.frame(width: 240).background(Theme.panneau)
-                Divider().overlay(Theme.bordure)
-            }
-            centre.frame(maxWidth: .infinity, maxHeight: .infinity)
-            if etat.panneauDroit {
-                Divider().overlay(Theme.bordure)
-                panneauDroit.frame(width: 300).background(Theme.panneau)
-            }
+        Group {
+            if etat.pleinEcran, let f = courante { vuePleinEcran(f) } else { ecranNormal }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()                                       // rien ne déborde sous la barre de titre
         .onAppear(perform: charger)
         .onChange(of: galerie) { g in if !g { choix = [] } }
         .onChange(of: epreuve) { _ in charger() }
@@ -116,7 +106,66 @@ struct RevueView: View {
         .onReceive(etat.ordresLoupedeck) { recevoirLoupedeck($0) }
         .onChange(of: signatureLoupedeck) { _ in publierLoupedeck() }
         .onAppear(perform: publierLoupedeck)
-        .onDisappear { etat.infoRevueLoupedeck = nil; etat.photoLoupedeck = nil }
+        .onDisappear {
+            etat.infoRevueLoupedeck = nil; etat.photoLoupedeck = nil
+            if etat.pleinEcran { basculerPleinEcran() }
+        }
+    }
+
+    private var ecranNormal: some View {
+        HStack(spacing: 0) {
+            if etat.panneauGauche {
+                ScrollView { filtres }.frame(width: 240).background(Theme.panneau)
+                Divider().overlay(Theme.bordure)
+            }
+            centre.frame(maxWidth: .infinity, maxHeight: .infinity)
+            if etat.panneauDroit {
+                Divider().overlay(Theme.bordure)
+                panneauDroit.frame(width: 300).background(Theme.panneau)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()                                       // rien ne déborde sous la barre de titre
+    }
+
+    // MARK: - Plein écran (touche P, comme F dans Lightroom : F sert déjà à « floue »)
+
+    /// La photo seule, sur fond noir, sur tout l'écran. ← → avancer, les lettres classent, P ou Échap pour sortir.
+    private func vuePleinEcran(_ f: FichePhoto) -> some View {
+        ZStack(alignment: .bottom) {
+            Color.black
+            VignettePhoto(chemins: [f.copie, f.chemin], cote: 2000, entiere: true)
+                .id(f.id)
+                .scaleEffect(zoom)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+                .onTapGesture(count: 2) { basculerPleinEcran() }
+            HStack(spacing: 12) {
+                Text("\(index + 1) / \(photos.count)").font(.system(size: 12, weight: .semibold))
+                Text(f.codeRetenu.isEmpty ? "sans code" : f.codeRetenu).font(.system(size: 12, design: .monospaced))
+                if !f.cavalier.isEmpty { Text("\(f.cavalier) · \(f.cheval)").font(.system(size: 12)) }
+                if !f.classe.isEmpty { Text(f.classe).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.accent) }
+                if f.chute { Text("CHUTE").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.attention) }
+                if f.a("meilleure") { Text("★ M").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent) }
+                if f.a("reseaux") { Text("R").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent) }
+                Spacer()
+                Text("← → avancer · B F S C X M R classer · P ou Échap : sortir").font(.system(size: 11))
+                    .foregroundStyle(Color.white.opacity(0.5))
+            }
+            .foregroundStyle(Color.white.opacity(0.85))
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            .background(Color.black.opacity(0.55))
+        }
+        .ignoresSafeArea()
+    }
+
+    /// Entre ou sort du plein écran : la fenêtre passe en plein écran macOS, bandeau et panneaux masqués.
+    private func basculerPleinEcran() {
+        let entrer = !etat.pleinEcran
+        guard !entrer || courante != nil else { return }
+        if let w = NSApp.keyWindow ?? NSApp.mainWindow, w.styleMask.contains(.fullScreen) != entrer { w.toggleFullScreen(nil) }
+        if entrer { galerie = false; choix = [] }
+        etat.pleinEcran = entrer
     }
 
     // MARK: - Loupedeck CT
@@ -457,7 +506,7 @@ struct RevueView: View {
                         .lineLimit(1)
                 } else if courante != nil {
                     Text("Photo \(index + 1) sur \(photos.count)").font(.system(size: 13, weight: .semibold))
-                    Text("← → pour avancer · la lettre pour classer · X : chute · M : meilleure · R : réseaux · G : galerie")
+                    Text("← → pour avancer · la lettre pour classer · X : chute · M : meilleure · R : réseaux · G : galerie · P : plein écran")
                         .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret).lineLimit(1)
                 }
                 Spacer(minLength: 8)
@@ -487,6 +536,10 @@ struct RevueView: View {
                     .clipped()
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) { galerie = true }
+                    .overlay(alignment: .topTrailing) {
+                        Button { basculerPleinEcran() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+                            .buttonStyle(BoutonStyle()).help("Plein écran (P)").padding(6)
+                    }
                 boutons(f)
                 changementDeCode
                 bande
@@ -847,11 +900,12 @@ struct RevueView: View {
             Button("") { avancer(1) }.keyboardShortcut(.rightArrow, modifiers: [])
             Button("") { if galerie { avancer(-colonnes) } }.keyboardShortcut(.upArrow, modifiers: [])
             Button("") { if galerie { avancer(colonnes) } }.keyboardShortcut(.downArrow, modifiers: [])
-            Button("") { galerie = true }.keyboardShortcut("g", modifiers: [])
+            Button("") { if etat.pleinEcran { basculerPleinEcran() }; galerie = true }.keyboardShortcut("g", modifiers: [])
             Button("") { galerie = false }.keyboardShortcut("e", modifiers: [])
             Button("") { if galerie { galerie = false } }.keyboardShortcut(.return, modifiers: [])
             Button("") { if galerie { choix = Set(photos.map(\.id)) } }.keyboardShortcut("a", modifiers: .command)
-            Button("") { choix = [] }.keyboardShortcut(.escape, modifiers: [])
+            Button("") { if etat.pleinEcran { basculerPleinEcran() } else { choix = [] } }.keyboardShortcut(.escape, modifiers: [])
+            Button("") { basculerPleinEcran() }.keyboardShortcut("p", modifiers: [])
             ForEach(classes) { c in
                 Button("") { classer(c.cle) }.keyboardShortcut(KeyEquivalent(c.touche), modifiers: [])
             }

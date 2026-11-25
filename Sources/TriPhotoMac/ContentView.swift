@@ -8,8 +8,10 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Bandeau(moteur: etat.moteur, serveur: etat.serveur)
-            Divider().overlay(Theme.bordure)
+            if !etat.pleinEcran {
+                Bandeau(moteur: etat.moteur, serveur: etat.serveur)
+                Divider().overlay(Theme.bordure)
+            }
             Group {
                 switch etat.ecran {
                 case .reglages: ReglagesView()
