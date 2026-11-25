@@ -17,6 +17,7 @@ struct MemoireView: View {
     @State private var creer = false
     @State private var message = ""
     @State private var travail = false
+    @State private var enGrand: DepartVisionneuse?
 
     private var memoire: Memoire { etat.memoire }
 
@@ -35,6 +36,11 @@ struct MemoireView: View {
         .onAppear { memoire.creer(); charger() }
         .onChange(of: choisie) { _ in selection = []; chargerExemples() }
         .onChange(of: etat.reglages.dossierMemoire) { _ in charger() }
+        .sheet(item: $enGrand) { d in
+            Visionneuse(elements: exemples.map { ElementVisionneuse(id: $0.id, chemins: [$0.url.path], titre: Memoire.nom(de: $0.categorie), detail: $0.nom) },
+                        depart: d.id, choisie: { selection.contains($0) },
+                        basculer: { if selection.contains($0) { selection.remove($0) } else { selection.insert($0) } })
+        }
     }
 
     // MARK: - Données
@@ -122,6 +128,9 @@ struct MemoireView: View {
                 Text(Memoire.nom(de: choisie)).font(.system(size: 16, weight: .semibold))
                 Text("\(exemples.count) exemples").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
                 Spacer()
+                SelecteurVue(galerie: choixVue($enGrand) {
+                    (exemples.first { selection.contains($0.id) } ?? exemples.first)?.id
+                })
                 if !selection.isEmpty {
                     Menu("Déplacer vers") {
                         ForEach(categories.filter { $0.cle != choisie }) { c in Button(c.nom) { deplacer(vers: c.cle) } }
@@ -172,6 +181,7 @@ struct MemoireView: View {
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(choisi ? Theme.accent : Color.clear, lineWidth: 2))
         }
         .buttonStyle(BoutonPlat())
+        .simultaneousGesture(TapGesture(count: 2).onEnded { enGrand = DepartVisionneuse(id: e.id) })
     }
 
     // MARK: - Actions

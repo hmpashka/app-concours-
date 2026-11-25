@@ -25,10 +25,16 @@ struct RevueView: View {
     @State private var heureA = Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: Date()) ?? Date()
     @State private var recherche = ""                    // code, cavalier ou cheval
     @State private var zoom: CGFloat = 1                 // molette du Loupedeck
+    // Vue galerie (HUGO 25/11, comme la Bibliothèque de Lightroom) : G la grille, E / Entrée la photo en grand.
+    @State private var galerie = false
+    @State private var choix: Set<Int64> = []             // photos choisies dans la galerie (⇧ / ⌘ clic)
+    @State private var etiquettes: [Int64: String] = [:]  // « sol », « floue », « code » proposés (calculés au chargement)
+    @State private var colonnes = 5                       // colonnes de la galerie (pour ↑ ↓)
+    @AppStorage("revue.tailleVignette") private var taille: Double = 160
 
-    private enum Retour {
-        case suppression(FichePhoto)
-        case retrait(FichePhoto, String)                 // retirée des bonnes : drapeau posé
+    private enum Retour {                                 // un geste peut toucher plusieurs photos (galerie)
+        case suppression([FichePhoto])
+        case retrait([FichePhoto], String)               // retirées des bonnes : drapeau posé
     }
 
     /// Les filtres, en trois groupes bien séparés (HUGO 24/11) : tout voir, les photos À TRAITER (les seules où
@@ -83,7 +89,7 @@ struct RevueView: View {
     var body: some View {
         HStack(spacing: 0) {
             if etat.panneauGauche {
-                filtres.frame(width: 240).background(Theme.panneau)
+                ScrollView { filtres }.frame(width: 240).background(Theme.panneau)
                 Divider().overlay(Theme.bordure)
             }
             centre.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -92,7 +98,10 @@ struct RevueView: View {
                 panneauDroit.frame(width: 300).background(Theme.panneau)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()                                       // rien ne déborde sous la barre de titre
         .onAppear(perform: charger)
+        .onChange(of: galerie) { g in if !g { choix = [] } }
         .onChange(of: epreuve) { _ in charger() }
         .onChange(of: boitier) { _ in charger() }
         .onChange(of: ordre) { _ in charger() }
@@ -351,17 +360,15 @@ struct RevueView: View {
             case .heure:
                 break
             }
+            let cats = RevueView.aTraiter(l)
             DispatchQueue.main.async {
                 let garde = courante?.id
                 photos = l
+                etiquettes = cats
                 index = garde.flatMap { g in l.firstIndex { $0.id == g } } ?? 0
+                choix = choix.intersection(l.map(\.id))
             }
         }
-    }
-
-    private func rafraichirCourante() {
-        guard let c = courante, let f = moteur.fiche(id: c.id), photos.indices.contains(index) else { return }
-        photos[index] = f
     }
 
     // MARK: - Filtres
@@ -430,81 +437,205 @@ struct RevueView: View {
                     .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
             }
             Button("Actualiser") { charger() }.buttonStyle(BoutonStyle())
-            Spacer()
             Text("\(photos.count) photos").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+                .padding(.top, 8)
         }
         .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Centre
 
     private var centre: some View {
         VStack(spacing: 10) {
-            if let f = courante {
-                HStack {
+            HStack(spacing: 10) {
+                if galerie {
+                    Text("\(photos.count) photo\(photos.count > 1 ? "s" : "")").font(.system(size: 13, weight: .semibold))
+                    Text(choix.count > 1 ? "\(choix.count) photos choisies : les touches et les boutons s'appliquent à toutes (⌘Z annule)"
+                         : "clic : choisir · ⇧ ou ⌘ clic : plusieurs · double-clic ou Entrée : en grand")
+                        .font(.system(size: 11)).foregroundStyle(choix.count > 1 ? Theme.accent : Theme.texteTresDiscret)
+                        .lineLimit(1)
+                } else if courante != nil {
                     Text("Photo \(index + 1) sur \(photos.count)").font(.system(size: 13, weight: .semibold))
-                    Text("← → pour avancer · la lettre pour classer · X : chute · M : meilleure · R : réseaux").font(.system(size: 11))
-                        .foregroundStyle(Theme.texteTresDiscret)
-                    Spacer()
+                    Text("← → pour avancer · la lettre pour classer · X : chute · M : meilleure · R : réseaux · G : galerie")
+                        .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret).lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                if !galerie, let f = courante {
                     if let m = RevueView.memoire(f) {
                         Pastille(texte: "Mémoire : \(m)", genre: RevueView.memoireDoute(f) ? .attention : .neutre)
                     }
                     if let d = douteuse(f, dans: photos) { Pastille(texte: "Détectée : \(d)", genre: .attention) }
                 }
-                VignettePhoto(chemins: [f.copie, f.chemin], cote: 1400)
-                    .aspectRatio(3 / 2, contentMode: .fit)
-                    .scaleEffect(zoom)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                HStack(spacing: 8) {
-                    ForEach(classes) { c in
-                        Button("\(c.nom) (\(String(c.touche).uppercased()))") { classer(c.cle) }
-                            .buttonStyle(BoutonStyle(principal: f.classe == c.cle))
-                    }
-                    Button(f.chute ? "Chute ✓ (X)" : "Chute (X)") { basculerChute() }
-                        .buttonStyle(BoutonStyle(principal: f.chute))
-                    Button(f.a("meilleure") ? "Meilleure ✓ (M)" : "Meilleure (M)") { basculer("meilleure") }
-                        .buttonStyle(BoutonStyle(principal: f.a("meilleure")))
-                    Button(f.a("reseaux") ? "Réseaux ✓ (R)" : "Réseaux (R)") { basculer("reseaux") }
-                        .buttonStyle(BoutonStyle(principal: f.a("reseaux")))
-                    Spacer()
-                    if !retours.isEmpty {
-                        Button("Annuler (⌘Z)") { annulerSuppression() }.buttonStyle(BoutonStyle())
-                    }
-                    if ordre.drapeauRetrait != nil {
-                        Button("Retirer de la sélection (⌫)") { supprimer() }
-                            .buttonStyle(BoutonStyle())
-                            .help("La photo n'est plus retenue dans ce filtre. Elle reste sur le serveur et dans Lightroom.")
-                    }
-                    if suppressionPermise {
-                        Button("Supprimer (⌫)") { supprimer() }
-                            .buttonStyle(BoutonStyle())
-                            .help("Retire la copie du serveur local et de la galerie en ligne, et met l'original à la Corbeille. Dans Lightroom, elle apparaît manquante : clic droit sur le dossier › Synchroniser le dossier.")
-                    }
-                    Button("Changer le code…") { nouveauCode = f.codeRetenu; changerCode = true }
-                        .buttonStyle(BoutonStyle())
-                }
-                if changerCode {
-                    HStack {
-                        TextField("#08_14", text: $nouveauCode).textFieldStyle(.roundedBorder).frame(width: 140)
-                            .onSubmit(appliquerCode)
-                        if let c = CodePassage.lire(nouveauCode), let g = etat.concours?.couple(pour: c) {
-                            Text("\(g.cavalier) · \(g.cheval)").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
-                        }
-                        Button("Appliquer", action: appliquerCode).buttonStyle(BoutonStyle(principal: true))
-                            .disabled(CodePassage.lire(nouveauCode) == nil)
-                        Button("Annuler") { changerCode = false }.buttonStyle(BoutonStyle())
-                        Spacer()
-                    }
-                }
-                bande
-            } else {
+                if galerie { CurseurTaille(taille: $taille) }
+                SelecteurVue(galerie: $galerie)
+            }
+            if photos.isEmpty {
                 Spacer()
                 Text("Aucune photo envoyée pour ce choix.").foregroundStyle(Theme.texteDiscret)
                 Spacer()
+            } else if galerie {
+                grille
+                if let f = courante { boutons(f) }
+                changementDeCode
+            } else if let f = courante {
+                // La photo en entier, portrait ou paysage : elle prend la place qui reste, jamais plus.
+                VignettePhoto(chemins: [f.copie, f.chemin], cote: 1400, entiere: true)
+                    .id(f.id)
+                    .scaleEffect(zoom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { galerie = true }
+                boutons(f)
+                changementDeCode
+                bande
             }
         }
         .padding(20)
+    }
+
+    private func boutons(_ f: FichePhoto) -> some View {
+        HStack(spacing: 8) {
+            ForEach(classes) { c in
+                Button("\(c.nom) (\(String(c.touche).uppercased()))") { classer(c.cle) }
+                    .buttonStyle(BoutonStyle(principal: f.classe == c.cle))
+            }
+            Button(f.chute ? "Chute ✓ (X)" : "Chute (X)") { basculerChute() }
+                .buttonStyle(BoutonStyle(principal: f.chute))
+            Button(f.a("meilleure") ? "Meilleure ✓ (M)" : "Meilleure (M)") { basculer("meilleure") }
+                .buttonStyle(BoutonStyle(principal: f.a("meilleure")))
+            Button(f.a("reseaux") ? "Réseaux ✓ (R)" : "Réseaux (R)") { basculer("reseaux") }
+                .buttonStyle(BoutonStyle(principal: f.a("reseaux")))
+            Spacer()
+            if !retours.isEmpty {
+                Button("Annuler (⌘Z)") { annulerSuppression() }.buttonStyle(BoutonStyle())
+            }
+            if ordre.drapeauRetrait != nil {
+                Button("Retirer de la sélection (⌫)") { supprimer() }
+                    .buttonStyle(BoutonStyle())
+                    .help("La photo n'est plus retenue dans ce filtre. Elle reste sur le serveur et dans Lightroom.")
+            }
+            if suppressionPermise {
+                Button("Supprimer (⌫)") { supprimer() }
+                    .buttonStyle(BoutonStyle())
+                    .help("Retire la copie du serveur local et de la galerie en ligne, et met l'original à la Corbeille. Dans Lightroom, elle apparaît manquante : clic droit sur le dossier › Synchroniser le dossier.")
+            }
+            Button("Changer le code…") { nouveauCode = f.codeRetenu; changerCode = true }
+                .buttonStyle(BoutonStyle())
+        }
+    }
+
+    @ViewBuilder
+    private var changementDeCode: some View {
+        if changerCode {
+            HStack {
+                TextField("#08_14", text: $nouveauCode).textFieldStyle(.roundedBorder).frame(width: 140)
+                    .onSubmit(appliquerCode)
+                if let c = CodePassage.lire(nouveauCode), let g = etat.concours?.couple(pour: c) {
+                    Text("\(g.cavalier) · \(g.cheval)").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+                }
+                Button(cibles.count > 1 ? "Appliquer aux \(cibles.count) photos" : "Appliquer", action: appliquerCode)
+                    .buttonStyle(BoutonStyle(principal: true))
+                    .disabled(CodePassage.lire(nouveauCode) == nil)
+                Button("Annuler") { changerCode = false }.buttonStyle(BoutonStyle())
+                Spacer()
+            }
+        }
+    }
+
+    // MARK: - Galerie
+
+    /// La grille de vignettes. Seules les vignettes visibles sont lues (petites, en priorité basse).
+    private var grille: some View {
+        GeometryReader { geo in
+            let n = colonnesGalerie(largeur: geo.size.width - 4, taille: taille)
+            ScrollViewReader { lecteur in
+                ScrollView {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: n), spacing: 8) {
+                        ForEach(Array(photos.enumerated()), id: \.element.id) { i, f in tuile(i, f) }
+                    }
+                    .padding(2)
+                }
+                .onAppear {
+                    colonnes = n
+                    if let f = courante { lecteur.scrollTo(f.id, anchor: .center) }
+                }
+                .onChange(of: n) { colonnes = $0 }
+                .onChange(of: index) { i in
+                    if photos.indices.contains(i) { withAnimation { lecteur.scrollTo(photos[i].id) } }
+                }
+            }
+        }
+    }
+
+    private func tuile(_ i: Int, _ f: FichePhoto) -> some View {
+        let active = i == index
+        let choisie = choix.contains(f.id)
+        return VStack(alignment: .leading, spacing: 3) {
+            VignettePhoto(chemins: [f.copie, f.chemin], cote: 260)
+                .aspectRatio(3 / 2, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .overlay(alignment: .topLeading) {
+                    if let e = etiquette(f) {
+                        Text(e.texte).font(.system(size: 9, weight: .semibold)).padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(e.sure ? Theme.carte.opacity(0.9) : Theme.attentionFond, in: RoundedRectangle(cornerRadius: 3))
+                            .foregroundStyle(e.sure ? Theme.texte : Theme.attention)
+                            .padding(4)
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    HStack(spacing: 2) {
+                        if f.chute { marque("X") }
+                        if f.a("meilleure") { marque("★ M") }
+                        if f.a("reseaux") { marque("R") }
+                    }
+                    .padding(4)
+                }
+            HStack {
+                Text(f.codeRetenu.isEmpty ? "sans code" : f.codeRetenu).font(.system(size: 10, design: .monospaced))
+                Spacer()
+                Text(f.prise.map { $0.formatted(date: .omitted, time: .shortened) } ?? "?").font(.system(size: 10))
+                    .foregroundStyle(Theme.texteDiscret)
+            }
+            .lineLimit(1)
+        }
+        .padding(5)
+        .background(active || choisie ? Theme.selection : Theme.carte, in: RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4)
+            .stroke(active ? Theme.accent : choisie ? Theme.accent.opacity(0.6) : Color.clear, lineWidth: active ? 2 : 1.5))
+        .contentShape(Rectangle())
+        .onTapGesture { cliquer(i, f) }
+        .simultaneousGesture(TapGesture(count: 2).onEnded { index = i; galerie = false })
+        .id(f.id)
+    }
+
+    private func marque(_ t: String) -> some View {
+        Text(t).font(.system(size: 9, weight: .bold)).padding(.horizontal, 4).padding(.vertical, 1)
+            .background(Theme.accent, in: RoundedRectangle(cornerRadius: 3)).foregroundStyle(Theme.fond)
+    }
+
+    /// Ce que dit l'étiquette d'une vignette : le classement de HUGO (sûr), sinon ce que l'app soupçonne (« sol ? »).
+    private func etiquette(_ f: FichePhoto) -> (texte: String, sure: Bool)? {
+        if !f.classe.isEmpty { return (f.classe, true) }
+        if let e = etiquettes[f.id] { return ("\(e) ?", false) }
+        return nil
+    }
+
+    /// Clic : une photo. ⌘ clic : ajoute ou retire. ⇧ clic : toutes celles entre la photo active et celle-ci.
+    private func cliquer(_ i: Int, _ f: FichePhoto) {
+        let touches = NSEvent.modifierFlags
+        if touches.contains(.shift), photos.indices.contains(index) {
+            let (a, b) = (min(index, i), max(index, i))
+            choix = Set(photos[a...b].map(\.id))
+        } else if touches.contains(.command) {
+            if choix.isEmpty, let c = courante { choix = [c.id] }
+            if choix.contains(f.id) { choix.remove(f.id) } else { choix.insert(f.id) }
+            index = i
+        } else {
+            index = i
+            choix = []
+        }
     }
 
     private var bande: some View {
@@ -513,7 +644,7 @@ struct RevueView: View {
                 LazyHStack(spacing: 6) {
                     ForEach(Array(photos.enumerated()), id: \.element.id) { i, f in
                         Button { index = i } label: {
-                            VignettePhoto(chemins: [f.copie, f.chemin], cote: 200)
+                            VignettePhoto(chemins: [f.copie, f.chemin], cote: 260)
                                 .frame(width: 96, height: 64)
                                 .clipShape(RoundedRectangle(cornerRadius: 3))
                                 .overlay(RoundedRectangle(cornerRadius: 3).stroke(i == index ? Theme.accent : Color.clear, lineWidth: 2))
@@ -524,6 +655,7 @@ struct RevueView: View {
                 }
             }
             .frame(height: 70)
+            .onAppear { lecteur.scrollTo(index, anchor: .center) }
             .onChange(of: index) { i in withAnimation { lecteur.scrollTo(i, anchor: .center) } }
         }
     }
@@ -570,93 +702,156 @@ struct RevueView: View {
 
     // MARK: - Actions
 
+    /// Les photos touchées par un geste : celles choisies dans la galerie, sinon la photo affichée.
+    private var cibles: [Int] {
+        if galerie, !choix.isEmpty { return photos.indices.filter { choix.contains(photos[$0].id) } }
+        return photos.indices.contains(index) ? [index] : []
+    }
+
+    private func resume(_ l: [Int], _ texte: String) -> String {
+        l.count == 1 ? "\(photos[l[0]].origine) \(texte)" : "\(l.count) photos \(texte)"
+    }
+
+    /// Classer (B, F, S, C). Plusieurs photos : toutes prennent la classe ; si elles l'avaient toutes, elle est retirée.
     private func classer(_ cle: String) {
-        guard let f = courante else { return }
-        moteur.classer(f.id, cle)
-        if !f.classe.isEmpty && f.classe != cle { etat.noterDansLaMemoire(f, categorie: f.classe, ajouter: false) }
-        etat.noterDansLaMemoire(f, categorie: cle, ajouter: f.classe != cle)
-        corrections.insert("\(f.origine) → \(f.classe == cle ? "sans classe" : cle)", at: 0)
-        photos[index].classe = f.classe == cle ? "" : cle
-        avancer(1)
+        let l = cibles
+        guard !l.isEmpty else { return }
+        let retirer = l.allSatisfy { photos[$0].classe == cle }
+        let devient = retirer ? "" : cle
+        corrections.insert(resume(l, "→ \(retirer ? "sans classe" : cle)"), at: 0)
+        for i in l {
+            let f = photos[i]
+            guard f.classe != devient else { continue }
+            moteur.classer(f.id, cle)                    // le moteur bascule : même classe → aucune, sinon cle
+            if !f.classe.isEmpty && f.classe != cle { etat.noterDansLaMemoire(f, categorie: f.classe, ajouter: false) }
+            etat.noterDansLaMemoire(f, categorie: cle, ajouter: !retirer)
+            photos[i].classe = devient
+        }
+        if !galerie { avancer(1) }
     }
 
     private func basculerChute() {
-        guard let f = courante else { return }
-        moteur.marquerChute(f.id, !f.chute)
-        etat.noterDansLaMemoire(f, categorie: "chute", ajouter: !f.chute)
-        photos[index].chute.toggle()
-        corrections.insert("\(f.origine) : \(f.chute ? "plus de chute" : "CHUTE")", at: 0)
+        let l = cibles
+        guard !l.isEmpty else { return }
+        let chute = !l.allSatisfy { photos[$0].chute }
+        corrections.insert(resume(l, chute ? ": CHUTE" : ": plus de chute"), at: 0)
+        for i in l where photos[i].chute != chute {
+            let f = photos[i]
+            moteur.marquerChute(f.id, chute)
+            etat.noterDansLaMemoire(f, categorie: "chute", ajouter: chute)
+            photos[i].chute = chute
+        }
     }
 
     /// Meilleure (M) ou réseaux sociaux (R) : marque de HUGO, gardée aussi dans la mémoire.
     private func basculer(_ drapeau: String) {
-        guard let f = courante else { return }
-        let actif = !f.a(drapeau)
-        moteur.marquer(f.id, drapeau, actif)
-        etat.noterDansLaMemoire(f, categorie: drapeau, ajouter: actif)
-        if actif { photos[index].marquer(drapeau) } else {
-            photos[index].drapeaux = f.drapeaux.split(separator: "|").filter { $0 != drapeau }.joined(separator: "|")
+        let l = cibles
+        guard !l.isEmpty else { return }
+        let actif = !l.allSatisfy { photos[$0].a(drapeau) }
+        corrections.insert(resume(l, ": \(actif ? "" : "plus ")\(Memoire.nom(de: drapeau).lowercased())"), at: 0)
+        for i in l where photos[i].a(drapeau) != actif {
+            let f = photos[i]
+            moteur.marquer(f.id, drapeau, actif)
+            etat.noterDansLaMemoire(f, categorie: drapeau, ajouter: actif)
+            if actif { photos[i].marquer(drapeau) } else {
+                photos[i].drapeaux = f.drapeaux.split(separator: "|").filter { $0 != drapeau }.joined(separator: "|")
+            }
         }
-        corrections.insert("\(f.origine) : \(actif ? "" : "plus ")\(Memoire.nom(de: drapeau).lowercased())", at: 0)
     }
 
     private func appliquerCode() {
-        guard let f = courante, let c = CodePassage.lire(nouveauCode) else { return }
-        moteur.appliquer(code: c.texte, a: [f.id])
-        corrections.insert("\(f.origine) : \(f.codeRetenu.isEmpty ? "sans code" : f.codeRetenu) → \(c.texte)", at: 0)
-        photos[index].codeFinal = c.texte
+        let l = cibles
+        guard !l.isEmpty, let c = CodePassage.lire(nouveauCode) else { return }
+        moteur.appliquer(code: c.texte, a: l.map { photos[$0].id })
+        if l.count == 1 {
+            let f = photos[l[0]]
+            corrections.insert("\(f.origine) : \(f.codeRetenu.isEmpty ? "sans code" : f.codeRetenu) → \(c.texte)", at: 0)
+        } else {
+            corrections.insert("\(l.count) photos → \(c.texte)", at: 0)
+        }
+        let ids = l.map { photos[$0].id }
+        for i in l { photos[i].codeFinal = c.texte }
         changerCode = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { rafraichirCourante() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { rafraichir(ids) }
     }
 
-    /// Supprimer la photo affichée : copie retirée du serveur (et de la galerie en ligne), original à la Corbeille.
+    private func rafraichir(_ ids: [Int64]) {
+        for id in ids {
+            guard let i = photos.firstIndex(where: { $0.id == id }), let f = moteur.fiche(id: id) else { continue }
+            photos[i] = f
+        }
+    }
+
     /// ⌫ : dans « À traiter », supprime (serveur, galerie en ligne, original à la Corbeille) ; dans « Bonnes »,
-    /// retire seulement la photo de la sélection (rien n'est effacé) ; ailleurs, rien.
+    /// retire seulement la photo de la sélection (rien n'est effacé) ; ailleurs, rien. Plusieurs photos d'un coup
+    /// dans la galerie ; ⌘Z les remet toutes.
     private func supprimer() {
-        guard let f = courante else { return }
+        let l = cibles
+        guard let premier = l.first else { return }
+        let fiches = l.map { photos[$0] }
         if suppressionPermise {
-            moteur.supprimer([f.id])
-            retours.append(.suppression(f))
-            corrections.insert("\(f.origine) : supprimée", at: 0)
+            moteur.supprimer(fiches.map(\.id))
+            retours.append(.suppression(fiches))
+            corrections.insert(resume(l, ": supprimée\(l.count > 1 ? "s" : "")"), at: 0)
         } else if let d = ordre.drapeauRetrait {
-            moteur.marquer(f.id, d, true)
-            if ordre == .meilleures, f.a("meilleure") { moteur.marquer(f.id, "meilleure", false); etat.noterDansLaMemoire(f, categorie: "meilleure", ajouter: false) }
-            if ordre == .reseaux, f.a("reseaux") { moteur.marquer(f.id, "reseaux", false); etat.noterDansLaMemoire(f, categorie: "reseaux", ajouter: false) }
-            retours.append(.retrait(f, d))
-            corrections.insert("\(f.origine) : retirée de « \(ordre.rawValue) »", at: 0)
+            for f in fiches {
+                moteur.marquer(f.id, d, true)
+                if ordre == .meilleures, f.a("meilleure") { moteur.marquer(f.id, "meilleure", false); etat.noterDansLaMemoire(f, categorie: "meilleure", ajouter: false) }
+                if ordre == .reseaux, f.a("reseaux") { moteur.marquer(f.id, "reseaux", false); etat.noterDansLaMemoire(f, categorie: "reseaux", ajouter: false) }
+            }
+            retours.append(.retrait(fiches, d))
+            corrections.insert(resume(l, ": retirée\(l.count > 1 ? "s" : "") de « \(ordre.rawValue) »"), at: 0)
         } else {
             return
         }
-        photos.remove(at: index)
-        if index >= photos.count { index = max(0, photos.count - 1) }
+        for i in l.reversed() { photos.remove(at: i) }
+        choix = []
+        index = min(premier, max(0, photos.count - 1))
     }
 
     private func annulerSuppression() {
         guard let r = retours.popLast() else { return }
+        let fiches: [FichePhoto]
         switch r {
-        case .suppression(let f):
-            moteur.annulerSuppression([f.id])
-            corrections.insert("\(f.origine) : suppression annulée", at: 0)
-            photos.insert(f, at: min(index, photos.count))
-        case .retrait(let f, let d):
-            moteur.marquer(f.id, d, false)
-            if d == "pasMeilleure", f.a("meilleure") { moteur.marquer(f.id, "meilleure", true); etat.noterDansLaMemoire(f, categorie: "meilleure", ajouter: true) }
-            if d == "pasReseaux", f.a("reseaux") { moteur.marquer(f.id, "reseaux", true); etat.noterDansLaMemoire(f, categorie: "reseaux", ajouter: true) }
-            corrections.insert("\(f.origine) : remise dans la sélection", at: 0)
-            photos.insert(f, at: min(index, photos.count))
+        case .suppression(let l):
+            fiches = l
+            moteur.annulerSuppression(l.map(\.id))
+            corrections.insert(l.count == 1 ? "\(l[0].origine) : suppression annulée" : "\(l.count) photos : suppression annulée", at: 0)
+        case .retrait(let l, let d):
+            fiches = l
+            for f in l {
+                moteur.marquer(f.id, d, false)
+                if d == "pasMeilleure", f.a("meilleure") { moteur.marquer(f.id, "meilleure", true); etat.noterDansLaMemoire(f, categorie: "meilleure", ajouter: true) }
+                if d == "pasReseaux", f.a("reseaux") { moteur.marquer(f.id, "reseaux", true); etat.noterDansLaMemoire(f, categorie: "reseaux", ajouter: true) }
+            }
+            corrections.insert(l.count == 1 ? "\(l[0].origine) : remise dans la sélection" : "\(l.count) photos remises dans la sélection", at: 0)
         }
+        let ou = min(index, photos.count)
+        photos.insert(contentsOf: fiches, at: ou)
+        index = ou
+        if galerie, fiches.count > 1 { choix = Set(fiches.map(\.id)) }
     }
 
     private func avancer(_ pas: Int) {
         guard !photos.isEmpty else { return }
         index = min(max(0, index + pas), photos.count - 1)
+        if galerie { choix = [] }
     }
 
     /// Raccourcis de la revue : flèches et lettres, sans touche de modification.
+    /// G : galerie · E ou Entrée : photo en grand · ↑ ↓ : ligne du dessus / du dessous dans la galerie ·
+    /// ⌘A : tout choisir · Échap : plus rien de choisi.
     private var raccourcis: some View {
         ZStack {
             Button("") { avancer(-1) }.keyboardShortcut(.leftArrow, modifiers: [])
             Button("") { avancer(1) }.keyboardShortcut(.rightArrow, modifiers: [])
+            Button("") { if galerie { avancer(-colonnes) } }.keyboardShortcut(.upArrow, modifiers: [])
+            Button("") { if galerie { avancer(colonnes) } }.keyboardShortcut(.downArrow, modifiers: [])
+            Button("") { galerie = true }.keyboardShortcut("g", modifiers: [])
+            Button("") { galerie = false }.keyboardShortcut("e", modifiers: [])
+            Button("") { if galerie { galerie = false } }.keyboardShortcut(.return, modifiers: [])
+            Button("") { if galerie { choix = Set(photos.map(\.id)) } }.keyboardShortcut("a", modifiers: .command)
+            Button("") { choix = [] }.keyboardShortcut(.escape, modifiers: [])
             ForEach(classes) { c in
                 Button("") { classer(c.cle) }.keyboardShortcut(KeyEquivalent(c.touche), modifiers: [])
             }
