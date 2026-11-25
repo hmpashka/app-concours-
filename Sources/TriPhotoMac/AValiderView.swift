@@ -45,7 +45,52 @@ struct AValiderView: View {
         }
         .onAppear { synchroniser() }
         .onChange(of: serie?.id) { _ in synchroniser() }
+        .onReceive(etat.ordresLoupedeck) { recevoirLoupedeck($0) }
+        .onChange(of: signatureLoupedeck) { _ in publierLoupedeck() }
+        .onAppear(perform: publierLoupedeck)
+        .onDisappear { etat.infoSerieLoupedeck = nil; etat.photoLoupedeck = nil }
         .sheet(isPresented: $montrer00) { Liste00View(moteur: moteur).environmentObject(etat) }
+    }
+
+    // MARK: - Loupedeck CT
+
+    private var normales: [SerieAValider] { r.series.filter { $0.genre != .rush } }
+
+    private var signatureLoupedeck: String {
+        "\(serie?.id ?? "")|\(r.series.count)|\(selection.count)|\(saisie)"
+    }
+
+    private func publierLoupedeck() {
+        guard let s = serie else { etat.infoSerieLoupedeck = nil; etat.photoLoupedeck = nil; return }
+        let l = r.series
+        etat.infoSerieLoupedeck = EtatLoupedeck.Serie(
+            position: (l.firstIndex { $0.id == s.id } ?? 0) + 1, total: l.count, code: s.code,
+            proposition: codeSaisi?.texte ?? s.proposition, photos: selection.count, photoCode: s.genre == .photoCode)
+        etat.photoLoupedeck = s.photoCode?.id ?? s.photos.first { selection.contains($0.id) }?.id ?? s.photos.first?.id
+    }
+
+    /// Boutons du Loupedeck : série suivante / précédente, Valider (comme Entrée), Ignorer (comme Échap).
+    private func recevoirLoupedeck(_ o: OrdreLoupedeck) {
+        let l = r.series
+        switch o.nom {
+        case "serie", "photo":
+            guard !l.isEmpty else { return }
+            let i = l.firstIndex { $0.id == serie?.id } ?? 0
+            choisie = l[min(max(0, i + o.pas), l.count - 1)].id
+        case "serie.ouvrir":
+            choisie = normales.first?.id ?? l.first?.id
+        case "valider":
+            if let s = serie { valider(s) }
+        case "ignorer":
+            guard let s = serie else { return }
+            if s.genre == .photoCode {
+                if let pc = s.photoCode { moteur.utiliserPhotoCode(pc, pour: []) }
+            } else if !selection.isEmpty {
+                etat.noterSerieValidee(Array(selection), titre: "\(selection.count) photo\(selection.count > 1 ? "s" : "") gardée\(selection.count > 1 ? "s" : "") en \(s.code.isEmpty ? "sans code" : s.code) · \(s.boitier)")
+                moteur.garderCodePhotographe(Array(selection))
+            }
+        default: break
+        }
     }
 
     /// Nouvelle série affichée : sélection et code proposés d'office.

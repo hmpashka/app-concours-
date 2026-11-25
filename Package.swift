@@ -33,5 +33,6 @@ let package = Package(
             dependencies: ["TriPhotoCommun"],
             resources: [.copy("Donnees")]
         ),
+        .testTarget(name: "TriPhotoMoteurTests", dependencies: ["TriPhotoMoteur", "TriPhotoCommun"]),
     ]
 )

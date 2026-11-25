@@ -61,7 +61,7 @@ struct Bandeau: View {
 
     private var sousTitre: String {
         var morceaux: [String] = [Date().formatted(.dateTime.weekday(.wide).day().month(.wide).locale(Locale(identifier: "fr_FR")))]
-        morceaux.append(etat.reglages.chronometrage.rawValue)
+        morceaux.append(etat.texteChronos)
         if let c = etat.concours {
             morceaux.append("Fichier FFE chargé (\(c.nombreEngages) engagés)")
         } else {

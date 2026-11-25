@@ -285,16 +285,40 @@ final class ServeurPiste: ObservableObject {
     private var alertesPoussees: [String: AlerteCodePiste] = [:]
 
     /// Piste du chrono qui correspond à une piste des réglages.
+    /// Le chrono de cette piste répond-il ? (plusieurs chronos : seulement le sien)
+    static func chronoOK(source: String?, piste: String, reglages: ReglagesConcours, resume r: ResumeMoteur) -> Bool {
+        guard let ch = r.chrono else { return false }
+        if ch.liens.count > 1, let p = reglages.pistes.first(where: { $0.nom == piste }), let c = reglages.chronoDe(p),
+           let e = ch.liens.first(where: { $0.id == c.id.uuidString }) {
+            return e.ok == true
+        }
+        return ch.ok == true
+    }
+
     static func source(pour piste: String, reglages: ReglagesConcours, sources: [String]) -> String? {
         guard let i = reglages.pistes.firstIndex(where: { $0.nom == piste }) else { return nil }
         let p = reglages.pistes[i]
-        if !p.sourceChrono.isEmpty { return p.sourceChrono }
-        if let s = sources.first(where: { $0.caseInsensitiveCompare(piste) == .orderedSame }) { return s }
+        if p.chrono == ReglagesConcours.Piste.aucun { return nil }
+        // plusieurs chronos : la piste ne cherche que dans le sien (Horse & Comp : une seule piste, au nom du chrono)
+        var candidates = sources
+        var memeChrono = reglages.pistes
+        if let c = reglages.chronoDe(p) {
+            let lien = reglages.lien(c)
+            if c.genre == .horseComp { return lien.cle("") }
+            if !p.sourceChrono.isEmpty { return lien.cle(p.sourceChrono) }
+            if lien.prefixer { candidates = sources.filter { $0.hasPrefix(c.nom + ConfigLienChrono.separateur) } }
+            memeChrono = reglages.pistes.filter { reglages.chronoDe($0)?.id == c.id }
+        } else if !p.sourceChrono.isEmpty {
+            return p.sourceChrono
+        }
+        let brut = { (s: String) in ConfigLienChrono.brut(s) }
+        if let s = candidates.first(where: { brut($0).caseInsensitiveCompare(piste) == .orderedSame }) { return s }
         let chiffres = piste.filter(\.isNumber)
-        if !chiffres.isEmpty, let s = sources.first(where: { $0.filter(\.isNumber) == chiffres }) { return s }
-        let triees = sources.sorted()
-        if reglages.pistes.count == 1 { return triees.first }
-        return triees.indices.contains(i) ? triees[i] : nil
+        if !chiffres.isEmpty, let s = candidates.first(where: { brut($0).filter(\.isNumber) == chiffres }) { return s }
+        let triees = candidates.sorted()
+        let j = memeChrono.firstIndex(where: { $0.id == p.id }) ?? i
+        if memeChrono.count == 1 { return triees.first }
+        return triees.indices.contains(j) ? triees[j] : nil
     }
 
     private func fabriquerAccueil(_ r: ResumeMoteur, _ reg: ReglagesConcours) -> AccueilPiste {
@@ -326,7 +350,7 @@ final class ServeurPiste: ObservableObject {
     private func fabriquerDirect(piste: String, _ r: ResumeMoteur, _ reg: ReglagesConcours) -> DirectPiste {
         var d = DirectPiste(piste: piste)
         let source = ServeurPiste.source(pour: piste, reglages: reg, sources: Array(r.suivis.keys))
-        d.chronoOK = r.chrono?.ok == true
+        d.chronoOK = ServeurPiste.chronoOK(source: source, piste: piste, reglages: reg, resume: r)
         // boîtiers de la piste : choisis à la photo de synchro, sinon appris sur les photos au bon code
         var boitiers = Set(r.boitierPiste.filter { source != nil && $0.value == source }.map(\.key))
         for s in r.boitiersSynchro {

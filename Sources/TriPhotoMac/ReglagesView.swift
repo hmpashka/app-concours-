@@ -53,7 +53,12 @@ struct ReglagesView: View {
             }
         }
         .sheet(isPresented: $montrerEpreuves) { EpreuvesView(concours: etat.concours) }
-        .sheet(isPresented: $etat.montrerCapture) { CaptureView(capture: etat.capture).environmentObject(etat) }
+        .sheet(isPresented: $etat.montrerCapture) {
+            if let i = etat.reglages.chronos.firstIndex(where: { $0.id.uuidString == etat.captureChoisie }) {
+                CaptureView(capture: etat.capture(pour: etat.captureChoisie), chrono: $etat.reglages.chronos[i])
+                    .environmentObject(etat)
+            }
+        }
     }
 
     // MARK: - Panneau de gauche
@@ -178,54 +183,32 @@ struct ReglagesView: View {
             }
             }
             Divider().overlay(Theme.bordure)
-            Ligne("Chronométrage") {
-                Picker("", selection: $etat.reglages.chronometrage) {
-                    ForEach(ReglagesConcours.Chronometrage.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 320)
+            // ① Les chronos du concours (maquette « Pistes et chronos » validée par HUGO le 25/11/2026)
+            Text("Les chronos du concours").font(.system(size: 13, weight: .semibold))
+            Text("Un chrono = un ordinateur HM Timing (une ou plusieurs pistes), ou une page d'incrustation Horse & Comp (une piste). Ajoute-en autant qu'il y en a sur le terrain.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            ForEach($etat.reglages.chronos) { $c in
+                LigneChrono(chrono: $c, moteur: etat.moteur)
             }
-            if etat.reglages.chronometrage == .hmTiming {
-                Ligne("Adresse de HM Timing") {
-                    TextField("192.168.1.20:8080", text: $etat.reglages.adresseHM).textFieldStyle(.roundedBorder).frame(width: 260)
+            HStack {
+                Button("＋ Ajouter un HM Timing") {
+                    etat.reglages.chronos.append(.init(genre: .hmTiming, nom: etat.reglages.nomLibre(.hmTiming)))
                 }
-                Ligne("Code de régie") {
-                    SecureField("", text: $etat.reglages.codeRegieHM).textFieldStyle(.roundedBorder).frame(width: 160)
+                .buttonStyle(BoutonStyle())
+                Button("＋ Ajouter un Horse & Comp") {
+                    etat.reglages.chronos.append(.init(genre: .horseComp, nom: etat.reglages.nomLibre(.horseComp)))
                 }
-                Ligne("Code technicien") {
-                    SecureField("", text: $etat.reglages.codeTechHM).textFieldStyle(.roundedBorder).frame(width: 160)
-                }
-                Ligne("Fin de tour tolérée") {
-                    Stepper("\(etat.reglages.finDeTourSecondes) s après l'arrivée", value: $etat.reglages.finDeTourSecondes, in: 0...60, step: 5)
-                }
-                Ligne("Latence au changement") {
-                    Stepper("\(etat.reglages.latenceSecondes) s", value: $etat.reglages.latenceSecondes, in: 0...30)
-                }
-                Ligne("Attente du chrono") {
-                    Stepper("\(etat.reglages.attenteChronoMinutes) min au plus, puis la photo part avec son code",
-                            value: $etat.reglages.attenteChronoMinutes, in: 1...15)
-                }
-                ChoixChemin(titre: "Passages pour le mode entraînement (facultatif)",
-                            aide: "Fichier JSON des passages d'un ancien concours : remplace HM Timing pour s'entraîner.",
-                            chemin: $etat.reglages.fichierPassagesEntrainement, fichier: true, types: [.json])
-                Text("Aucune correction n'est appliquée seule : chaque proposition du chrono va dans « À valider ».")
-                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
-            } else {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(etat.reglages.urlIncrustation.isEmpty ? "Page d'incrustation à régler" : etat.reglages.urlIncrustation)
-                            .font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
-                        Text("Groom Pix lit qui est en piste sur la page de Horses & Competitions, comme HM Timing.")
-                            .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
-                    }
-                    Spacer()
-                    Button("Régler la capture…") { etat.montrerCapture = true }.buttonStyle(BoutonStyle(principal: true))
-                }
-                Ligne("Fin de tour tolérée") {
-                    Stepper("\(etat.reglages.finDeTourSecondes) s après l'arrivée", value: $etat.reglages.finDeTourSecondes, in: 0...60, step: 5)
-                }
-                Ligne("Latence au changement") {
-                    Stepper("\(etat.reglages.latenceSecondes) s", value: $etat.reglages.latenceSecondes, in: 0...30)
-                }
+                .buttonStyle(BoutonStyle())
+            }
+            Ligne("Fin de tour tolérée") {
+                Stepper("\(etat.reglages.finDeTourSecondes) s après l'arrivée", value: $etat.reglages.finDeTourSecondes, in: 0...60, step: 5)
+            }
+            Ligne("Latence au changement") {
+                Stepper("\(etat.reglages.latenceSecondes) s", value: $etat.reglages.latenceSecondes, in: 0...30)
+            }
+            Ligne("Attente du chrono") {
+                Stepper("\(etat.reglages.attenteChronoMinutes) min au plus, puis la photo part avec son code",
+                        value: $etat.reglages.attenteChronoMinutes, in: 1...15)
             }
             Ligne("Photos en _00") {
                 Stepper("attendent \(etat.reglages.attente00Minutes) min une photo de code", value: $etat.reglages.attente00Minutes, in: 0...10)
@@ -236,28 +219,66 @@ struct ReglagesView: View {
                         value: $etat.reglages.rushAutoPhotos, in: 0...200, step: 10)
                     .help("Les propositions du chrono restent dans « À valider › À reprendre au calme ».")
             }
+            ChoixChemin(titre: "Passages pour le mode entraînement (facultatif)",
+                        aide: "Fichier JSON des passages d'un ancien concours : remplace les HM Timing pour s'entraîner.",
+                        chemin: $etat.reglages.fichierPassagesEntrainement, fichier: true, types: [.json])
+            Text("Aucune correction n'est appliquée seule : chaque proposition du chrono va dans « À valider ».")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+
+            // ② Les pistes : chacune choisit son chrono, et sa piste dans ce chrono
             Divider().overlay(Theme.bordure)
-            Text("Pistes et photographes").font(.system(size: 13, weight: .semibold))
+            Text("Les pistes").font(.system(size: 13, weight: .semibold))
+            Text("Pour chaque piste, choisis son chrono. Si un HM Timing chronomètre plusieurs pistes, choisis aussi laquelle.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            HStack {
+                Text("Piste").frame(width: 160, alignment: .leading)
+                Text("Photographe").frame(width: 150, alignment: .leading)
+                Text("Chrono").frame(width: 210, alignment: .leading)
+                Text("Piste dans ce chrono").frame(width: 190, alignment: .leading)
+                Spacer()
+            }
+            .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.texteDiscret)
             ForEach($etat.reglages.pistes) { $piste in
                 HStack {
-                    TextField("Piste", text: $piste.nom).textFieldStyle(.roundedBorder).frame(width: 200)
-                    TextField("Photographe", text: $piste.photographe).textFieldStyle(.roundedBorder)
-                    Picker("", selection: $piste.sourceChrono) {
-                        Text("Chrono : trouvé tout seul").tag("")
-                        ForEach(etat.sourcesChrono(plus: piste.sourceChrono), id: \.self) { Text("Chrono : \($0)").tag($0) }
+                    TextField("Piste", text: $piste.nom).textFieldStyle(.roundedBorder).frame(width: 160)
+                    TextField("Photographe", text: $piste.photographe).textFieldStyle(.roundedBorder).frame(width: 150)
+                    Picker("", selection: $piste.chrono) {
+                        Text(etat.reglages.chronos.count == 1 ? etat.reglages.chronos[0].nom : "Trouvé tout seul").tag("")
+                        ForEach(etat.reglages.chronos) { c in Text("\(c.genre == .horseComp ? "H&C" : "HM") · \(c.nom)").tag(c.id.uuidString) }
+                        Text("Aucun chrono").tag(ReglagesConcours.Piste.aucun)
                     }
-                    .labelsHidden().frame(width: 200)
+                    .labelsHidden().frame(width: 210)
+                    .onChange(of: piste.chrono) { _ in piste.sourceChrono = "" }
+                    pisteDansChrono($piste).frame(width: 190, alignment: .leading)
+                    Spacer()
                     Button("Retirer") { etat.reglages.pistes.removeAll { $0.id == piste.id } }
                         .buttonStyle(BoutonStyle())
                         .disabled(etat.reglages.pistes.count <= 1)
                 }
             }
-            Text("Les iPhone de l'app Piste voient ces pistes. « Chrono » relie chaque piste à celle du chrono (utile s'il y en a plusieurs).")
+            Text("Les iPhone de l'app Piste voient ces pistes. Si un chrono tombe, seules ses pistes passent « sans vérification » ; les autres continuent.")
                 .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
-            Button("Ajouter une piste") {
+            Button("＋ Ajouter une piste") {
                 etat.reglages.pistes.append(.init(nom: "Piste \(etat.reglages.pistes.count + 1)", photographe: ""))
             }
             .buttonStyle(BoutonStyle())
+        }
+    }
+
+    /// « Piste dans ce chrono » : les pistes vues dans le HM Timing choisi ; une seule pour Horse & Comp.
+    @ViewBuilder
+    private func pisteDansChrono(_ piste: Binding<ReglagesConcours.Piste>) -> some View {
+        let p = piste.wrappedValue
+        if p.chrono == ReglagesConcours.Piste.aucun {
+            Text("photos gardées avec leur code").font(.system(size: 12)).foregroundStyle(Theme.texteTresDiscret)
+        } else if let c = etat.reglages.chronoDe(p), c.genre == .horseComp {
+            Text("une seule piste").font(.system(size: 12)).foregroundStyle(Theme.texteTresDiscret)
+        } else {
+            Picker("", selection: piste.sourceChrono) {
+                Text("Trouvée toute seule").tag("")
+                ForEach(etat.sourcesChrono(etat.reglages.chronoDe(p), plus: p.sourceChrono), id: \.self) { Text($0).tag($0) }
+            }
+            .labelsHidden()
         }
     }
 
@@ -432,6 +453,11 @@ struct ReglagesView: View {
             galerieEnLigne
             Divider().overlay(Theme.bordure)
             accesDistance
+            Divider().overlay(Theme.bordure)
+            Toggle("Loupedeck CT : piloter Groom Pix et afficher l'état du stand (ce Mac seulement)",
+                   isOn: Binding(get: { etat.loupedeckActif }, set: { etat.loupedeckActif = $0 }))
+            Text("Le module « Groom Pix » du logiciel Loupedeck lit l'état chaque seconde, sans réseau. Le couper ne change rien au tri.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
             Divider().overlay(Theme.bordure)
             Toggle("Sauvegarde des originaux sur un 2e disque (option)", isOn: $etat.reglages.sauvegardeActive)
             if etat.reglages.sauvegardeActive {
@@ -808,6 +834,92 @@ struct ModelesView: View {
             }
             if !message.isEmpty {
                 Text(message).font(.system(size: 12)).foregroundStyle(Theme.ok)
+            }
+        }
+    }
+}
+
+/// Un chrono dans les réglages : HM Timing (nom, adresse, codes) ou Horse & Comp (nom, page, zones), avec son voyant.
+struct LigneChrono: View {
+    @EnvironmentObject var etat: Etat
+    @ObservedObject private var moteur: Moteur
+    @Binding var chrono: ReglagesConcours.ChronoConcours
+    @State private var test: (ok: Bool, texte: String)?
+    @State private var enTest = false
+
+    init(chrono: Binding<ReglagesConcours.ChronoConcours>, moteur: Moteur) {
+        _chrono = chrono
+        _moteur = ObservedObject(wrappedValue: moteur)
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(chrono.genre == .hmTiming ? "HM TIMING" : "HORSE & COMP")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(Theme.surAccent)
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(chrono.genre == .hmTiming ? Theme.accent : Theme.orange, in: RoundedRectangle(cornerRadius: 4))
+                .frame(width: 96, alignment: .leading)
+            TextField("Nom", text: $chrono.nom).textFieldStyle(.roundedBorder).frame(width: 170)
+            if chrono.genre == .hmTiming {
+                TextField("192.168.1.20:8080", text: $chrono.adresse).textFieldStyle(.roundedBorder).frame(width: 170)
+                SecureField("Régie", text: $chrono.codeRegie).textFieldStyle(.roundedBorder).frame(width: 80)
+                SecureField("Tech", text: $chrono.codeTech).textFieldStyle(.roundedBorder).frame(width: 80)
+            } else {
+                Text(chrono.urlIncrustation.isEmpty ? "Page d'incrustation à régler" : chrono.urlIncrustation)
+                    .font(.system(size: 12)).lineLimit(1).truncationMode(.middle).frame(width: 200, alignment: .leading)
+                Button(chrono.zones["dossard"] == nil ? "Régler la page et les zones…" : "Page et zones…") {
+                    etat.captureChoisie = chrono.id.uuidString
+                    etat.montrerCapture = true
+                }
+                .buttonStyle(BoutonStyle(principal: chrono.zones["dossard"] == nil))
+            }
+            voyant
+            Spacer(minLength: 0)
+            if chrono.genre == .hmTiming {
+                Button(enTest ? "…" : "Tester") { tester() }.buttonStyle(BoutonStyle()).disabled(enTest || !chrono.pret)
+            }
+            Button("Retirer") { etat.reglages.chronos.removeAll { $0.id == chrono.id } }
+                .buttonStyle(BoutonStyle())
+                .help("Les pistes de ce chrono passent « trouvé tout seul ».")
+        }
+        .padding(8)
+        .background(Theme.carte, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.bordure))
+    }
+
+    /// Vert : répond ; orange : ne répond pas ; gris : pas encore interrogé (tri arrêté).
+    private var voyant: some View {
+        let e = moteur.resume.chrono?.liens.first { $0.id == chrono.id.uuidString }
+        let v: (Color, String) = {
+            if let e {
+                switch e.ok {
+                case .some(true): return (Theme.ok, "répond" + (e.sources.isEmpty ? "" : " · " + e.sources.joined(separator: ", ")))
+                case .some(false): return (Theme.orange, e.erreur.isEmpty ? "ne répond pas" : e.erreur)
+                case .none: return (Theme.texteTresDiscret, "en attente…")
+                }
+            }
+            if let t = test { return (t.ok ? Theme.ok : Theme.orange, t.texte) }
+            if chrono.genre == .horseComp {
+                let cap = etat.captures[chrono.id.uuidString]
+                return (cap?.ouverte == true ? Theme.ok : Theme.texteTresDiscret, cap?.etatPage ?? (chrono.zones["dossard"] == nil ? "zones à dessiner" : "page fermée"))
+            }
+            return (Theme.texteTresDiscret, chrono.pret ? "pas encore testé" : "adresse à régler")
+        }()
+        return HStack(spacing: 5) {
+            Circle().fill(v.0).frame(width: 8, height: 8)
+            Text(v.1).font(.system(size: 11)).foregroundStyle(v.0)
+                .lineLimit(2).frame(maxWidth: 230, alignment: .leading)
+        }
+    }
+
+    private func tester() {
+        enTest = true
+        test = nil
+        TestChrono.tester(etat.reglages.lien(chrono)) { ok, texte in
+            Task { @MainActor in
+                test = (ok, texte)
+                enTest = false
             }
         }
     }

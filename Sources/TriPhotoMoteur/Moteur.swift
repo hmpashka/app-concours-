@@ -163,6 +163,8 @@ public struct EtatChrono: Sendable {
     public var erreur: String
     public var vu: Date?
     public var passages: Int
+    /// Un état par chrono (plusieurs HM Timing, plusieurs captures Horse & Comp).
+    public var liens: [EtatLienChrono] = []
 }
 
 /// Ce qui est en piste en ce moment, piste par piste (d'après le chrono).
@@ -509,9 +511,10 @@ public final class Moteur: ObservableObject {
                 let sans = codePhotographe == nil || codePhotographe?.special == .inconnu
                 var garderEnReception = false
                 if let ch = file.sync(execute: { chrono }), let prise = fiche.prise {
-                    if ch.ok == true {
-                        let b0 = fiche.boitier
-                        let piste = file.sync { pisteDuBoitier[b0] }
+                    let b0 = fiche.boitier
+                    let piste = file.sync { pisteDuBoitier[b0] }
+                    // plusieurs chronos : seul l'état du chrono de cette piste compte (un chrono qui tombe ne bloque pas les autres)
+                    if ch.okPour(piste: piste) == true {
                         let d = Attribution.decider(code: codePhotographe, t: ch.heureChrono(prise, boitier: b0), passages: ch.passages,
                                                     apres: ch.config.apresArrivee, latence: ch.config.latence, piste: piste)
                         switch d {
@@ -875,7 +878,7 @@ public final class Moteur: ObservableObject {
         }
         r.series += rushs
         if let ch = chrono {
-            r.chrono = EtatChrono(ok: ch.ok, erreur: ch.erreur, vu: ch.vu, passages: ch.passages.count)
+            r.chrono = EtatChrono(ok: ch.ok, erreur: ch.erreur, vu: ch.vu, passages: ch.passages.count, liens: ch.etats)
             let ps = ch.passages
             var parPiste: [String: Passage] = [:]
             for p in ps where (parPiste[p.source]?.debut ?? -1) < p.debut { parPiste[p.source] = p }
@@ -1169,11 +1172,11 @@ public final class Moteur: ObservableObject {
 
     // MARK: - Capture Horse & Comp
 
-    /// Les passages lus sur la page d'incrustation de Horses & Competitions (capture), envoyés par l'app.
-    public func passagesExternes(_ passages: [Passage], erreur: String = "") {
+    /// Les passages lus sur une page d'incrustation de Horses & Competitions (capture), envoyés par l'app.
+    /// `lien` : l'identifiant du chrono Horse & Comp dans les réglages (vide : le seul chrono Horse & Comp).
+    public func passagesExternes(lien: String = "", _ passages: [Passage], erreur: String = "") {
         file.async { [weak self] in
-            guard let ch = self?.chrono, ch.config.externe else { return }
-            ch.recevoir(passages, erreur: erreur)
+            self?.chrono?.recevoir(lien: lien, passages, erreur: erreur)
         }
     }
 
