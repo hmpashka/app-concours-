@@ -47,6 +47,7 @@ targets:
         NSLocalNetworkUsageDescription: "L'app Piste trouve le Mac Groom Pix sur le wifi du concours."
         NSBonjourServices: [_triphoto._tcp]
         UIBackgroundModes: [remote-notification]
+        ITSAppUsesNonExemptEncryption: false
     entitlements:
       path: Piste/Piste.entitlements
       properties:
