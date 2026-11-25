@@ -24,6 +24,7 @@ struct RevueView: View {
     @State private var heureDe = Calendar.current.date(bySettingHour: 8, minute: 0, second: 0, of: Date()) ?? Date()
     @State private var heureA = Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: Date()) ?? Date()
     @State private var recherche = ""                    // code, cavalier ou cheval
+    @State private var zoom: CGFloat = 1                 // molette du Loupedeck
 
     private enum Retour {
         case suppression(FichePhoto)
@@ -103,6 +104,84 @@ struct RevueView: View {
         .onChange(of: etat.momentRevue?.heure) { _ in charger() }
         .onChange(of: etat.photosRevue?.ids) { _ in charger() }
         .background(raccourcis)
+        .onReceive(etat.ordresLoupedeck) { recevoirLoupedeck($0) }
+        .onChange(of: signatureLoupedeck) { _ in publierLoupedeck() }
+        .onAppear(perform: publierLoupedeck)
+        .onDisappear { etat.infoRevueLoupedeck = nil; etat.photoLoupedeck = nil }
+    }
+
+    // MARK: - Loupedeck CT
+
+    /// Change dès que ce que montre le Loupedeck doit changer.
+    private var signatureLoupedeck: String {
+        let f = courante
+        return "\(index)|\(photos.count)|\(f?.id ?? 0)|\(f?.classe ?? "")|\(f?.chute ?? false)|\(f?.drapeaux ?? "")|\(f?.codeRetenu ?? "")|\(ordre.rawValue)|\(epreuve)|\(zoom)"
+    }
+
+    private func publierLoupedeck() {
+        let f = courante
+        let filtre: String
+        switch ordre.groupe {
+        case .toutes: filtre = "Toutes"
+        case .aTraiter: filtre = "À traiter"
+        case .bonnes: filtre = "Bonnes"
+        }
+        let court: String
+        switch ordre {
+        case .douteuses: court = "Douteuses"
+        case .heure: court = "Heure"
+        case .aTrier: court = "Tout"
+        case .sol: court = "Sol"
+        case .floues: court = "Floues"
+        case .code: court = "Code"
+        case .belles: court = "Belles"
+        case .meilleures: court = "Meilleures"
+        case .reseaux: court = "Réseaux"
+        }
+        etat.infoRevueLoupedeck = EtatLoupedeck.Revue(
+            position: photos.isEmpty ? 0 : index + 1, total: photos.count,
+            code: f?.codeRetenu ?? "", cavalier: f?.cavalier ?? "", cheval: f?.cheval ?? "",
+            classe: f?.classe ?? "", meilleure: f?.a("meilleure") ?? false, reseaux: f?.a("reseaux") ?? false,
+            chute: f?.chute ?? false, filtre: filtre, ordre: court, epreuve: epreuve,
+            suppressionPermise: suppressionPermise, zoom: Double(zoom))
+        etat.photoLoupedeck = f?.id
+    }
+
+    /// Les boutons et molettes du Loupedeck : mêmes gestes que le clavier.
+    private func recevoirLoupedeck(_ o: OrdreLoupedeck) {
+        guard !changerCode || o.nom == "changerCode" else { return }
+        switch o.nom {
+        case "photo": avancer(o.pas)
+        case "photo.premiere": index = 0
+        case "classe.bonne": classer("bonne")
+        case "classe.floue": classer("floue")
+        case "classe.sol": classer("sol")
+        case "classe.code": classer("code")
+        case "meilleure": basculer("meilleure")
+        case "reseaux": basculer("reseaux")
+        case "chute": basculerChute()
+        case "supprimer": supprimer()
+        case "annuler": annulerSuppression()
+        case "changerCode":
+            if let f = courante { nouveauCode = f.codeRetenu; changerCode.toggle() }
+        case "filtre":
+            let groupes: [Ordre] = [.douteuses, .aTrier, .belles]
+            let i = groupes.firstIndex { $0.groupe == ordre.groupe } ?? 0
+            ordre = groupes[((i + o.pas) % groupes.count + groupes.count) % groupes.count]
+        case "filtre.toutes": ordre = .douteuses
+        case "ordre":
+            let l = Ordre.du(ordre.groupe)
+            let i = l.firstIndex(of: ordre) ?? 0
+            ordre = l[(i + 1) % l.count]
+        case "epreuve":
+            let l = [""] + (etat.concours?.epreuves ?? []).map(\.numero)
+            let i = l.firstIndex(of: epreuve) ?? 0
+            epreuve = l[min(max(0, i + o.pas), l.count - 1)]
+        case "epreuve.toutes": epreuve = ""
+        case "zoom": zoom = min(max(1, zoom + CGFloat(o.pas) * 0.25), 4)
+        case "zoom.ajuster": zoom = 1
+        default: break
+        }
     }
 
     // MARK: - Données
@@ -374,6 +453,7 @@ struct RevueView: View {
                 }
                 VignettePhoto(chemins: [f.copie, f.chemin], cote: 1400)
                     .aspectRatio(3 / 2, contentMode: .fit)
+                    .scaleEffect(zoom)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 HStack(spacing: 8) {

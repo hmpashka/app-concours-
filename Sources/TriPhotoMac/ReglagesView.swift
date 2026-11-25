@@ -454,6 +454,11 @@ struct ReglagesView: View {
             Divider().overlay(Theme.bordure)
             accesDistance
             Divider().overlay(Theme.bordure)
+            Toggle("Loupedeck CT : piloter Groom Pix et afficher l'état du stand (ce Mac seulement)",
+                   isOn: Binding(get: { etat.loupedeckActif }, set: { etat.loupedeckActif = $0 }))
+            Text("Le module « Groom Pix » du logiciel Loupedeck lit l'état chaque seconde, sans réseau. Le couper ne change rien au tri.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            Divider().overlay(Theme.bordure)
             Toggle("Sauvegarde des originaux sur un 2e disque (option)", isOn: $etat.reglages.sauvegardeActive)
             if etat.reglages.sauvegardeActive {
                 ChoixChemin(titre: "Disque de sauvegarde",

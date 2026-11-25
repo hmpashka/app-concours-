@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import TriPhotoCommun
 import TriPhotoMoteur
@@ -82,6 +83,13 @@ final class Etat: ObservableObject {
     /// La mémoire partagée (dossier iCloud des stands).
     @Published var memoire: Memoire
     let acces = AccesDistance()
+    /// Loupedeck CT : pont local (ce Mac seulement) et ordres passés aux écrans Revue / À valider.
+    let loupedeck = PontLoupedeck()
+    let ordresLoupedeck = PassthroughSubject<OrdreLoupedeck, Never>()
+    /// Tenus à jour par la Revue et « À valider » (pas @Published : rien à redessiner).
+    var infoRevueLoupedeck: EtatLoupedeck.Revue?
+    var infoSerieLoupedeck: EtatLoupedeck.Serie?
+    var photoLoupedeck: Int64?
     @Published var etatAccesDistance = ""
     /// « Voir les photos de ce moment » (incident d'un iPhone) : la revue montre les photos autour de cette heure.
     @Published var momentRevue: (heure: Date, titre: String)?
@@ -125,6 +133,7 @@ final class Etat: ObservableObject {
         acces.code = { [weak self] in self?.reglages.codeAccesDistance ?? "" }
         acces.etat = { [weak self] in self?.etatDistance() }
         reglerAccesDistance()
+        brancherLoupedeck()
     }
 
     /// Pistes vues aujourd'hui dans un chrono, telles qu'il les nomme (pour relier les pistes des réglages aux siennes).
