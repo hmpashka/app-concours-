@@ -32,8 +32,17 @@ final class CaptureHorseComp: ObservableObject {
     static let largeur: CGFloat = 1280
     static let hauteur: CGFloat = 720
 
-    init() {
-        if let p = Stockage.lire([Passage].self, nom: "passages-capture.json") { passages = p }
+    /// Identifiant du chrono Horse & Comp dans les réglages (une capture par chrono Horse & Comp).
+    let id: String
+    private var fichier: String { "passages-capture-\(id).json" }
+
+    init(id: String) {
+        self.id = id
+        if let p = Stockage.lire([Passage].self, nom: "passages-capture-\(id).json") {
+            passages = p
+        } else if let p = Stockage.lire([Passage].self, nom: "passages-capture.json") {
+            passages = p        // passages d'avant la version à plusieurs chronos
+        }
     }
 
     // MARK: - Ouvrir / fermer
@@ -89,7 +98,7 @@ final class CaptureHorseComp: ObservableObject {
     func effacerPassages() {
         suivi = SuiviIncrustation()
         passages = []
-        Stockage.ecrire(passages, nom: "passages-capture.json")
+        Stockage.ecrire(passages, nom: fichier)
         envoyer?(passages, "")
     }
 
@@ -134,7 +143,7 @@ final class CaptureHorseComp: ObservableObject {
             tous.sort { $0.debut < $1.debut }
             if tous.count > 2000 { tous.removeFirst(tous.count - 2000) }
             passages = tous
-            Stockage.ecrire(passages, nom: "passages-capture.json")
+            Stockage.ecrire(passages, nom: fichier)
             envoyer?(passages, raison)
         }
     }

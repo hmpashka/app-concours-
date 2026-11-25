@@ -83,13 +83,31 @@ struct AccueilView: View {
 
     private var enPiste: some View {
         Carte(titre: "En piste", sousTitre: chronoTexte) {
+            if let ch = r.chrono, ch.liens.count > 1 {
+                // un voyant par chrono : vert = répond, orange = ne répond plus
+                HStack(spacing: 14) {
+                    ForEach(ch.liens) { l in
+                        HStack(spacing: 5) {
+                            Circle().fill(l.ok == true ? Theme.ok : l.ok == false ? Theme.orange : Theme.texteTresDiscret)
+                                .frame(width: 8, height: 8)
+                            Text(l.nom).font(.system(size: 12, weight: .semibold))
+                            if l.ok == false {
+                                Text(l.erreur).font(.system(size: 11)).foregroundStyle(Theme.orange).lineLimit(1)
+                            }
+                        }
+                        .help(l.ok == true ? "\(l.nom) répond · \(l.passages) passages" : l.erreur)
+                    }
+                    Spacer()
+                }
+            }
             if r.enPiste.isEmpty {
                 Text("Aucun passage pour l'instant.").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
             }
             ForEach(r.enPiste) { e in
                 HStack {
-                    Text(e.piste.isEmpty ? "Piste" : e.piste).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
-                        .frame(width: 110, alignment: .leading)
+                    Text(nomPiste(e.piste)).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+                        .lineLimit(1).frame(width: 150, alignment: .leading)
+                        .help(e.piste)
                     Text("Épreuve \(e.passage.epreuve) · n° \(e.passage.dossard)").font(.system(size: 13, weight: .semibold))
                     Text([e.passage.cavalier, e.passage.cheval].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.system(size: 12)).foregroundStyle(Theme.texteDiscret).lineLimit(1)
@@ -100,9 +118,21 @@ struct AccueilView: View {
         }
     }
 
+    /// Le nom de la piste dans les réglages (« Indoor »), plutôt que celui du chrono.
+    private func nomPiste(_ cle: String) -> String {
+        if cle.isEmpty { return "Piste" }
+        let sources = Array(r.suivis.keys)
+        let reg = etat.reglages
+        return reg.pistes.first { ServeurPiste.source(pour: $0.nom, reglages: reg, sources: sources) == cle }?.nom ?? cle
+    }
+
     private var chronoTexte: String {
         guard let c = r.chrono else { return "" }
-        let nom = etat.reglages.chronometrage.rawValue
+        if c.liens.count > 1 {
+            let ok = c.liens.filter { $0.ok == true }.count
+            return "\(c.liens.count) chronos · \(ok) répond\(ok > 1 ? "ent" : "") · \(c.passages) passages"
+        }
+        let nom = etat.texteChronos
         switch c.ok {
         case .none: return "\(nom) : en attente…"
         case .some(true): return "\(nom) · \(c.passages) passages\(c.erreur.isEmpty ? "" : " · " + c.erreur)"

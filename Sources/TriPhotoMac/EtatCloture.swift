@@ -261,7 +261,11 @@ extension Etat {
         let r = moteur.resume
         let chrono: String
         if let c = r.chrono {
-            chrono = c.ok == true ? "\(reglages.chronometrage.rawValue) OK" : "\(reglages.chronometrage.rawValue) : \(c.erreur)"
+            if c.liens.count > 1 {
+                chrono = c.liens.map { "\($0.nom) " + ($0.ok == true ? "OK" : "en panne") }.joined(separator: " · ")
+            } else {
+                chrono = c.ok == true ? "\(texteChronos) OK" : "\(texteChronos) : \(c.erreur)"
+            }
         } else {
             chrono = "Sans chrono"
         }
