@@ -16,7 +16,8 @@ APP="build/$NOM.app"
 
 if [ "${1:-}" = "universel" ]; then
     swift build -c release --arch arm64 --arch x86_64
-    BINAIRE=".build/apple/Products/Release/TriPhotoMac"
+    # chemin demandé à swift : il change selon la version (.build/apple/… ou .build/out/…)
+    BINAIRE="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/TriPhotoMac"
 else
     swift build -c release
     BINAIRE="$(swift build -c release --show-bin-path)/TriPhotoMac"
@@ -77,7 +78,8 @@ PLIST
 xattr -cr "$APP"
 # Signée avec le certificat « Apple Development » de HUGO s'il est sur le Mac : macOS accepte alors les
 # notifications et le trousseau ne redemande pas l'accès à chaque nouvelle version. Sinon signature locale.
-IDENT="$(security find-identity -v -p codesigning 2>/dev/null | grep -m1 "Apple Development" | sed -E 's/.*"(.*)"/\1/' || true)"
+# par empreinte SHA-1 (2e colonne) : le nom seul est « ambiguous » quand deux certificats portent le même nom
+IDENT="$(security find-identity -v -p codesigning 2>/dev/null | grep -m1 "Apple Development" | awk '{print $2}' || true)"
 # signée hors du Bureau (iCloud y remet des attributs Finder que codesign refuse), puis recopiée
 T="$(mktemp -d)"
 ditto --noextattr "$APP" "$T/app.app"
