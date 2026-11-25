@@ -12,6 +12,7 @@ struct AValiderView: View {
     @State private var saisie = ""
     @State private var montrer00 = false
     @State private var serieDeLaSelection = ""
+    @State private var enGrand: DepartVisionneuse?      // photo en grand (double-clic, ou bouton « Photo »)
 
     private var r: ResumeMoteur { moteur.resume }
     private var serie: SerieAValider? { r.series.first { $0.id == choisie } ?? r.series.first }
@@ -50,6 +51,11 @@ struct AValiderView: View {
         .onAppear(perform: publierLoupedeck)
         .onDisappear { etat.infoSerieLoupedeck = nil; etat.photoLoupedeck = nil }
         .sheet(isPresented: $montrer00) { Liste00View(moteur: moteur).environmentObject(etat) }
+        .sheet(item: $enGrand) { d in
+            Visionneuse(elements: photosEnGrand, depart: d.id,
+                        choisie: { Int64($0).map { selection.contains($0) } ?? false },
+                        basculer: { if let id = Int64($0), serie?.photos.contains(where: { $0.id == id }) == true { basculer(id) } })
+        }
     }
 
     // MARK: - Loupedeck CT
@@ -163,6 +169,12 @@ struct AValiderView: View {
 
     // MARK: - Détail d'une série
 
+    /// Les photos de la série en grand : la photo de code d'abord s'il y en a une.
+    private var photosEnGrand: [ElementVisionneuse] {
+        guard let s = serie else { return [] }
+        return ([s.photoCode].compactMap { $0 } + s.photos).map(\.elementVisionneuse)
+    }
+
     @ViewBuilder
     private func detail(_ s: SerieAValider) -> some View {
         let couple = CodePassage.lire(s.proposition).flatMap { etat.concours?.couple(pour: $0) }
@@ -173,6 +185,8 @@ struct AValiderView: View {
                 if s.genre == .photoCode, let pc = s.photoCode {
                     VignettePhoto(chemins: [pc.chemin], cote: 400).frame(width: 220, height: 146)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .onTapGesture(count: 2) { enGrand = DepartVisionneuse(id: String(pc.id)) }
+                        .help("Double-clic : en grand")
                 }
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
@@ -204,10 +218,19 @@ struct AValiderView: View {
         }
         Carte(titre: s.genre == .photoCode ? "Les 15 photos avant la photo de code" : "Les photos de la série",
               sousTitre: "Clique sur une photo pour l'ajouter ou la retirer · \(selection.count) sélectionnée\(selection.count > 1 ? "s" : "")") {
+            HStack {
+                Text("Double-clic sur une photo : en grand (← → pour avancer, Espace pour la choisir)")
+                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+                Spacer()
+                SelecteurVue(galerie: choixVue($enGrand) {
+                    (s.photos.first { selection.contains($0.id) } ?? s.photos.first).map { String($0.id) }
+                })
+            }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 8)], spacing: 8) {
                 ForEach(s.photos, id: \.id) { f in
                     Button { basculer(f.id) } label: { vignette(f, choisie: selection.contains(f.id)) }
                         .buttonStyle(BoutonPlat())
+                        .simultaneousGesture(TapGesture(count: 2).onEnded { enGrand = DepartVisionneuse(id: String(f.id)) })
                 }
             }
         }
@@ -379,12 +402,16 @@ struct Liste00View: View {
     @Environment(\.dismiss) private var fermer
     @State private var selection: Set<Int64> = []
     @State private var saisie = ""
+    @State private var enGrand: DepartVisionneuse?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Photos en _00 ou sans code").font(.system(size: 16, weight: .semibold))
                 Spacer()
+                SelecteurVue(galerie: choixVue($enGrand) {
+                    (moteur.resume.sans00.first { selection.contains($0.id) } ?? moteur.resume.sans00.first).map { String($0.id) }
+                })
                 Button("Fermer") { fermer() }.buttonStyle(BoutonStyle()).keyboardShortcut(.cancelAction)
             }
             ScrollView {
@@ -403,6 +430,7 @@ struct Liste00View: View {
                             }
                         }
                         .buttonStyle(BoutonPlat())
+                        .simultaneousGesture(TapGesture(count: 2).onEnded { enGrand = DepartVisionneuse(id: String(f.id)) })
                     }
                 }
             }
@@ -436,5 +464,10 @@ struct Liste00View: View {
         .frame(width: 900)
         .background(Theme.fond)
         .foregroundStyle(Theme.texte)
+        .sheet(item: $enGrand) { d in
+            Visionneuse(elements: moteur.resume.sans00.map(\.elementVisionneuse), depart: d.id,
+                        choisie: { Int64($0).map { selection.contains($0) } ?? false },
+                        basculer: { if let id = Int64($0) { if selection.contains(id) { selection.remove(id) } else { selection.insert(id) } } })
+        }
     }
 }
