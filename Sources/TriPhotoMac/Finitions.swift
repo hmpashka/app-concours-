@@ -260,7 +260,8 @@ struct CarteApparence: View {
                 HStack(spacing: 10) {
                     Button("Essayer") {
                         Notifieur.partage.essayer()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { Notifieur.partage.probleme { probleme = $0 } }
+                        probleme = "Bulle d'essai envoyée à \(Date().formatted(date: .omitted, time: .standard)) : elle doit apparaître en haut à droite dans 1 s."
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { Notifieur.partage.probleme { if let p = $0 { probleme = p } } }
                     }
                     Button("Ouvrir les réglages du Mac") {
                         if let u = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") { NSWorkspace.shared.open(u) }
