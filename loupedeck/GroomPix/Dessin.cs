@@ -8,18 +8,19 @@ namespace Loupedeck.GroomPixPlugin
     /// Les touches du CT font environ 1,5 cm : jamais plus de deux lignes.
     public static class Dessin
     {
+        // Couleurs choisies pour l'écran tactile du CT (essai du 25/11) : les tons sombres et neutres y virent au
+        // bleu vif, les couleurs vives et saturées passent. Normal = bleu nuit (il sort bleu Groom Pix), texte blanc ;
+        // éteint = fond noir, texte gris atténué ; états = fonds vifs, texte noir (blanc sur le rouge).
         public static readonly BitmapColor Nuit = new BitmapColor(14, 42, 71);
-        public static readonly BitmapColor Or = new BitmapColor(201, 163, 74);
-        public static readonly BitmapColor Creme = new BitmapColor(245, 241, 232);
-        public static readonly BitmapColor Orange = new BitmapColor(110, 66, 16);
-        public static readonly BitmapColor OrangeTexte = new BitmapColor(255, 194, 120);
-        public static readonly BitmapColor Vert = new BitmapColor(27, 74, 50);
-        public static readonly BitmapColor VertTexte = new BitmapColor(139, 224, 173);
-        public static readonly BitmapColor Rouge = new BitmapColor(122, 35, 28);
-        public static readonly BitmapColor RougeTexte = new BitmapColor(255, 184, 174);
-        public static readonly BitmapColor OrFonce = new BitmapColor(74, 61, 31);
-        public static readonly BitmapColor Gris = new BitmapColor(40, 42, 46);
-        public static readonly BitmapColor GrisTexte = new BitmapColor(130, 134, 140);
+        public static readonly BitmapColor Or = new BitmapColor(255, 200, 70);
+        public static readonly BitmapColor Creme = new BitmapColor(255, 255, 255);
+        public static readonly BitmapColor Noir = new BitmapColor(0, 0, 0);
+        public static readonly BitmapColor Orange = new BitmapColor(255, 120, 0);
+        public static readonly BitmapColor Vert = new BitmapColor(0, 190, 70);
+        public static readonly BitmapColor Rouge = new BitmapColor(230, 30, 20);
+        public static readonly BitmapColor OrVif = new BitmapColor(255, 190, 0);
+        public static readonly BitmapColor Gris = new BitmapColor(0, 0, 0);
+        public static readonly BitmapColor GrisTexte = new BitmapColor(90, 90, 90);
 
         public enum Genre { Normal, Attention, Ok, Erreur, Or, Eteint }
 
@@ -54,10 +55,10 @@ namespace Loupedeck.GroomPixPlugin
         {
             switch (g)
             {
-                case Genre.Attention: return (Orange, OrangeTexte);
-                case Genre.Ok: return (Vert, VertTexte);
-                case Genre.Erreur: return (Rouge, RougeTexte);
-                case Genre.Or: return (OrFonce, Or);
+                case Genre.Attention: return (Orange, Noir);
+                case Genre.Ok: return (Vert, Noir);
+                case Genre.Erreur: return (Rouge, Creme);
+                case Genre.Or: return (OrVif, Noir);
                 case Genre.Eteint: return (Gris, GrisTexte);
                 default: return (Nuit, Creme);
             }

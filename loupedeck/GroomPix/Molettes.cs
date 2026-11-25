@@ -79,7 +79,11 @@ namespace Loupedeck.GroomPixPlugin
             GroomPix.Envoyer(Liste[i].appui);
         }
 
-        protected override String GetAdjustmentValue(String actionParameter)
+        /// En widget, la valeur est déjà dans l'image : le logiciel ne doit pas la réécrire par-dessus (« 0 », « Accueil »).
+        protected override String GetAdjustmentValue(String actionParameter) => "";
+
+        /// Valeur affichée dans la bande (ou sous la photo de la roue).
+        private static String Valeur(String actionParameter)
         {
             var e = GroomPix.Etat;
             if (e == null) return "fermé";
@@ -124,7 +128,7 @@ namespace Loupedeck.GroomPixPlugin
                 if (actionParameter != "roue")
                 {
                     var court = _index.TryGetValue(actionParameter, out var i) ? Liste[i].court : "";
-                    return Dessin.Bande(imageSize, court, this.GetAdjustmentValue(actionParameter), GroomPix.Etat != null);
+                    return Dessin.Bande(imageSize, court, Valeur(actionParameter), GroomPix.Etat != null);
                 }
                 return ImageRoue(imageSize);
             }
@@ -151,10 +155,10 @@ namespace Loupedeck.GroomPixPlugin
                 var (fond, texte) = Dessin.Couleurs(e.message.incident ? Dessin.Genre.Erreur : Dessin.Genre.Attention);
                 b.Clear(fond);
                 var qui = String.IsNullOrEmpty(e.message.piste) ? e.message.qui : $"{e.message.qui} · {e.message.piste}";
-                Dessin.Texte(b, qui, w / 10, h * 14 / 100, w * 8 / 10, h * 16 / 100, Dessin.Creme, Math.Max(10, h / 11));
+                Dessin.Texte(b, qui, w / 10, h * 14 / 100, w * 8 / 10, h * 16 / 100, texte, Math.Max(10, h / 11));
                 var t = e.message.texte.Length > 70 ? e.message.texte.Substring(0, 70) + "…" : e.message.texte;
                 Dessin.Texte(b, t, w / 8, h * 32 / 100, w * 6 / 8, h * 46 / 100, texte, Math.Max(10, h / 10));
-                Dessin.Texte(b, "appuie : lire", w / 4, h * 78 / 100, w / 2, h * 10 / 100, Dessin.Or, Math.Max(8, h / 16));
+                Dessin.Texte(b, "appuie : lire", w / 4, h * 78 / 100, w / 2, h * 10 / 100, texte, Math.Max(8, h / 16));
                 return b.ToImage();
             }
             var code = e.revue?.code ?? e.serie?.proposition ?? "";
@@ -167,10 +171,15 @@ namespace Loupedeck.GroomPixPlugin
             {
                 b.Clear(Dessin.Nuit);
             }
-            if (code.Length > 0)
+            // le logiciel n'affiche l'image de la roue qu'en petit (≈ 80 px au centre du rond) : gros caractères
+            if (code.Length > 0 && photo != null)
             {
-                b.FillRectangle(0, h * 70 / 100, w, h * 30 / 100, new BitmapColor(0, 0, 0, 190));
-                Dessin.Texte(b, code.TrimStart('#'), 0, h * 70 / 100, w, h * 20 / 100, Dessin.Or, Math.Max(12, h / 7));
+                b.FillRectangle(0, h * 62 / 100, w, h * 38 / 100, new BitmapColor(0, 0, 0, 200));
+                Dessin.Texte(b, code.TrimStart('#'), 0, h * 62 / 100, w, h * 38 / 100, Dessin.Or, Math.Max(12, h * 30 / 100));
+            }
+            else if (code.Length > 0)
+            {
+                Dessin.Remplir(b, code.TrimStart('#'), "CODE", Dessin.Genre.Normal);
             }
             else if (photo == null)
             {
