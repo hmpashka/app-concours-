@@ -107,7 +107,7 @@ namespace Loupedeck.GroomPixPlugin
                     return (String.IsNullOrEmpty(p.code) ? "—" : p.code, nom, p.termine ? Dessin.Genre.Eteint : Dessin.Genre.Normal);
                 }
                 case 9:
-                    return e.aValider > 0 ? ("RUSH", "TOUT ENVOYER", Dessin.Genre.Erreur) : ("RUSH", "RIEN EN ATTENTE", Dessin.Genre.Eteint);
+                    return e.aValider > 0 ? ("RUSH", "TOUT ENVOYER", Dessin.Genre.Erreur) : ("RUSH", "À JOUR", Dessin.Genre.Eteint);
                 case 10:
                     if (!e.actif) return ("—", "TRI ARRÊTÉ", Dessin.Genre.Eteint);
                     return e.pause ? ("▶", "REPRENDRE", Dessin.Genre.Attention) : ("❚❚", "PAUSE", Dessin.Genre.Or);
