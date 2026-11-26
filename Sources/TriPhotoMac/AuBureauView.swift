@@ -306,12 +306,15 @@ private struct CarteAnnee: View {
             Text(archive.remontage.isEmpty ? archive.chemin : archive.remontage)
                 .font(.system(size: 11)).foregroundStyle(Theme.texteDiscret).lineLimit(1).truncationMode(.middle)
                 .help(archive.chemin)
-            if let p, p.etape == .lecture || p.etape == .pause, p.aLire > 0 {
-                ProgressView(value: Double(p.lues), total: Double(max(p.aLire, 1))).tint(Theme.accent)
-                Text("\(p.lues.formatted()) / \(p.aLire.formatted()) photos lues · priorité basse · reprend où elle s'est arrêtée")
+            if let p, p.etape == .lecture || p.etape == .pause || p.etape == .liste {
+                // total connu d'un tour précédent : vraie barre ; premier tour : barre qui défile
+                if c.photos > p.trouvees {
+                    ProgressView(value: Double(p.trouvees), total: Double(c.photos)).tint(Theme.accent)
+                } else {
+                    ProgressView().progressViewStyle(.linear).tint(Theme.accent)
+                }
+                Text("\(p.trouvees.formatted()) photos vues · \(p.lues.formatted()) nouvelles lues · priorité basse · reprend où elle s'est arrêtée")
                     .font(.system(size: 11)).foregroundStyle(Theme.texteDiscret).fixedSize(horizontal: false, vertical: true)
-            } else if let p, p.etape == .liste {
-                Text("Liste des dossiers… \(p.trouvees.formatted()) photos vues").font(.system(size: 11)).foregroundStyle(Theme.texteDiscret)
             }
             Text("\(c.photos.formatted()) photos · \(c.concours) concours" + (bureau.index?.derniereVerification(archive: archive.id)
                 .map { " · vérifié le " + $0.formatted(date: .abbreviated, time: .shortened) } ?? ""))
@@ -345,10 +348,7 @@ private struct CarteAnnee: View {
         let b: (texte: String, couleur: Color, fond: Color) = {
             if !present { return ("disque absent", Theme.texteDiscret, Theme.bordure) }
             switch p?.etape {
-            case .lecture?:
-                let pc = p!.aLire > 0 ? p!.lues * 100 / p!.aLire : 0
-                return ("indexation \(pc) %", Theme.attention, Theme.attentionFond)
-            case .liste?: return ("liste…", Theme.attention, Theme.attentionFond)
+            case .lecture?, .liste?: return ("indexation…", Theme.attention, Theme.attentionFond)
             case .pause?: return ("en pause", Theme.attention, Theme.attentionFond)
             case .absent?: return ("disque absent", Theme.texteDiscret, Theme.bordure)
             case .erreur?: return ("erreur", Theme.erreur, Theme.attentionFond)

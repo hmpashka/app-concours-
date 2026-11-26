@@ -42,6 +42,7 @@ final class IndexArchivesTests: XCTestCase {
 
     func testNormaliserEtDecouper() {
         XCTAssertEqual(IndexArchives.normaliser("Julie MARTIN, Quaprice d'Or — Été #12_45"), "julie martin quaprice d or ete #12_45")
+        XCTAssertEqual(IndexArchives.normaliser("25-02-16_CLUB 01_PREPA 12_45"), "25 02 16 club 01 prepa 12_45")
         let (c, e, d) = IndexArchives.decouper("26-11-24_LAMOTTE INDOOR/12 Pro 2 GP/Manche 1/DERB1340-35.JPG")
         XCTAssertEqual(c, "26-11-24_LAMOTTE INDOOR")
         XCTAssertEqual(e, "12 Pro 2 GP › Manche 1")
@@ -63,6 +64,8 @@ final class IndexArchivesTests: XCTestCase {
         idx.ajouterPourEssai(archive: "A25", chemin: "25-06-08_FONTAINEBLEAU/03 Club/IMG_7.JPG", prise: jour(8),
                              motsCles: ["Julie MARTIN", "BALOU"], copyright: "#03_12")
         idx.ajouterPourEssai(archive: "A24", chemin: "24-05-02_SAUMUR/IMG_9.JPG", motsCles: ["Julie MARTIN", "QUAPRICE"])
+        idx.ajouterPourEssai(archive: "A26", chemin: "25-02-16_CLUB BERGENNE/05_PREPA 70/28-R3CR3127.JPG", copyright: "#05_01")
+        idx.ajouterPourEssai(archive: "A26", chemin: "25-02-16_CLUB BERGENNE/02_PREPA 60/32-R3CR2870.JPG", copyright: "#02_10")
 
         // chaque mot doit y être, dans n'importe quel ordre, sans accents ni majuscules
         XCTAssertEqual(idx.chercher(RechercheArchives(texte: "martin quaprice")).total, 2)
@@ -96,6 +99,11 @@ final class IndexArchivesTests: XCTestCase {
         XCTAssertEqual(idx.concours(archive: "A25"), ["25-06-01_LAMOTTE", "25-06-08_FONTAINEBLEAU"])
         XCTAssertEqual(idx.compte(archive: "A25").photos, 3)
         XCTAssertEqual(idx.compte(archive: "A25").concours, 2)
+        // essai NAS du 26/11 : « 70 » ne doit pas trouver « R3CR2870 », « club » trouve « 25-02-16_CLUB »
+        XCTAssertEqual(idx.chercher(RechercheArchives(texte: "prepa 70")).photos.map(\.nom), ["28-R3CR3127.JPG"])
+        XCTAssertEqual(idx.chercher(RechercheArchives(texte: "bergenne club")).total, 2)
+        XCTAssertEqual(idx.chercher(RechercheArchives(texte: "2870", champ: .nomFichier)).total, 1)
+        XCTAssertEqual(idx.chercher(RechercheArchives(texte: "mart")).total, 3)
         idx.oublier(archive: "A25")
         XCTAssertEqual(idx.chercher(RechercheArchives(texte: "julie")).total, 1)
     }
