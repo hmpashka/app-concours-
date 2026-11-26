@@ -17,7 +17,7 @@ struct ClotureView: View {
     @State private var terrain = false
     private let minuterie = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    private var galerieReglee: Bool { !etat.reglages.adresseFTPGalerie.isEmpty }
+    private var galerieReglee: Bool { etat.galerieReglee }
     private var galerieAFaire: Int { e.galerie?.aFaire ?? 0 }
     /// Journée d'un concours de plusieurs jours, envoi de nuit : la galerie peut attendre la nuit.
     private var galerieCetteNuit: Bool { genre == .journee && etat.reglages.galerieLaNuit && (e.galerie?.attendLaNuit ?? false) }
@@ -50,7 +50,8 @@ struct ClotureView: View {
                           detail: "\(e.enErreur) photos n'ont pas pu partir (serveur absent ?). Elles sont retentées toutes seules.")
                 }
                 if galerieReglee {
-                    ligne(ok: galerieAFaire == 0, attention: galerieCetteNuit, titre: "Galerie en ligne",
+                    ligne(ok: galerieAFaire == 0, attention: galerieCetteNuit,
+                          titre: etat.reglages.galerieVersDossier ? "Galerie (dossier du Mac)" : "Galerie en ligne",
                           detail: texteGalerie)
                     if galerieAFaire > 0 {
                         Button(galerieCetteNuit ? "Envoyer maintenant au lieu de cette nuit" : "Relancer l'envoi") {

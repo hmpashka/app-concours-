@@ -32,6 +32,10 @@ struct ReglagesView: View {
     @State private var testGalerie = ""
     @State private var testGalerieOK: Bool?
     @State private var testEnCours = false
+    @State private var testFTPEnCours = false
+    @State private var envoiDossier = ""
+    @State private var envoiDossierOK: Bool?
+    @State private var envoiDossierEnCours = false
     @State private var testUniFi = ""
     @State private var testUniFiOK: Bool?
 
@@ -494,10 +498,54 @@ struct ReglagesView: View {
         }
     }
 
-    /// Galerie en ligne : réglée comme un site dans FileZilla.
+    /// Galerie en ligne : réglée comme un site dans FileZilla, ou écrite dans un dossier du Mac (sans connexion).
     @ViewBuilder
     private var galerieEnLigne: some View {
+        let versDossier = etat.reglages.galerieVersDossier
         Text("Galerie en ligne").font(.system(size: 13, weight: .semibold))
+        Ligne("Envoi") {
+            Picker("", selection: $etat.reglages.galerieVersDossier) {
+                Text("Par internet (FTP)").tag(false)
+                Text("Dans un dossier du Mac").tag(true)
+            }
+            .pickerStyle(.segmented).labelsHidden().frame(width: 320)
+        }
+        if versDossier {
+            ChoixChemin(titre: "Dossier de la galerie",
+                        aide: "Pas encore choisi : rien n'est écrit. Un disque externe convient.",
+                        chemin: $etat.reglages.dossierLocalGalerie)
+            Text("Pas de connexion au concours : les copies de la galerie (même taille, même .cube, numéro incrusté) sont écrites dans ce dossier, à plat, et il est tenu à jour comme la galerie en ligne (ajouts, remplacements, photos retirées mises à la Corbeille). Au bureau, il suffit de l'envoyer en ligne.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            HStack {
+                Button(testEnCours ? "Essai en cours…" : "Tester le dossier") { testerGalerie() }
+                    .buttonStyle(BoutonStyle()).disabled(testEnCours || etat.reglages.dossierLocalGalerie.isEmpty)
+                Button("Mettre à jour maintenant") { etat.moteur.envoyerGalerieMaintenant() }
+                    .buttonStyle(BoutonStyle()).disabled(!etat.moteur.actif)
+                if !etat.reglages.dossierLocalGalerie.isEmpty {
+                    Button("Ouvrir") { etat.montrerDansLeFinder(URL(fileURLWithPath: etat.reglages.dossierLocalGalerie)) }
+                        .buttonStyle(BoutonStyle())
+                }
+                if !testGalerie.isEmpty {
+                    Text(testGalerie).font(.system(size: 11)).foregroundStyle(testGalerieOK == false ? Theme.erreur : Theme.ok)
+                } else if let g = etat.moteur.resume.galerieEnLigne {
+                    Text(g.aFaire == 0 ? "\(g.enLigne) photos dans le dossier, à jour." : g.message)
+                        .font(.system(size: 11)).foregroundStyle(g.ok == false ? Theme.erreur : Theme.texteDiscret)
+                }
+            }
+            Ligne("Auteur par défaut") {
+                TextField("Écrit dans la photo si le boîtier n'a pas de photographe (photo de synchro)", text: $etat.reglages.auteurGalerie)
+                    .textFieldStyle(.roundedBorder)
+            }
+            Text("Envoyer ce dossier en ligne (au bureau)").font(.system(size: 13, weight: .semibold)).padding(.top, 6)
+            Text("Avec la connexion ci-dessous : seules les photos nouvelles ou remplacées partent, celles retirées du dossier sont supprimées en ligne. Un envoi coupé reprend où il s'était arrêté.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+        }
+        connexionGalerie(versDossier: versDossier)
+    }
+
+    /// La connexion FTP / SFTP (comme dans FileZilla) : pour la galerie en ligne, ou pour envoyer le dossier au bureau.
+    @ViewBuilder
+    private func connexionGalerie(versDossier: Bool) -> some View {
         Ligne("Protocole") {
             Picker("", selection: $etat.reglages.protocoleGalerie) {
                 ForEach(ConfigGalerieEnLigne.Protocole.allCases) { Text($0.rawValue).tag($0) }
@@ -507,7 +555,7 @@ struct ReglagesView: View {
                 .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
         }
         Ligne("Hôte · port") {
-            TextField("ftp.mon-site.fr (vide : pas d'envoi)", text: $etat.reglages.adresseFTPGalerie)
+            TextField(versDossier ? "ftp.mon-site.fr" : "ftp.mon-site.fr (vide : pas d'envoi)", text: $etat.reglages.adresseFTPGalerie)
                 .textFieldStyle(.roundedBorder)
             TextField("\(etat.reglages.protocoleGalerie.portParDefaut)", value: $etat.reglages.portGalerie, format: .number.grouping(.never))
                 .textFieldStyle(.roundedBorder).frame(width: 70)
@@ -528,41 +576,88 @@ struct ReglagesView: View {
             if etat.reglages.protocoleGalerie == .ftpsExplicite || etat.reglages.protocoleGalerie == .ftpsImplicite {
                 Toggle("Accepter le certificat du serveur même s'il n'est pas reconnu", isOn: $etat.reglages.accepterCertificatGalerie)
             }
-            Ligne("Quand envoyer") {
-                Picker("", selection: $etat.reglages.galerieLaNuit) {
-                    Text("Au fil de l'eau").tag(false)
-                    Text("La nuit").tag(true)
-                }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 220)
-                if etat.reglages.galerieLaNuit {
-                    Stepper("à partir de \(etat.reglages.heureNuitGalerie) h", value: $etat.reglages.heureNuitGalerie, in: 0...23)
-                    Stepper("jusqu'à \(etat.reglages.heureMatinGalerie) h", value: $etat.reglages.heureMatinGalerie, in: 0...23)
+            if !versDossier {
+                Ligne("Quand envoyer") {
+                    Picker("", selection: $etat.reglages.galerieLaNuit) {
+                        Text("Au fil de l'eau").tag(false)
+                        Text("La nuit").tag(true)
+                    }
+                    .pickerStyle(.segmented).labelsHidden().frame(width: 220)
+                    if etat.reglages.galerieLaNuit {
+                        Stepper("à partir de \(etat.reglages.heureNuitGalerie) h", value: $etat.reglages.heureNuitGalerie, in: 0...23)
+                        Stepper("jusqu'à \(etat.reglages.heureMatinGalerie) h", value: $etat.reglages.heureMatinGalerie, in: 0...23)
+                    }
                 }
             }
             Ligne("Débit maximum") {
                 Stepper(etat.reglages.limiteKoGalerie == 0 ? "sans limite" : "\(etat.reglages.limiteKoGalerie) Ko/s",
                         value: $etat.reglages.limiteKoGalerie, in: 0...20_000, step: 250)
             }
-            Ligne("Auteur par défaut") {
-                TextField("Écrit dans la photo si le boîtier n'a pas de photographe (photo de synchro)", text: $etat.reglages.auteurGalerie)
-                    .textFieldStyle(.roundedBorder)
+            if versDossier {
+                HStack {
+                    Button(testFTPEnCours ? "Essai en cours…" : "Tester la connexion") { testerConnexionFTP() }
+                        .buttonStyle(BoutonStyle()).disabled(testFTPEnCours || envoiDossierEnCours)
+                    Button(envoiDossierEnCours ? "Envoi en cours…" : "Envoyer ce dossier en ligne") { envoyerDossierEnLigne() }
+                        .buttonStyle(BoutonStyle(principal: true))
+                        .disabled(envoiDossierEnCours || etat.reglages.dossierLocalGalerie.isEmpty)
+                    if !envoiDossier.isEmpty {
+                        Text(envoiDossier).font(.system(size: 11))
+                            .foregroundStyle(envoiDossierOK == false ? Theme.erreur : (envoiDossierOK == true ? Theme.ok : Theme.texteDiscret))
+                    }
+                }
+            } else {
+                Ligne("Auteur par défaut") {
+                    TextField("Écrit dans la photo si le boîtier n'a pas de photographe (photo de synchro)", text: $etat.reglages.auteurGalerie)
+                        .textFieldStyle(.roundedBorder)
+                }
+                HStack {
+                    Button(testEnCours ? "Essai en cours…" : "Tester la connexion") { testerGalerie() }
+                        .buttonStyle(BoutonStyle()).disabled(testEnCours)
+                    Button("Envoyer maintenant") { etat.moteur.envoyerGalerieMaintenant() }
+                        .buttonStyle(BoutonStyle()).disabled(!etat.moteur.actif)
+                        .help("Sans attendre la nuit.")
+                    if !testGalerie.isEmpty {
+                        Text(testGalerie).font(.system(size: 11)).foregroundStyle(testGalerieOK == false ? Theme.erreur : Theme.ok)
+                    } else if let g = etat.moteur.resume.galerieEnLigne {
+                        Text(g.aFaire == 0 ? "\(g.enLigne) photos en ligne, à jour." : (g.attendLaNuit ? "\(g.aFaire) photos attendent la nuit." : g.message))
+                            .font(.system(size: 11)).foregroundStyle(g.ok == false ? Theme.erreur : Theme.texteDiscret)
+                    }
+                }
+                Text("Une photo qui existe déjà en ligne est remplacée, une nouvelle est ajoutée, une photo supprimée dans Lightroom est supprimée en ligne. Seules les photos envoyées par l'app sont touchées.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+                regulateurReseau
             }
-            HStack {
-                Button(testEnCours ? "Essai en cours…" : "Tester la connexion") { testerGalerie() }
-                    .buttonStyle(BoutonStyle()).disabled(testEnCours)
-                Button("Envoyer maintenant") { etat.moteur.envoyerGalerieMaintenant() }
-                    .buttonStyle(BoutonStyle()).disabled(!etat.moteur.actif)
-                    .help("Sans attendre la nuit.")
-                if !testGalerie.isEmpty {
-                    Text(testGalerie).font(.system(size: 11)).foregroundStyle(testGalerieOK == false ? Theme.erreur : Theme.ok)
-                } else if let g = etat.moteur.resume.galerieEnLigne {
-                    Text(g.aFaire == 0 ? "\(g.enLigne) photos en ligne, à jour." : (g.attendLaNuit ? "\(g.aFaire) photos attendent la nuit." : g.message))
-                        .font(.system(size: 11)).foregroundStyle(g.ok == false ? Theme.erreur : Theme.texteDiscret)
+        }
+    }
+
+    private func testerConnexionFTP() {
+        guard let g = etat.configGalerieFTP() else { return }
+        testFTPEnCours = true
+        envoiDossier = "Essai de la connexion…"
+        envoiDossierOK = nil
+        etat.moteur.testerGalerieEnLigne(g) { ok, message in
+            Task { @MainActor in
+                testFTPEnCours = false
+                envoiDossierOK = ok
+                envoiDossier = message
+            }
+        }
+    }
+
+    private func envoyerDossierEnLigne() {
+        guard let g = etat.configGalerieFTP() else { return }
+        envoiDossierEnCours = true
+        envoiDossierOK = nil
+        envoiDossier = "Comparaison du dossier avec ce qui est déjà en ligne…"
+        GalerieEnLigne.envoyerDossier(URL(fileURLWithPath: etat.reglages.dossierLocalGalerie, isDirectory: true),
+                                      config: g, etat: etat.fichierEnvoiDossier) { _, _, message, fini, ok in
+            Task { @MainActor in
+                envoiDossier = message
+                if fini {
+                    envoiDossierEnCours = false
+                    envoiDossierOK = ok
                 }
             }
-            Text("Une photo qui existe déjà en ligne est remplacée, une nouvelle est ajoutée, une photo supprimée dans Lightroom est supprimée en ligne. Seules les photos envoyées par l'app sont touchées.")
-                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
-            regulateurReseau
         }
     }
 

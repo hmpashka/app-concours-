@@ -20,7 +20,7 @@ extension Etat {
          "\(r.accepterCertificatGalerie)", "\(r.galerieLaNuit)", "\(r.heureNuitGalerie)", "\(r.heureMatinGalerie)",
          "\(r.limiteKoGalerie)", r.auteurGalerie, "\(r.coteGalerie)", "\(r.qualiteGalerie)", "\(r.numeroIncruste)",
          "\(r.cubeGalerieIdentique)", r.cubeGalerie, r.cubeServeur, r.adresseUniFi, "\(r.montantMbitLigne)",
-         "\(r.seuilUniFi)"].joined(separator: "|")
+         "\(r.seuilUniFi)", "\(r.galerieVersDossier)", r.dossierLocalGalerie].joined(separator: "|")
     }
 
     /// Premier jour du concours (fichier FFE), sinon aujourd'hui moins les jours du concours.
@@ -45,11 +45,35 @@ extension Etat {
 
     var fichierTerrain: URL? { Stockage.dossier.appendingPathComponent("engages-terrain-\(cleConcours).json") }
 
-    /// Réglages de la galerie en ligne pour le moteur ; nil si l'adresse n'est pas remplie.
+    /// La galerie est réglée : un dossier du Mac choisi, ou une adresse de serveur.
+    var galerieReglee: Bool {
+        reglages.galerieVersDossier ? !reglages.dossierLocalGalerie.isEmpty
+                                    : !reglages.adresseFTPGalerie.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Réglages de la galerie pour le moteur : vers le dossier du Mac choisi, ou par FTP. nil si rien n'est rempli.
     func configGalerieEnLigne() -> ConfigGalerieEnLigne? {
         let r = reglages
+        if r.galerieVersDossier {
+            guard !r.dossierLocalGalerie.isEmpty, var c = configGalerieFTP(obligatoire: false) else { return nil }
+            c.dossierLocal = r.dossierLocalGalerie
+            c.fichierEtat = Stockage.dossier.appendingPathComponent("galerie-dossier-\(cleConcours).json")
+            return c
+        }
+        return configGalerieFTP(obligatoire: true)
+    }
+
+    /// Fichier qui garde ce que « Envoyer ce dossier en ligne » a déjà envoyé (par dossier choisi).
+    var fichierEnvoiDossier: URL {
+        let nom = NomDossier.nettoyer(URL(fileURLWithPath: reglages.dossierLocalGalerie).lastPathComponent)
+        return Stockage.dossier.appendingPathComponent("galerie-dossier-envoye-\(nom.isEmpty ? "dossier" : nom).json")
+    }
+
+    /// Réglages FTP / SFTP de la galerie (sans dossier du Mac). `obligatoire` : nil si l'adresse n'est pas remplie.
+    func configGalerieFTP(obligatoire: Bool = true) -> ConfigGalerieEnLigne? {
+        let r = reglages
         let hote = r.adresseFTPGalerie.trimmingCharacters(in: .whitespaces)
-        guard !hote.isEmpty else { return nil }
+        if obligatoire && hote.isEmpty { return nil }
         let chemin = r.cubeGalerieIdentique ? r.cubeServeur : r.cubeGalerie
         let cube = chemin.isEmpty ? nil : try? FichierCube(fichier: URL(fileURLWithPath: chemin))
         return ConfigGalerieEnLigne(protocole: r.protocoleGalerie, hote: Etat.hoteSeul(hote), port: r.portGalerie,
