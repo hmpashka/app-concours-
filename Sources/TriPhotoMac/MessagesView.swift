@@ -11,13 +11,13 @@ struct MessagesView: View {
     var body: some View {
         HStack(spacing: 0) {
             if etat.panneauGauche {
-                conversations.frame(width: 260).background(Theme.panneau)
+                conversations.frame(width: 260).background(Theme.panneau).repere("messages.conversations")
                 Divider().overlay(Theme.bordure)
             }
-            fil.frame(maxWidth: .infinity, maxHeight: .infinity)
+            fil.frame(maxWidth: .infinity, maxHeight: .infinity).repere("messages.fil")
             if etat.panneauDroit {
                 Divider().overlay(Theme.bordure)
-                iphones.frame(width: 280).background(Theme.panneau)
+                iphones.frame(width: 280).background(Theme.panneau).repere("messages.iphones")
             }
         }
         .onAppear { serveur.lu(conv) }

@@ -41,6 +41,7 @@ struct AccueilView: View {
                 .padding(24)
             }
             .frame(maxWidth: .infinity)
+            .repere("accueil.principal")
             if etat.panneauDroit {
                 Divider().overlay(Theme.bordure)
                 panneauDroit.frame(width: 300).background(Theme.panneau)

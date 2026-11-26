@@ -45,6 +45,7 @@ struct ReglagesView: View {
                 panneauSections
                     .frame(width: 220)
                     .background(Theme.panneau)
+                    .repere("reglages.sections")
                 Divider().overlay(Theme.bordure)
             }
             centre
@@ -54,6 +55,7 @@ struct ReglagesView: View {
                 PretADemarrer()
                     .frame(width: 280)
                     .background(Theme.panneau)
+                    .repere("reglages.pret")
             }
         }
         .sheet(isPresented: $montrerEpreuves) { EpreuvesView(concours: etat.concours) }

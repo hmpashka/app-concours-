@@ -25,17 +25,17 @@ struct MemoireView: View {
     var body: some View {
         HStack(spacing: 0) {
             if etat.panneauGauche {
-                panneauCategories.frame(width: 250).background(Theme.panneau)
+                panneauCategories.frame(width: 250).background(Theme.panneau).repere("memoire.categories")
                 Divider().overlay(Theme.bordure)
             }
-            centre.frame(maxWidth: .infinity, maxHeight: .infinity)
+            centre.frame(maxWidth: .infinity, maxHeight: .infinity).repere("memoire.centre")
             if etat.panneauDroit {
                 Divider().overlay(Theme.bordure)
-                panneauDroit.frame(width: 290).background(Theme.panneau)
+                panneauDroit.frame(width: 290).background(Theme.panneau).repere("memoire.droite")
             }
         }
         .onAppear { memoire.creer(); charger() }
-        .onChange(of: choisie) { _ in selection = []; chargerExemples() }
+        .onChange(of: choisie) { _ in selection = []; chargerExemples(); Visite.partagee.signaler("memoire.categorie") }
         .onChange(of: etat.reglages.dossierMemoire) { _ in charger() }
         .sheet(item: $enGrand) { d in
             Visionneuse(elements: exemples.map { ElementVisionneuse(id: $0.id, chemins: [$0.url.path], titre: Memoire.nom(de: $0.categorie), detail: $0.nom) },

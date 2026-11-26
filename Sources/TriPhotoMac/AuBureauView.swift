@@ -22,17 +22,20 @@ struct AuBureauView: View {
                     Text("Rechercher dans les archives").tag("recherche")
                     Text("Envoyer un concours sur le NAS").tag("envoi")
                 }
-                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 480)
+                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 480).repere("bureau.mode")
                 Spacer()
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
             .background(Theme.panneau)
             Divider().overlay(Theme.bordure)
-            if mode == "envoi" {
-                EnvoiNASView(envoi: bureau.envoi, bureau: bureau)
-            } else {
-                ecranRecherche
+            Group {
+                if mode == "envoi" {
+                    EnvoiNASView(envoi: bureau.envoi, bureau: bureau)
+                } else {
+                    ecranRecherche
+                }
             }
+            .repere("bureau.contenu")
         }
         .onAppear { bureau.auPremierAffichage() }
     }

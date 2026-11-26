@@ -34,7 +34,7 @@ struct AValiderView: View {
     var body: some View {
         HStack(spacing: 0) {
             if etat.panneauGauche {
-                listeSeries.frame(width: 300).background(Theme.panneau)
+                listeSeries.frame(width: 300).background(Theme.panneau).repere("avalider.series")
                 Divider().overlay(Theme.bordure)
             }
             ScrollView {
@@ -53,9 +53,10 @@ struct AValiderView: View {
                 .padding(24)
             }
             .frame(maxWidth: .infinity)
+            .repere("avalider.detail")
             if etat.panneauDroit {
                 Divider().overlay(Theme.bordure)
-                panneauDroit.frame(width: 300).background(Theme.panneau)
+                panneauDroit.frame(width: 300).background(Theme.panneau).repere("avalider.droite")
             }
         }
         .onAppear { synchroniser() }

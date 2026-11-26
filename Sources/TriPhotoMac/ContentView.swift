@@ -45,6 +45,9 @@ struct ContentView: View {
         .sheet(item: $etat.nouveauConcours) { d in
             NouveauConcoursView(demande: d).environmentObject(etat)
         }
+        // Visite guidée (bouton « ? ») : voile troué sur la zone expliquée + bulle.
+        .overlayPreferenceValue(RepereCle.self) { r in CalqueVisite(reperes: r) }
+        .onAppear { Visite.etat = etat }
     }
 }
 
@@ -110,8 +113,10 @@ struct Bandeau: View {
                             .background(etat.ecran == e ? Theme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 5))
                     }
                     .buttonStyle(BoutonPlat())
+                    .repere("onglet." + e.rawValue)
                 }
             }
+            .repere("bandeau.onglets")
             .fixedSize()            // les onglets ne se coupent jamais lettre par lettre : le titre à gauche cède la place
             .layoutPriority(1)
             Spacer(minLength: 8)
@@ -129,6 +134,7 @@ struct Bandeau: View {
                 .buttonStyle(BoutonPlat())
                 .help(enPause ? "Tout repart : serveur, Lightroom, galerie en ligne."
                               : "Plus rien ne part (serveur, Lightroom, galerie en ligne). Les photos attendent dans la réception.")
+                .repere("bandeau.pause")
             }
             Menu {
                 Button(GenreCloture.journee.rawValue + "…") { etat.cloture = .journee }
@@ -145,6 +151,8 @@ struct Bandeau: View {
             .padding(.horizontal, 12).padding(.vertical, 6)
             .background(Theme.bordure, in: RoundedRectangle(cornerRadius: 5))
             .help("Clic : clôturer la journée. Flèche : clôturer le concours, engagés terrain.")
+            .repere("bandeau.cloturer")
+            BoutonAide().repere("bandeau.aide")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)

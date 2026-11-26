@@ -96,16 +96,16 @@ struct RevueView: View {
             if etat.pleinEcran, let f = courante { vuePleinEcran(f) } else { ecranNormal }
         }
         .onAppear { Clic.surveiller(); charger() }
-        .onChange(of: galerie) { g in if !g { choix = [] } }
-        .onChange(of: courante?.id) { id in if let id { etat.revuePhotoId = id } }
+        .onChange(of: galerie) { g in if !g { choix = [] }; Visite.partagee.signaler("revue.vue") }
+        .onChange(of: courante?.id) { id in if let id { etat.revuePhotoId = id }; Visite.partagee.signaler("revue.photo") }
         .onChange(of: epreuve) { _ in charger() }
         .onChange(of: boitier) { _ in charger() }
-        .onChange(of: ordre) { _ in charger() }
+        .onChange(of: ordre) { _ in charger(); Visite.partagee.signaler("revue.filtre") }
         .onChange(of: piste) { _ in charger() }
         .onChange(of: parHeure) { _ in charger() }
         .onChange(of: heureDe) { _ in if parHeure { charger() } }
         .onChange(of: heureA) { _ in if parHeure { charger() } }
-        .onChange(of: recherche) { _ in charger() }
+        .onChange(of: recherche) { t in charger(); if !t.isEmpty { Visite.partagee.signaler("revue.recherche") } }
         .onChange(of: etat.momentRevue?.heure) { _ in charger() }
         .onChange(of: etat.photosRevue?.ids) { _ in charger() }
         // En direct (essai du 26/11) : nouvelles photos, codes changés, photos retirées dans Lightroom… la Revue suit,
@@ -130,13 +130,13 @@ struct RevueView: View {
     private var ecranNormal: some View {
         HStack(spacing: 0) {
             if etat.panneauGauche {
-                ScrollView { filtres }.frame(width: 240).background(Theme.panneau)
+                ScrollView { filtres }.frame(width: 240).background(Theme.panneau).repere("revue.gauche")
                 Divider().overlay(Theme.bordure)
             }
             centre.frame(maxWidth: .infinity, maxHeight: .infinity)
             if etat.panneauDroit {
                 Divider().overlay(Theme.bordure)
-                panneauDroit.frame(width: 300).background(Theme.panneau)
+                panneauDroit.frame(width: 300).background(Theme.panneau).repere("revue.droite")
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -473,6 +473,7 @@ struct RevueView: View {
                 .padding(10)
                 .background(Theme.carte, in: RoundedRectangle(cornerRadius: 6))
             }
+            VStack(alignment: .leading, spacing: 12) {
             Text("Épreuve").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
             Picker("", selection: $epreuve) {
                 Text("Toutes les épreuves").tag("")
@@ -491,6 +492,8 @@ struct RevueView: View {
                 ForEach(pistesConnues, id: \.self) { Text($0).tag($0) }
             }
             .labelsHidden()
+            }
+            .repere("revue.epreuve")
             Toggle("Entre deux heures", isOn: $parHeure).font(.system(size: 12))
             if parHeure {
                 HStack(spacing: 6) {
@@ -503,6 +506,7 @@ struct RevueView: View {
                 .focused($saisieActive)
                 .onSubmit { saisieActive = false }
                 .onExitCommand { saisieActive = false }
+                .repere("revue.recherche")
             Text("Filtre").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
             Picker("", selection: $ordre) {
                 Section("Toutes les photos (suppression possible)") { ForEach(Ordre.du(.toutes)) { Text($0.rawValue).tag($0) } }
@@ -510,6 +514,7 @@ struct RevueView: View {
                 Section("Bonnes photos (jamais supprimées ici)") { ForEach(Ordre.du(.bonnes)) { Text($0.rawValue).tag($0) } }
             }
             .labelsHidden()
+            .repere("revue.filtre")
             Text(ordre.groupe == .bonnes ? "Bonnes photos : rien n'est supprimé ici. ⌫ retire la photo de cette sélection seulement, ⌘Z annule."
                  : "⌫ supprime (serveur, galerie en ligne, original à la Corbeille), ⌘Z annule. Plusieurs d'un coup : ⇧ ou ⌘ + clic dans la galerie.")
                 .font(.system(size: 11)).foregroundStyle(ordre.groupe == .bonnes ? Theme.texteTresDiscret : Theme.attention)
@@ -554,15 +559,15 @@ struct RevueView: View {
                     if let d = douteuse(f, dans: photos) { Pastille(texte: "Détectée : \(d)", genre: .attention) }
                 }
                 if galerie { CurseurTaille(taille: $taille) }
-                SelecteurVue(galerie: $galerie)
+                SelecteurVue(galerie: $galerie).repere("revue.vue")
             }
             if photos.isEmpty {
                 Spacer()
                 Text("Aucune photo envoyée pour ce choix.").foregroundStyle(Theme.texteDiscret)
                 Spacer()
             } else if galerie {
-                grille
-                if let f = courante { boutons(f) }
+                grille.repere("revue.centre")
+                if let f = courante { boutons(f).repere("revue.boutons") }
                 changementDeCode
             } else if let f = courante {
                 // La photo en entier, portrait ou paysage : elle prend la place qui reste, jamais plus.
@@ -573,11 +578,12 @@ struct RevueView: View {
                     .clipped()
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) { galerie = true }
+                    .repere("revue.centre")
                     .overlay(alignment: .topTrailing) {
                         Button { basculerPleinEcran() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
                             .buttonStyle(BoutonStyle()).help("Plein écran (P)").padding(6)
                     }
-                boutons(f)
+                boutons(f).repere("revue.boutons")
                 changementDeCode
                 bande
             }
@@ -935,6 +941,7 @@ struct RevueView: View {
     /// retire seulement la photo de la sélection (rien n'est effacé) ; ailleurs, rien. Plusieurs photos d'un coup
     /// dans la galerie ; ⌘Z les remet toutes.
     private func supprimer() {
+        if suppressionPermise, Visite.partagee.bloque("rien n'est supprimé") { return }
         let l = cibles
         guard let premier = l.first else { return }
         let fiches = l.map { photos[$0] }

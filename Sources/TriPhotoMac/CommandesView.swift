@@ -30,7 +30,7 @@ struct CommandesView: View {
     var body: some View {
         HStack(spacing: 0) {
             if etat.panneauGauche {
-                gauche.frame(width: 300).background(Theme.panneau)
+                gauche.frame(width: 300).background(Theme.panneau).repere("commandes.liste")
                 Divider().overlay(Theme.bordure)
             }
             VStack(spacing: 0) {
@@ -42,10 +42,12 @@ struct CommandesView: View {
                     else { page3 }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .repere("commandes.page")
             }
         }
         .onAppear { archives.relire() }
-        .onChange(of: recherche) { t in chercher(t) }
+        .onChange(of: recherche) { t in chercher(t); if !t.isEmpty { Visite.partagee.signaler("commandes.recherche") } }
+        .onChange(of: etape) { n in Visite.partagee.signaler("commandes.etape\(n)") }
     }
 
     private func chercher(_ t: String) {
@@ -85,6 +87,7 @@ struct CommandesView: View {
             Text("Nom, prénom ou cheval. On peut cocher plusieurs cavaliers (famille, même client).")
                 .font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
             TextField("Nom, prénom ou cheval", text: $recherche).textFieldStyle(.roundedBorder).font(.system(size: 15))
+                .repere("commandes.recherche")
             ScrollView {
                 VStack(spacing: 6) {
                     ForEach(cavaliers.filter { c in !trouves.contains { $0.id == c.id } } + trouves) { c in
@@ -111,18 +114,21 @@ struct CommandesView: View {
                     }
                 }
             }
+            .repere("commandes.resultats")
             Text("Pas d'épreuves ici : tous les passages du concours sont pris en compte. Cherche dans les \(archives.listings.count) concours gardés.")
                 .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
             basDePage {
                 Button("Ajouter un ancien concours (fichier FFE)…", action: importer).buttonStyle(BoutonStyle())
                 Button("Suivant : les chevaux →") { etape = 2 }
                     .buttonStyle(BoutonStyle(principal: true)).disabled(cavaliers.isEmpty).keyboardShortcut(.defaultAction)
+                    .repere("commandes.suivant1")
             }
         }
         .padding(24)
     }
 
     private func basculerCavalier(_ c: ClientTrouve) {
+        defer { if !cavaliers.isEmpty { Visite.partagee.signaler("commandes.cavalier") } }
         if let i = cavaliers.firstIndex(where: { $0.id == c.id }) {
             cavaliers.remove(at: i)
             chevaux = chevaux.filter { !$0.hasPrefix(c.id + "|") }
@@ -316,6 +322,7 @@ struct CommandesView: View {
     }
 
     private func enregistrerNouvelles() {
+        if Visite.partagee.bloque("l'enregistrement est bloqué : aucune commande n'est créée") { return }
         let l = commandesPretes
         for k in l { archives.enregistrer(k) }
         message = l.count > 1 ? "\(l.count) commandes enregistrées." : "Commande de \(l.first?.client ?? "") enregistrée."
@@ -358,6 +365,7 @@ struct CommandesView: View {
                     .foregroundStyle(Color.black)
             }
             .buttonStyle(BoutonPlat())
+            .repere("commandes.nouvelle")
             HStack {
                 Text("Commandes").font(.system(size: 14, weight: .semibold))
                 Spacer()
@@ -455,12 +463,13 @@ struct CommandesView: View {
                     champ("Note") { TextField("", text: lien(\.note), axis: .vertical).lineLimit(2...4).textFieldStyle(.roundedBorder) }
                     HStack {
                         Button("Enregistrer les changements") {
+                            if Visite.partagee.bloque("l'enregistrement est bloqué") { return }
                             if let n = ouverte { archives.enregistrer(n); message = "Commande de \(n.client) enregistrée." }
                         }
                         .buttonStyle(BoutonStyle(principal: true)).keyboardShortcut(.defaultAction)
                         Button("Fermer") { ouverte = nil }.buttonStyle(BoutonStyle())
                         Spacer()
-                        Button("Supprimer (corbeille)") { archives.supprimer(k); ouverte = nil }.buttonStyle(BoutonStyle())
+                        Button("Supprimer (corbeille)") { if Visite.partagee.bloque("rien n'est supprimé") { return }; archives.supprimer(k); ouverte = nil }.buttonStyle(BoutonStyle())
                     }
                     if !message.isEmpty { Text(message).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret) }
                 }
