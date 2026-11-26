@@ -370,8 +370,15 @@ struct FicheUDM: View {
                     .textFieldStyle(.roundedBorder)
             }
             Ligne("Débit montant de la ligne") {
-                Stepper("\(montant) Mbit/s", value: $montant, in: 1...1000)
+                TextField("20", value: $montant, format: .number.grouping(.never))
+                    .textFieldStyle(.roundedBorder).frame(width: 70)
+                Text("Mbit/s")
+                ForEach([5, 10, 20, 50, 100], id: \.self) { v in
+                    Button("\(v)") { montant = v }.buttonStyle(BoutonStyle())
+                }
             }
+            Text("Le débit d'envoi de la ligne internet (4G, fibre…) : tape le chiffre ou choisis-en un.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
             if !message.isEmpty {
                 Text(message).font(.system(size: 11))
                     .foregroundStyle(ok == false ? Theme.erreur : (ok == true ? Theme.ok : Theme.texteDiscret))
@@ -400,7 +407,7 @@ struct FicheUDM: View {
         let n = nom.trimmingCharacters(in: .whitespaces)
         var u = existant ?? UDMConnu(mac: mac, nom: n, montantMbit: montant, derniereAdresse: adresse ?? "")
         u.nom = n
-        u.montantMbit = montant
+        u.montantMbit = max(1, min(10_000, montant))
         let cleFinale = cle.isEmpty ? stands.cle(mac) : cle
         guard let a = adresse, !cle.isEmpty || existant == nil else {
             // Modification sans nouvelle clé, ou UDM d'une autre remorque : enregistré tel quel.

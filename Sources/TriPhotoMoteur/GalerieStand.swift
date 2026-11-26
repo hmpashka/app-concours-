@@ -36,6 +36,14 @@ public enum EssaiGalerieStand {
             fini(ok, m)
         }
     }
+
+    public static func chercherNouveauxDossiers(_ c: ConfigGalerie, fini: @escaping @Sendable (Bool, String) -> Void) {
+        DispatchQueue.global(qos: .utility).async {
+            let g = GalerieStand(config: c, racine: URL(fileURLWithPath: "/"))
+            let (ok, m) = g.chercherNouveauxDossiers()
+            fini(ok, m)
+        }
+    }
 }
 
 public struct EtatGalerie: Sendable, Equatable {
@@ -184,6 +192,18 @@ final class GalerieStand: NSObject, URLSessionDelegate, @unchecked Sendable {
         return "https://" + a
     }
 
+    /// Bouton « Rafraîchir maintenant » sans tri en cours : connexion, puis « Chercher les nouveaux dossiers ».
+    func chercherNouveauxDossiers() -> (Bool, String) {
+        do {
+            if !(try connecte()) { try seConnecter() }
+            let (st, _, _) = try requete("/admin/app/dossier/scan", delai: 180)
+            if st >= 400 { return (false, "La galerie répond \(st) à « Chercher les nouveaux dossiers ».") }
+            return (true, "Galerie rafraîchie (nouveaux dossiers cherchés).")
+        } catch {
+            return tester()
+        }
+    }
+
     /// Bouton « Tester la connexion » : le serveur répond-il, l'identifiant est-il accepté, la liste des dossiers
     /// se lit-elle ? Ne rafraîchit rien.
     func tester() -> (Bool, String) {
@@ -262,9 +282,11 @@ final class GalerieStand: NSObject, URLSessionDelegate, @unchecked Sendable {
         if let formulaire {
             r.httpMethod = "POST"
             r.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            var c = URLComponents()
-            c.queryItems = formulaire.map { URLQueryItem(name: $0.key, value: $0.value) }
-            r.httpBody = (c.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
+            // Tout ce qui n'est pas lettre, chiffre ou « -._~ » est encodé (mot de passe avec & = + # …).
+            var permis = CharacterSet.alphanumerics.intersection(CharacterSet(charactersIn: Unicode.Scalar(0)..<Unicode.Scalar(128)))
+            permis.insert(charactersIn: "-._~")
+            func enc(_ t: String) -> String { t.addingPercentEncoding(withAllowedCharacters: permis) ?? t }
+            r.httpBody = formulaire.map { enc($0.key) + "=" + enc($0.value) }.joined(separator: "&").data(using: .utf8)
         }
         let fini = DispatchSemaphore(value: 0)
         var sortie: (Int, String, String)?

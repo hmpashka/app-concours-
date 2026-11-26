@@ -448,8 +448,19 @@ struct ReglagesView: View {
                         }
                     }
                     .buttonStyle(BoutonStyle()).disabled(testStandEnCours)
-                    Button("Rafraîchir maintenant") { etat.moteur.rafraichirGalerie() }
-                        .buttonStyle(BoutonStyle()).disabled(!etat.moteur.actif)
+                    Button("Rafraîchir maintenant") {
+                        if etat.moteur.actif {
+                            etat.moteur.rafraichirGalerie()
+                        } else if let c = etat.configGalerieStand() {
+                            // Sans tri en cours : on demande tout de suite à la galerie de chercher les nouveaux dossiers.
+                            testStandEnCours = true
+                            testStand = nil
+                            EssaiGalerieStand.chercherNouveauxDossiers(c) { ok, m in
+                                Task { @MainActor in testStandEnCours = false; testStand = (ok, m) }
+                            }
+                        }
+                    }
+                    .buttonStyle(BoutonStyle()).disabled(testStandEnCours)
                     if !etat.reglages.empreinteGalerieStand.isEmpty {
                         Button("Oublier le certificat du serveur") { etat.reglages.empreinteGalerieStand = "" }
                             .buttonStyle(BoutonStyle())
