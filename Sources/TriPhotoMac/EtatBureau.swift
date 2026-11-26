@@ -32,6 +32,8 @@ final class EtatBureau: ObservableObject {
         didSet { reglerPause() }
     }
     @Published private(set) var pauseAuto = false
+    /// Dossier des fichiers CSV d'attribution (cavalier et cheval de chaque code), vide : aucun.
+    @Published private(set) var dossierCSV = UserDefaults.standard.string(forKey: "bureauDossierCSV") ?? ""
 
     let index: IndexArchives?
     let indexeur: IndexeurArchives?
@@ -48,6 +50,7 @@ final class EtatBureau: ObservableObject {
     init() {
         index = try? IndexArchives(dossier: EtatBureau.dossier)
         indexeur = index.map { IndexeurArchives(index: $0) }
+        if !dossierCSV.isEmpty { indexeur?.dossierCSV = URL(fileURLWithPath: dossierCSV, isDirectory: true) }
         archives = Stockage.lire([ArchiveAnnee].self, nom: "au-bureau.json") ?? []
         indexeur?.surProgression = { [weak self] id, p in
             Task { @MainActor [weak self] in self?.recu(id, p) }
@@ -120,6 +123,22 @@ final class EtatBureau: ObservableObject {
             idx?.oublier(archive: a.id)
             await MainActor.run { [weak self] in self?.relireComptes(); self?.chercherBientot() }
         }
+    }
+
+    /// Choisit le dossier des CSV d'attribution. Les noms sont réappliqués à l'index sans relire les photos.
+    func choisirDossierCSV() {
+        let p = NSOpenPanel()
+        p.title = "Fichiers CSV des concours"
+        p.message = "Choisis le dossier où sont rangés tes fichiers CSV d'attribution (sous-dossiers compris). Ils ne seront jamais modifiés."
+        p.canChooseDirectories = true
+        p.canChooseFiles = false
+        p.prompt = "Choisir"
+        guard p.runModal() == .OK, let u = p.url else { return }
+        dossierCSV = u.path
+        UserDefaults.standard.set(u.path, forKey: "bureauDossierCSV")
+        indexeur?.dossierCSV = u
+        indexeur?.lancer(archives.filter(\.present))
+        message = "Fichiers CSV : les cavaliers et chevaux sont ajoutés à l'index (sans relire les photos)."
     }
 
     /// Rebranche un disque réseau (le Finder le monte, avec le mot de passe déjà gardé dans le trousseau).
