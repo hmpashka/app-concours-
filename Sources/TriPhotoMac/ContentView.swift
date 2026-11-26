@@ -10,6 +10,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             if !etat.pleinEcran {
                 Bandeau(moteur: etat.moteur, serveur: etat.serveur)
+                BandeauUDMFenetre()
                 Divider().overlay(Theme.bordure)
             }
             Group {

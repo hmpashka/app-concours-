@@ -160,7 +160,7 @@ public final class GalerieEnLigne: @unchecked Sendable {
 
     public init(config: ConfigGalerieEnLigne) {
         self.config = config
-        self.reseau = config.unifi.flatMap { $0.adresse.isEmpty || $0.cle.isEmpty ? nil : ReseauUniFi(config: $0) }
+        self.reseau = config.unifi.flatMap { $0.udms.isEmpty ? nil : ReseauUniFi(config: $0) }
         if let d = try? Data(contentsOf: config.fichierEtat),
            let e = try? JSONDecoder().decode([String: String].self, from: d) { envoyees = e }
         let t = DispatchSource.makeTimerSource(queue: file)
@@ -182,7 +182,7 @@ public final class GalerieEnLigne: @unchecked Sendable {
         file.async {
             let autreConcours = c.fichierEtat != self.config.fichierEtat
             self.config = c
-            self.reseau = c.unifi.flatMap { $0.adresse.isEmpty || $0.cle.isEmpty ? nil : ReseauUniFi(config: $0) }
+            self.reseau = c.unifi.flatMap { $0.udms.isEmpty ? nil : ReseauUniFi(config: $0) }
             if autreConcours {
                 self.envoyees = (try? Data(contentsOf: c.fichierEtat))
                     .flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
@@ -221,12 +221,14 @@ public final class GalerieEnLigne: @unchecked Sendable {
                                                   numero: numero, copyright: copyright, auteur: auteur)
     }
 
-    /// Essai de la console UniFi (régulateur réseau) depuis les réglages.
-    public static func testerUniFi(_ c: ConfigUniFi, fini: @escaping @Sendable (Bool, String) -> Void) {
+    /// Essai d'une console UniFi (régulateur réseau) depuis les réglages : la clé est-elle bonne ?
+    /// Rend aussi l'empreinte du certificat vue (à garder avec cet UDM).
+    public static func testerUniFi(_ cible: CibleUniFi, fini: @escaping @Sendable (Bool, String, String) -> Void) {
         DispatchQueue.global(qos: .utility).async {
-            let r = ReseauUniFi(config: c)
+            let c = ConfigUniFi(udms: [], cles: [:], sauverEmpreinte: { _, _ in })
+            let r = ReseauUniFi(config: c, forcee: cible)
             let (ok, message) = r.tester()
-            fini(ok, message)
+            fini(ok, message, r.empreinteVue)
         }
     }
 

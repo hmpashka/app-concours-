@@ -19,7 +19,7 @@ extension Etat {
         [r.adresseFTPGalerie, r.protocoleGalerie.rawValue, "\(r.portGalerie)", r.identifiantGalerie, r.dossierGalerie,
          "\(r.accepterCertificatGalerie)", "\(r.galerieLaNuit)", "\(r.heureNuitGalerie)", "\(r.heureMatinGalerie)",
          "\(r.limiteKoGalerie)", r.auteurGalerie, "\(r.coteGalerie)", "\(r.qualiteGalerie)", "\(r.numeroIncruste)",
-         "\(r.cubeGalerieIdentique)", r.cubeGalerie, r.cubeServeur, r.adresseUniFi, "\(r.montantMbitLigne)",
+         "\(r.cubeGalerieIdentique)", r.cubeGalerie, r.cubeServeur,
          "\(r.seuilUniFi)", "\(r.galerieVersDossier)", r.dossierLocalGalerie].joined(separator: "|")
     }
 
@@ -87,13 +87,10 @@ extension Etat {
                                     unifi: configUniFi())
     }
 
-    /// Régulateur réseau : nil sans adresse ou sans clé API.
+    /// Régulateur réseau : les UDM connus de ce Mac (nil : aucun, pas de régulateur). Le moteur prend tout seul
+    /// celui du réseau où le Mac est branché.
     func configUniFi() -> ConfigUniFi? {
-        let r = reglages
-        guard !r.adresseUniFi.trimmingCharacters(in: .whitespaces).isEmpty, !cleUniFi.isEmpty else { return nil }
-        return ConfigUniFi(adresse: r.adresseUniFi, cle: cleUniFi, montantMbit: Double(r.montantMbitLigne),
-                           seuil: Double(r.seuilUniFi) / 100, empreinte: r.empreinteUniFi,
-                           sauverEmpreinte: { emp in Task { @MainActor in Etat.courant?.reglages.empreinteUniFi = emp } })
+        StandsUniFi.partages.configUniFi(seuil: reglages.seuilUniFi)
     }
 
     /// « ftp://ftp.site.fr/ » ou « sftp://site.fr » collés depuis FileZilla → « ftp.site.fr ».

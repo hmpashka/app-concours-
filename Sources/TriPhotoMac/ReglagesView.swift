@@ -36,8 +36,6 @@ struct ReglagesView: View {
     @State private var envoiDossier = ""
     @State private var envoiDossierOK: Bool?
     @State private var envoiDossierEnCours = false
-    @State private var testUniFi = ""
-    @State private var testUniFiOK: Bool?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -456,6 +454,8 @@ struct ReglagesView: View {
             Divider().overlay(Theme.bordure)
             galerieEnLigne
             Divider().overlay(Theme.bordure)
+            RegulateurUniFiView()
+            Divider().overlay(Theme.bordure)
             accesDistance
             Divider().overlay(Theme.bordure)
             Toggle("Loupedeck CT : piloter Groom Pix et afficher l'état du stand (ce Mac seulement)",
@@ -625,7 +625,6 @@ struct ReglagesView: View {
                 }
                 Text("Une photo qui existe déjà en ligne est remplacée, une nouvelle est ajoutée, une photo supprimée dans Lightroom est supprimée en ligne. Seules les photos envoyées par l'app sont touchées.")
                     .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
-                regulateurReseau
             }
         }
     }
@@ -687,46 +686,6 @@ struct ReglagesView: View {
                         .foregroundStyle(etat.etatAccesDistance.hasPrefix("En marche") ? Theme.ok : Theme.erreur)
                 }
             }
-        }
-    }
-
-    /// Régulateur réseau : la console UniFi (UDM Pro) dit si la ligne internet est chargée.
-    @ViewBuilder
-    private var regulateurReseau: some View {
-        Text("Régulateur réseau (UniFi)").font(.system(size: 13, weight: .semibold)).padding(.top, 6)
-        Ligne("Console UniFi") {
-            TextField("192.168.1.1 (vide : pas de régulateur)", text: $etat.reglages.adresseUniFi).textFieldStyle(.roundedBorder)
-        }
-        if !etat.reglages.adresseUniFi.isEmpty {
-            Ligne("Clé API") {
-                SecureField("UniFi Network › Paramètres › Plan de contrôle › Intégrations (gardée dans le trousseau)",
-                            text: Binding(get: { etat.cleUniFi }, set: { etat.cleUniFi = $0 }))
-                    .textFieldStyle(.roundedBorder)
-            }
-            Ligne("Débit montant de la ligne") {
-                Stepper("\(etat.reglages.montantMbitLigne) Mbit/s", value: $etat.reglages.montantMbitLigne, in: 1...1000)
-            }
-            Ligne("Pause de la galerie") {
-                Stepper("quand les autres utilisent plus de \(etat.reglages.seuilUniFi) % de la ligne",
-                        value: $etat.reglages.seuilUniFi, in: 30...95, step: 5)
-            }
-            HStack {
-                Button("Tester la console") {
-                    guard let c = etat.configUniFi() else { return }
-                    testUniFi = "Essai en cours…"
-                    testUniFiOK = nil
-                    GalerieEnLigne.testerUniFi(c) { ok, m in Task { @MainActor in testUniFiOK = ok; testUniFi = m } }
-                }
-                .buttonStyle(BoutonStyle()).disabled(etat.cleUniFi.isEmpty)
-                if !etat.reglages.empreinteUniFi.isEmpty {
-                    Button("Oublier le certificat de la console") { etat.reglages.empreinteUniFi = "" }.buttonStyle(BoutonStyle())
-                }
-                if !testUniFi.isEmpty {
-                    Text(testUniFi).font(.system(size: 11)).foregroundStyle(testUniFiOK == false ? Theme.erreur : Theme.ok)
-                }
-            }
-            Text("Les photos des boîtiers et le serveur local passent toujours avant : seule la galerie en ligne attend, et reprend toute seule quand la ligne se libère.")
-                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
         }
     }
 

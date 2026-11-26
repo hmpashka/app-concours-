@@ -1,28 +1,156 @@
 import CryptoKit
 import Foundation
 
-/// Réglages du régulateur réseau : la console UniFi (UDM Pro) et le débit montant de la ligne internet.
+/// Un UDM Pro (console UniFi) déjà connu de ce Mac : celui d'une remorque. Reconnu par l'adresse MAC du routeur
+/// du réseau où le Mac est branché (elle ne change jamais, même si deux UDM ont la même adresse 192.168.1.1).
+/// La clé API est dans le trousseau du Mac (« unifi-<adresse MAC> »), jamais ici.
+public struct UDMConnu: Codable, Sendable, Equatable, Identifiable {
+    public var mac: String
+    public var nom: String
+    /// Débit montant de la ligne internet de cette remorque, en Mbit/s (4G, fibre…).
+    public var montantMbit: Int
+    /// Empreinte du certificat de cette console (retenue à la 1re connexion, ensuite exigée).
+    public var empreinte: String
+    /// Dernière adresse où elle a été vue (« 192.168.1.1 »), pour information.
+    public var derniereAdresse: String
+    public var id: String { mac }
+
+    public init(mac: String, nom: String, montantMbit: Int, empreinte: String = "", derniereAdresse: String = "") {
+        self.mac = mac
+        self.nom = nom
+        self.montantMbit = montantMbit
+        self.empreinte = empreinte
+        self.derniereAdresse = derniereAdresse
+    }
+}
+
+/// Le routeur du réseau où le Mac est branché en ce moment.
+public struct RouteurVu: Sendable, Equatable {
+    public var adresse: String          // « 192.168.1.1 »
+    public var mac: String              // « 74:ac:b9:12:4f:0a »
+    public init(adresse: String, mac: String) {
+        self.adresse = adresse
+        self.mac = mac
+    }
+}
+
+/// Trouve le routeur du réseau actuel (passerelle par défaut, puis son adresse MAC), sans rien régler.
+public enum DetectionUDM {
+    /// nil : pas de réseau, ou routeur introuvable. Quelques millisecondes (outils du système, sans réseau).
+    public static func routeurActuel() -> RouteurVu? {
+        guard let ip = passerelle() else { return nil }
+        if let mac = macDe(ip) { return RouteurVu(adresse: ip, mac: mac) }
+        // Pas encore dans la table du Mac (aucun échange récent avec le routeur) : un ping, puis on relit.
+        _ = lancer("/sbin/ping", ["-c", "1", "-t", "1", "-n", ip])
+        return macDe(ip).map { RouteurVu(adresse: ip, mac: $0) }
+    }
+
+    /// « gateway: 192.168.1.1 » dans `route -n get default` (IPv4 seulement).
+    static func passerelle() -> String? {
+        guard let t = lancer("/sbin/route", ["-n", "get", "default"]) else { return nil }
+        for l in t.split(separator: "\n") {
+            let l = l.trimmingCharacters(in: .whitespaces)
+            guard l.hasPrefix("gateway:") else { continue }
+            let ip = l.dropFirst("gateway:".count).trimmingCharacters(in: .whitespaces)
+            let parts = ip.split(separator: ".")
+            return parts.count == 4 && parts.allSatisfy({ UInt8($0) != nil }) ? ip : nil
+        }
+        return nil
+    }
+
+    /// « ? (192.168.1.1) at 74:ac:b9:12:4f:a on en0 ifscope [ethernet] » dans `arp -n 192.168.1.1`.
+    static func macDe(_ ip: String) -> String? {
+        guard let t = lancer("/usr/sbin/arp", ["-n", ip]),
+              let r = t.range(of: " at ") else { return nil }
+        let brut = t[r.upperBound...].split(separator: " ").first.map(String.init) ?? ""
+        return normaliser(brut)
+    }
+
+    /// « 74:ac:b9:2:4f:a » → « 74:ac:b9:02:4f:0a » ; nil si ce n'est pas une adresse MAC.
+    public static func normaliser(_ brut: String) -> String? {
+        let p = brut.lowercased().split(separator: ":", omittingEmptySubsequences: false)
+        guard p.count == 6, p.allSatisfy({ !$0.isEmpty && $0.count <= 2 && UInt8($0, radix: 16) != nil }) else { return nil }
+        let mac = p.map { $0.count == 1 ? "0" + $0 : String($0) }.joined(separator: ":")
+        return mac == "ff:ff:ff:ff:ff:ff" || mac == "00:00:00:00:00:00" ? nil : mac
+    }
+
+    private static func lancer(_ outil: String, _ args: [String]) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: outil)
+        p.arguments = args
+        let sortie = Pipe()
+        p.standardOutput = sortie
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return nil }
+        let d = sortie.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return p.terminationStatus == 0 ? String(decoding: d, as: UTF8.self) : nil
+    }
+
+    /// Ce routeur est-il une console UniFi ? Lit seulement la page d'accueil (« UniFi OS »), sans clé ni mot de passe,
+    /// pour ne pas proposer d'ajouter la box du bureau ou d'un hôtel.
+    public static func estUniFi(_ adresse: String, fini: @escaping @Sendable (Bool) -> Void) {
+        guard let url = URL(string: "https://\(adresse)/") else { fini(false); return }
+        let c = URLSessionConfiguration.ephemeral
+        c.timeoutIntervalForRequest = 5
+        c.timeoutIntervalForResource = 8
+        let s = URLSession(configuration: c, delegate: SansVerification(), delegateQueue: nil)
+        s.dataTask(with: url) { d, r, _ in
+            let corps = String(decoding: (d ?? Data()).prefix(200_000), as: UTF8.self).lowercased()
+            let entetes = ((r as? HTTPURLResponse)?.allHeaderFields ?? [:]).map { "\($0.key) \($0.value)" }
+                .joined(separator: " ").lowercased()
+            fini(corps.contains("unifi") || entetes.contains("unifi"))
+            s.finishTasksAndInvalidate()
+        }.resume()
+    }
+
+    /// Certificat auto-signé de la console : accepté pour ce seul coup d'œil (rien de secret n'est envoyé).
+    private final class SansVerification: NSObject, URLSessionDelegate {
+        func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+            if let t = challenge.protectionSpace.serverTrust {
+                completionHandler(.useCredential, URLCredential(trust: t))
+            } else {
+                completionHandler(.performDefaultHandling, nil)
+            }
+        }
+    }
+}
+
+/// Réglages du régulateur réseau : les UDM connus de ce Mac, leurs clés, et le seuil de pause.
 public struct ConfigUniFi: Sendable {
-    /// Adresse de la console (« 192.168.1.1 »).
-    public var adresse: String
-    /// Clé API créée dans UniFi Network (Paramètres › Plan de contrôle › Intégrations). Gardée dans le trousseau.
-    public var cle: String
-    /// Débit montant de la ligne internet du concours, en Mbit/s (4G, fibre…).
-    public var montantMbit: Double
+    public var udms: [UDMConnu]
+    /// Clé API de chaque UDM (adresse MAC → clé), lue dans le trousseau par l'app.
+    public var cles: [String: String]
     /// La galerie se met en pause quand les AUTRES (stand, iPhone, visiteurs…) utilisent plus de ce pourcentage.
     public var seuil: Double
-    /// Empreinte du certificat de la console (retenue à la 1re connexion, ensuite exigée).
-    public var empreinte: String
-    public var sauverEmpreinte: @Sendable (String) -> Void
+    /// Empreinte du certificat retenue à la 1re connexion d'un UDM (adresse MAC, empreinte).
+    public var sauverEmpreinte: @Sendable (String, String) -> Void
 
-    public init(adresse: String, cle: String, montantMbit: Double, seuil: Double = 0.7, empreinte: String,
-                sauverEmpreinte: @escaping @Sendable (String) -> Void) {
+    public init(udms: [UDMConnu], cles: [String: String], seuil: Double = 0.7,
+                sauverEmpreinte: @escaping @Sendable (String, String) -> Void) {
+        self.udms = udms
+        self.cles = cles
+        self.seuil = seuil
+        self.sauverEmpreinte = sauverEmpreinte
+    }
+}
+
+/// La console à interroger : l'UDM connu du réseau actuel, ou celui qu'on essaie depuis les réglages.
+public struct CibleUniFi: Sendable {
+    public var mac: String
+    public var nom: String
+    public var adresse: String
+    public var cle: String
+    public var montantMbit: Double
+    public var empreinte: String
+    public init(mac: String, nom: String, adresse: String, cle: String, montantMbit: Double, empreinte: String) {
+        self.mac = mac
+        self.nom = nom
         self.adresse = adresse
         self.cle = cle
         self.montantMbit = montantMbit
-        self.seuil = seuil
         self.empreinte = empreinte
-        self.sauverEmpreinte = sauverEmpreinte
     }
 }
 
@@ -35,6 +163,8 @@ public struct EtatReseau: Sendable, Equatable {
     public var autresMbit = 0.0           // sans la galerie
     public var sature = false
     public var le: Date?
+    /// Nom de l'UDM du réseau actuel (« Remorque A »), vide hors réseau connu.
+    public var nomUDM = ""
     public init() {}
 }
 
@@ -42,7 +172,10 @@ public struct EtatReseau: Sendable, Equatable {
 /// statistiques de la passerelle). Une requête toutes les 15 s au plus, seulement quand la galerie a du travail.
 final class ReseauUniFi: NSObject, URLSessionDelegate, @unchecked Sendable {
     private var config: ConfigUniFi
+    /// Pour l'essai depuis les réglages : cette console-là, sans chercher le routeur.
+    private let forcee: CibleUniFi?
     private let verrou = NSLock()
+    private var cible: CibleUniFi?
     private var site = ""
     private var passerelle = ""
     private var _etat = EtatReseau()
@@ -57,9 +190,15 @@ final class ReseauUniFi: NSObject, URLSessionDelegate, @unchecked Sendable {
         return URLSession(configuration: c, delegate: self, delegateQueue: nil)
     }()
 
-    init(config: ConfigUniFi) { self.config = config }
+    init(config: ConfigUniFi, forcee: CibleUniFi? = nil) {
+        self.config = config
+        self.forcee = forcee
+    }
 
     var etat: EtatReseau { verrou.lock(); defer { verrou.unlock() }; return _etat }
+
+    /// Empreinte retenue pendant l'essai (pour enregistrer un nouvel UDM avec elle).
+    var empreinteVue: String { verrou.lock(); defer { verrou.unlock() }; return cible?.empreinte ?? "" }
 
     /// La galerie doit-elle attendre ? `propreMbit` : ce que la galerie envoie elle-même en ce moment.
     /// Pause dès que les autres dépassent le seuil ; reprise quand ils sont repassés 15 points dessous depuis 30 s.
@@ -69,8 +208,49 @@ final class ReseauUniFi: NSObject, URLSessionDelegate, @unchecked Sendable {
         return _etat.sature
     }
 
+    /// L'UDM connu du réseau où le Mac est branché (nil : bureau, autre wifi, UDM pas encore ajouté).
+    private func cibleActuelle() -> CibleUniFi? {
+        if let forcee { return forcee }
+        guard let r = DetectionUDM.routeurActuel(),
+              let u = config.udms.first(where: { $0.mac == r.mac }),
+              let cle = config.cles[u.mac], !cle.isEmpty else { return nil }
+        return CibleUniFi(mac: u.mac, nom: u.nom, adresse: r.adresse, cle: cle, montantMbit: Double(u.montantMbit),
+                          empreinte: u.empreinte)
+    }
+
     private func mesurer(propreMbit: Double) {
         derniere = Date()
+        guard let nouvelle = cibleActuelle() else {
+            // Pas d'UDM connu ici : régulateur en pause, la galerie envoie normalement (débit maximum des réglages).
+            verrou.lock()
+            cible = nil
+            site = ""
+            passerelle = ""
+            certificatRefuse = false
+            calmeDepuis = nil
+            var e = EtatReseau()
+            e.message = "Aucun UDM connu sur ce réseau : régulateur en pause."
+            _etat = e
+            verrou.unlock()
+            return
+        }
+        verrou.lock()
+        if cible?.mac != nouvelle.mac {
+            // Autre remorque (ou 1re mesure) : on repart de zéro avec la console de ce réseau.
+            site = ""
+            passerelle = ""
+            certificatRefuse = false
+            calmeDepuis = nil
+            _etat = EtatReseau()
+            cible = nouvelle
+        } else {
+            let emp = cible?.empreinte ?? ""
+            cible = nouvelle
+            if nouvelle.empreinte.isEmpty { cible?.empreinte = emp }
+            cible?.adresse = nouvelle.adresse
+        }
+        let c = cible ?? nouvelle
+        verrou.unlock()
         do {
             if site.isEmpty { site = try premierSite() }
             if passerelle.isEmpty { passerelle = try trouverPasserelle() }
@@ -80,24 +260,25 @@ final class ReseauUniFi: NSObject, URLSessionDelegate, @unchecked Sendable {
             let rx = (uplink["rxRateBps"] as? NSNumber)?.doubleValue ?? 0
             let montant = tx / 1_000_000
             let autres = max(0, montant - propreMbit)
-            let limite = config.montantMbit * config.seuil
+            let limite = c.montantMbit * config.seuil
             verrou.lock()
             var sature = _etat.sature
-            if config.montantMbit > 0 {
+            if c.montantMbit > 0 {
                 if autres > limite {
                     sature = true
                     calmeDepuis = nil
-                } else if autres < config.montantMbit * max(0.05, config.seuil - 0.15) {
+                } else if autres < c.montantMbit * max(0.05, config.seuil - 0.15) {
                     if calmeDepuis == nil { calmeDepuis = Date() }
-                    if let c = calmeDepuis, Date().timeIntervalSince(c) >= 30 { sature = false }
+                    if let d = calmeDepuis, Date().timeIntervalSince(d) >= 30 { sature = false }
                 } else {
                     calmeDepuis = nil
                 }
             }
             var e = EtatReseau()
             e.ok = true
-            e.message = sature ? String(format: "Ligne internet chargée (%.1f Mbit/s par les autres) : galerie en pause.", autres)
-                               : String(format: "Ligne internet : %.1f Mbit/s envoyés, %.1f reçus.", montant, rx / 1_000_000)
+            e.nomUDM = c.nom
+            e.message = sature ? String(format: "%@ : ligne internet chargée (%.1f Mbit/s par les autres), galerie en pause.", c.nom, autres)
+                               : String(format: "%@ : %.1f Mbit/s envoyés, %.1f reçus.", c.nom, montant, rx / 1_000_000)
             e.montantMbit = montant
             e.descendantMbit = rx / 1_000_000
             e.autresMbit = autres
@@ -110,7 +291,8 @@ final class ReseauUniFi: NSObject, URLSessionDelegate, @unchecked Sendable {
             verrou.lock()
             _etat.ok = false
             _etat.sature = false
-            _etat.message = "Console UniFi : \(error.localizedDescription)"
+            _etat.nomUDM = c.nom
+            _etat.message = "\(c.nom) : \(error.localizedDescription)"
             site = certificatRefuse ? site : ""
             passerelle = ""
             verrou.unlock()
@@ -141,12 +323,16 @@ final class ReseauUniFi: NSObject, URLSessionDelegate, @unchecked Sendable {
     }
 
     private func json(_ chemin: String) throws -> [String: Any] {
-        var h = config.adresse.trimmingCharacters(in: .whitespaces)
+        verrou.lock()
+        let c = cible
+        verrou.unlock()
+        guard let c else { throw ReseauUniFi.erreur("aucun UDM connu sur ce réseau") }
+        var h = c.adresse.trimmingCharacters(in: .whitespaces)
         for p in ["https://", "http://"] where h.lowercased().hasPrefix(p) { h = String(h.dropFirst(p.count)) }
         h = String(h.split(separator: "/").first ?? Substring(h))
         guard let url = URL(string: "https://\(h)/proxy/network/integration/v1\(chemin)") else { throw ReseauUniFi.erreur("adresse invalide") }
         var req = URLRequest(url: url)
-        req.setValue(config.cle, forHTTPHeaderField: "X-API-KEY")
+        req.setValue(c.cle, forHTTPHeaderField: "X-API-KEY")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         let fini = DispatchSemaphore(value: 0)
         final class Reponse: @unchecked Sendable { var data: Data?; var code = 0; var erreur: Error? }
@@ -171,7 +357,7 @@ final class ReseauUniFi: NSObject, URLSessionDelegate, @unchecked Sendable {
         NSError(domain: "UniFi", code: 1, userInfo: [NSLocalizedDescriptionKey: t])
     }
 
-    /// Certificat auto-signé de la console : accepté la 1re fois (empreinte retenue), ensuite exigé.
+    /// Certificat auto-signé de la console : accepté la 1re fois (empreinte retenue pour CET UDM), ensuite exigé.
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
                     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
@@ -185,11 +371,13 @@ final class ReseauUniFi: NSObject, URLSessionDelegate, @unchecked Sendable {
         }
         let emp = SHA256.hash(data: SecCertificateCopyData(cert) as Data).map { String(format: "%02x", $0) }.joined()
         verrou.lock()
-        let attendue = config.empreinte
-        if attendue.isEmpty { config.empreinte = emp }
+        let attendue = cible?.empreinte ?? ""
+        let mac = cible?.mac ?? ""
+        if attendue.isEmpty { cible?.empreinte = emp }
+        if let i = config.udms.firstIndex(where: { $0.mac == mac }), attendue.isEmpty { config.udms[i].empreinte = emp }
         verrou.unlock()
         if attendue.isEmpty {
-            config.sauverEmpreinte(emp)
+            if forcee == nil, !mac.isEmpty { config.sauverEmpreinte(mac, emp) }
         } else if attendue != emp {
             verrou.lock(); certificatRefuse = true; verrou.unlock()
             completionHandler(.cancelAuthenticationChallenge, nil)
@@ -204,7 +392,7 @@ final class ReseauUniFi: NSObject, URLSessionDelegate, @unchecked Sendable {
         derniere = .distantPast
         mesurer(propreMbit: 0)
         let e = etat
-        return (e.ok == true, e.ok == true ? String(format: "Console UniFi jointe : %.1f Mbit/s envoyés, %.1f reçus en ce moment.",
+        return (e.ok == true, e.ok == true ? String(format: "Console jointe : %.1f Mbit/s envoyés, %.1f reçus en ce moment.",
                                                     e.montantMbit, e.descendantMbit) : e.message)
     }
 }

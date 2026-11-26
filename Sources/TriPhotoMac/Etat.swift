@@ -66,10 +66,6 @@ final class Etat: ObservableObject {
     @Published var motDePasseGalerieEnLigne: String = Trousseau.lire("galerie-en-ligne") {
         didSet { Trousseau.ecrire("galerie-en-ligne", motDePasseGalerieEnLigne); galerieEnLigneChangee() }
     }
-    /// Clé API de la console UniFi (régulateur réseau) : dans le trousseau du Mac.
-    @Published var cleUniFi: String = Trousseau.lire("unifi") {
-        didSet { Trousseau.ecrire("unifi", cleUniFi); galerieEnLigneChangee() }
-    }
     @Published var montrerTerrain = false
     @Published var cloture: GenreCloture?
     /// Engagés terrain quand le tri ne tourne pas (sinon : ceux du moteur, qui ajoute aussi ceux du chrono).
@@ -132,6 +128,7 @@ final class Etat: ObservableObject {
         serveur.enregistrerCommande = { [weak self] k in self?.archives.enregistrer(k) }
         serveur.suivreEnDirect = { m.suivreEnDirect($0) }
         Etat.courant = self
+        StandsUniFi.partages.demarrer()        // l'UDM de la remorque où le Mac est branché
         Notifieur.partage.surveiller(m) { [weak self] in self?.reglages.silenceBoitierMinutes ?? 5 }
         serveur.demarrer()
         terrainHorsTri = fichierTerrain.map { Moteur.engagesTerrain(fichier: $0) } ?? []
