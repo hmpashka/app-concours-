@@ -153,6 +153,9 @@ final class EtatBureau: ObservableObject {
     private func recu(_ id: String, _ p: IndexeurArchives.Progression) {
         progression[id] = p
         if p.etape == .fini || p.etape == .absent {
+            if p.dansICloud > 0 && p.message.isEmpty {
+                message = "\(p.dansICloud) photo\(p.dansICloud > 1 ? "s" : "") restée\(p.dansICloud > 1 ? "s" : "") dans iCloud (pas sur ce Mac) : pas lue\(p.dansICloud > 1 ? "s" : ""), pour ne pas tout télécharger."
+            }
             relireComptes()
             chercherBientot()
             taillesBientot(forcer: true)
@@ -293,12 +296,13 @@ final class EtatBureau: ObservableObject {
                           erreurs.isEmpty ? nil : "\(erreurs.count) impossible\(erreurs.count > 1 ? "s" : "") : \(erreurs.prefix(3).joined(separator: ", "))"]
                 .compactMap { $0 }.joined(separator: " · ")
             let n = idx.enAttente().count
+            let nbCopiees = copiees
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.copieEnCours = false
                 self.message = resume.isEmpty ? "Rien à copier." : resume + "."
                 self.enAttente = n
-                if copiees > 0 {
+                if nbCopiees > 0 {
                     self.dernierDossierCopie = dossier
                     if photos == nil { self.panier.removeAll() }
                 }
@@ -323,13 +327,14 @@ final class EtatBureau: ObservableObject {
                 }
             }
             let n = idx.enAttente().count
+            let (nbFaites, dernier) = (faites, dossier)
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.copieEnCours = false
                 self.enAttente = n
-                if faites > 0, let dossier {
+                if nbFaites > 0, let dossier = dernier {
                     self.dernierDossierCopie = dossier
-                    self.message = "Disque revenu : \(faites) photo\(faites > 1 ? "s" : "") en attente copiée\(faites > 1 ? "s" : "") dans \(dossier.lastPathComponent)."
+                    self.message = "Disque revenu : \(nbFaites) photo\(nbFaites > 1 ? "s" : "") en attente copiée\(nbFaites > 1 ? "s" : "") dans \(dossier.lastPathComponent)."
                 }
             }
         }

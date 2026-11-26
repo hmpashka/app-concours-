@@ -435,7 +435,7 @@ public final class IndexArchives: @unchecked Sendable {
     /// Nombre de photos et de concours d'une archive.
     public func compte(archive: String) -> (photos: Int, concours: Int) {
         var p = 0, c = 0
-        lignes("SELECT COUNT(*), COUNT(DISTINCT concours) FROM photos WHERE archive = ?", [.t(archive)]) {
+        lignes("SELECT COUNT(*), COUNT(DISTINCT NULLIF(concours, '')) FROM photos WHERE archive = ?", [.t(archive)]) {
             p = Int(sqlite3_column_int64($0, 0)); c = Int(sqlite3_column_int64($0, 1))
         }
         return (p, c)
@@ -645,6 +645,8 @@ public final class IndexeurArchives: @unchecked Sendable {
         public var aLire = 0
         public var lues = 0
         public var erreurs = 0
+        /// Photos laissées dans iCloud (pas sur ce Mac) : pas lues, pour ne pas tout télécharger.
+        public var dansICloud = 0
         public var message = ""
         public init() {}
     }
@@ -737,7 +739,7 @@ public final class IndexeurArchives: @unchecked Sendable {
         signaler(a, p, forcer: true)
 
         // 1. La liste des dossiers (rapide : le disque donne la taille et la date sans ouvrir les photos).
-        let cles: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
+        let cles: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .ubiquitousItemDownloadingStatusKey]
         var aLire: [(rel: String, url: URL, taille: Int64, modif: Double, xmp: URL?)] = []
         var dejaVues: [Int64] = []
         var incomplet = false
@@ -782,6 +784,11 @@ public final class IndexeurArchives: @unchecked Sendable {
                 }
                 if let c = connues[nom], c.1 == taille, abs(c.2 - modifTotale) < 1 {
                     dejaVues.append(c.0)
+                } else if v?.ubiquitousItemDownloadingStatus == .notDownloaded {
+                    // photo restée dans iCloud : la lire la ferait télécharger en entier (lent, et ça remplit le disque)
+                    p.dansICloud += 1
+                    incomplet = true
+                    if let c = connues[nom] { dejaVues.append(c.0) }
                 } else {
                     aLire.append((r, u, taille, modifTotale, xmp))
                 }

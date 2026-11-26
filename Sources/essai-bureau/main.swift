@@ -39,7 +39,7 @@ let (tIndex, tVignettes) = index.taillesSurLeMac()
 let n = index.compte(archive: "essai")
 print("""
 
-Fini en \(String(format: "%.1f", duree)) s : \(p.lues) photos lues (\(String(format: "%.0f", Double(p.lues) / max(duree, 0.001) * 60))/min), \(p.erreurs) erreurs.
+Fini en \(String(format: "%.1f", duree)) s : \(p.lues) photos lues (\(String(format: "%.0f", Double(p.lues) / max(duree, 0.001) * 60))/min), \(p.erreurs) erreurs, \(p.dansICloud) laissées dans iCloud.
 Index : \(n.photos) photos, \(n.concours) concours.
 Place : fiches \(ByteCountFormatter.string(fromByteCount: tIndex, countStyle: .file)), vignettes \(ByteCountFormatter.string(fromByteCount: tVignettes, countStyle: .file)).
 """)
