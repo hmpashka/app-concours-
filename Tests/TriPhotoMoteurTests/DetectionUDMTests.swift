@@ -40,5 +40,7 @@ final class AdresseGalerieStandTests: XCTestCase {
         XCTAssertEqual(GalerieStand.adresseWeb("190.160.40.5"), "https://190.160.40.5")
         XCTAssertEqual(GalerieStand.adresseWeb(" https://190.160.40.5 "), "https://190.160.40.5")
         XCTAssertEqual(GalerieStand.adresseWeb("smb://190.160.40.5/photos"), "https://190.160.40.5")
+        XCTAssertEqual(GalerieStand.adresseWeb("https://190.160.40.5/admin/app/dossier/list"), "https://190.160.40.5")
+        XCTAssertEqual(GalerieStand.adresseWeb("http://190.160.40.5:8080/admin"), "http://190.160.40.5:8080")
     }
 }

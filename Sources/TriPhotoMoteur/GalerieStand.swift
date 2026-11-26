@@ -182,14 +182,14 @@ final class GalerieStand: NSObject, URLSessionDelegate, @unchecked Sendable {
         verrou.unlock()
     }
 
-    /// « smb://190.160.40.5 » (adresse du partage collée par erreur), « 190.160.40.5 » → « https://190.160.40.5 ».
+    /// Seule la racine du serveur compte : « smb://190.160.40.5 » (partage collé par erreur), « 190.160.40.5 »,
+    /// « https://190.160.40.5/admin/app/dossier/list » (page copiée du navigateur) → « https://190.160.40.5 ».
     static func adresseWeb(_ adresse: String) -> String {
         var a = adresse.trimmingCharacters(in: .whitespacesAndNewlines)
-        let bas = a.lowercased()
-        if bas.hasPrefix("http://") || bas.hasPrefix("https://") { return a }
+        let schema = a.lowercased().hasPrefix("http://") ? "http://" : "https://"
         if let r = a.range(of: "://") { a = String(a[r.upperBound...]) }
         a = String(a.split(separator: "/").first ?? Substring(a))
-        return "https://" + a
+        return schema + a
     }
 
     /// Bouton « Rafraîchir maintenant » sans tri en cours : connexion, puis « Chercher les nouveaux dossiers ».
