@@ -142,6 +142,8 @@ struct ReglagesConcours: Codable, Equatable {
     // Sans connexion au concours : copies de la galerie dans un dossier du Mac au lieu du FTP.
     var galerieVersDossier = false
     var dossierLocalGalerie = ""
+    // Nom des fichiers de la galerie : « CODE_<ce texte>_<nom de la photo> » (vide : « CODE_<nom de la photo> »).
+    var nomPersoGalerie = ""
     // Régulateur réseau (console UniFi, UDM Pro). Clé API : trousseau du Mac.
     var adresseUniFi = ""                // « 192.168.1.1 »
     var montantMbitLigne = 10            // débit montant de la ligne internet du concours
@@ -241,6 +243,7 @@ struct ReglagesConcours: Codable, Equatable {
         auteurGalerie = lire(.auteurGalerie, auteurGalerie)
         galerieVersDossier = lire(.galerieVersDossier, galerieVersDossier)
         dossierLocalGalerie = lire(.dossierLocalGalerie, dossierLocalGalerie)
+        nomPersoGalerie = lire(.nomPersoGalerie, nomPersoGalerie)
         adresseUniFi = lire(.adresseUniFi, adresseUniFi)
         montantMbitLigne = lire(.montantMbitLigne, montantMbitLigne)
         seuilUniFi = lire(.seuilUniFi, seuilUniFi)

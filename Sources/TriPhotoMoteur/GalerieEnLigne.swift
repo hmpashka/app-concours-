@@ -56,11 +56,14 @@ public struct ConfigGalerieEnLigne: Sendable {
     /// Sans connexion au concours : les copies de la galerie vont dans ce dossier du Mac (ou d'un disque) au lieu
     /// du FTP, tenu à jour de la même façon. nil : envoi par FTP / SFTP.
     public var dossierLocal: String?
+    /// Nom des fichiers de la galerie : « CODE_<ce texte>_<nom de la photo> » (« 07_34_LAMOTTE_DR__7563-49.JPG »).
+    /// Vide : « CODE_<nom de la photo> » (« 07_34_DR__7563-49.JPG »).
+    public var nomPerso: String
 
     public init(protocole: Protocole, hote: String, port: Int, identifiant: String, motDePasse: String, dossier: String,
                 accepterCertificat: Bool, laNuit: Bool, heureNuit: Int, heureMatin: Int, limiteKo: Int, cote: Int,
                 qualite: Int, cube: FichierCube?, cubeDuServeur: Bool, numero: Bool, auteurParDefaut: String,
-                depuis: Date, fichierEtat: URL, unifi: ConfigUniFi? = nil, dossierLocal: String? = nil) {
+                depuis: Date, fichierEtat: URL, unifi: ConfigUniFi? = nil, dossierLocal: String? = nil, nomPerso: String = "") {
         self.protocole = protocole
         self.hote = hote
         self.port = port
@@ -82,6 +85,7 @@ public struct ConfigGalerieEnLigne: Sendable {
         self.fichierEtat = fichierEtat
         self.unifi = unifi
         self.dossierLocal = dossierLocal
+        self.nomPerso = nomPerso
     }
 
     /// Copies écrites dans un dossier du Mac (pas d'internet, pas de nuit, pas de régulateur).
@@ -121,12 +125,48 @@ public struct EtatGalerieEnLigne: Sendable, Equatable {
 
 /// Une photo qui doit être en ligne.
 public struct PhotoEnLigne: Sendable, Hashable {
-    public var nom: String            // nom du fichier en ligne (celui de la copie du serveur)
+    public var nom: String            // nom du fichier en ligne : « 07_34_LAMOTTE_DR__7563-49.JPG »
     public var signature: String      // change si la photo doit être renvoyée (recodée, refaite…)
     public var original: String
     public var copie: String
     public var copyright: String
     public var auteur: String
+    /// Numéro incrusté en haut à gauche : le nom de la photo sur le serveur, sans le code (« DR__7563-49 »).
+    public var numero: String
+
+    public init(nom: String, signature: String, original: String, copie: String, copyright: String, auteur: String,
+                numero: String? = nil) {
+        self.nom = nom
+        self.signature = signature
+        self.original = original
+        self.copie = copie
+        self.copyright = copyright
+        self.auteur = auteur
+        self.numero = numero ?? (nom as NSString).deletingPathExtension
+    }
+
+    /// Nom du fichier de la galerie : le code de la photo sans « # », puis le texte choisi dans les réglages, puis le
+    /// nom de la photo. « #07_34 », « LAMOTTE », « DR__7563-49.JPG » → « 07_34_LAMOTTE_DR__7563-49.JPG ».
+    /// Sans code lisible : « 00_00 ». Le texte perd ses accents et ce qui gêne un serveur (espaces → « - »).
+    public static func nomGalerie(code: String, perso: String, photo: String) -> String {
+        let c = CodePassage.lire(code).map { String($0.texte.dropFirst()) } ?? "00_00"
+        let p = nettoyerPerso(perso)
+        return p.isEmpty ? "\(c)_\(photo)" : "\(c)_\(p)_\(photo)"
+    }
+
+    /// « Lamotte Indoor 2026 » → « Lamotte-Indoor-2026 » ; « Été/Noël » → « Ete-Noel ».
+    public static func nettoyerPerso(_ texte: String) -> String {
+        let sans = texte.folding(options: [.diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "fr_FR"))
+            .replacingOccurrences(of: "œ", with: "oe").replacingOccurrences(of: "Œ", with: "OE")
+            .replacingOccurrences(of: "æ", with: "ae").replacingOccurrences(of: "Æ", with: "AE")
+        var sortie = ""
+        for u in sans.unicodeScalars {
+            let ok = u.isASCII && (CharacterSet.alphanumerics.contains(u) || u == "-" || u == "_")
+            if ok { sortie.unicodeScalars.append(u) } else if !sortie.hasSuffix("-") { sortie.append("-") }
+        }
+        while sortie.contains("--") { sortie = sortie.replacingOccurrences(of: "--", with: "-") }
+        return sortie.trimmingCharacters(in: CharacterSet(charactersIn: "-_"))
+    }
 }
 
 /// Tient la galerie en ligne à jour : toutes les photos dans un seul dossier, une photo qui existe déjà est remplacée,
@@ -262,10 +302,17 @@ public final class GalerieEnLigne: @unchecked Sendable {
     private func aFaire() -> (envoyer: [PhotoEnLigne], supprimer: [String]) {
         let envoyer = voulues.values.filter { envoyees[$0.nom] != $0.signature }.sorted { $0.nom < $1.nom }
         var supprimer = envoyees.keys.filter { voulues[$0] == nil }.sorted()
+        // Une photo seulement renommée (code changé, texte du nom changé dans les réglages) est toujours là sous un
+        // autre nom (même copie du serveur, début de la signature) : l'ancien nom part toujours, même nombreux,
+        // sinon la galerie aurait ces photos en double.
+        func copie(_ signature: String) -> String { String(signature.split(separator: "|", maxSplits: 1).first ?? "") }
+        let copies = Set(voulues.values.map { copie($0.signature) })
+        let renommees = supprimer.filter { copies.contains(copie(envoyees[$0] ?? "")) }
+        let vraiment = supprimer.filter { !copies.contains(copie(envoyees[$0] ?? "")) }
         // Garde-fou : beaucoup de photos à supprimer d'un coup (journal changé, autre Mac…) : on ne supprime rien.
-        if supprimer.count > 50 && Double(supprimer.count) > Double(envoyees.count) * 0.3 {
-            suppressionBloquee = supprimer.count
-            supprimer = []
+        if vraiment.count > 50 && Double(vraiment.count) > Double(envoyees.count) * 0.3 {
+            suppressionBloquee = vraiment.count
+            supprimer = renommees
         } else {
             suppressionBloquee = 0
         }
@@ -408,7 +455,7 @@ public final class GalerieEnLigne: @unchecked Sendable {
     /// La copie de la galerie : depuis l'original si on l'a, sinon depuis la copie du serveur (même .cube).
     private func fabriquer(_ p: PhotoEnLigne, vers dest: URL) throws {
         let fm = FileManager.default
-        let numero = config.numero ? (p.nom as NSString).deletingPathExtension : nil
+        let numero = config.numero ? p.numero : nil
         if !p.original.isEmpty, fm.fileExists(atPath: p.original) {
             try TraitementPhoto.fabriquerCopieGalerie(de: URL(fileURLWithPath: p.original), vers: dest, cote: config.cote,
                                                       qualite: config.qualite, cube: config.cube, numero: numero,
