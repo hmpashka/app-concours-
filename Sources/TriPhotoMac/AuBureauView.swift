@@ -13,8 +13,31 @@ struct AuBureauView: View {
     @State private var avecDates = false
     @State private var du = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
     @State private var au = Date()
+    @AppStorage("bureauMode") private var mode = "recherche"
 
     var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Picker("", selection: $mode) {
+                    Text("Rechercher dans les archives").tag("recherche")
+                    Text("Envoyer un concours sur le NAS").tag("envoi")
+                }
+                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 480)
+                Spacer()
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(Theme.panneau)
+            Divider().overlay(Theme.bordure)
+            if mode == "envoi" {
+                EnvoiNASView(envoi: bureau.envoi, bureau: bureau)
+            } else {
+                ecranRecherche
+            }
+        }
+        .onAppear { bureau.auPremierAffichage() }
+    }
+
+    private var ecranRecherche: some View {
         HStack(spacing: 0) {
             if etat.panneauGauche {
                 gauche.frame(width: 290).background(Theme.panneau)
@@ -37,7 +60,6 @@ struct AuBureauView: View {
                 droite.frame(width: 320).background(Theme.panneau)
             }
         }
-        .onAppear { bureau.auPremierAffichage() }
     }
 
     // MARK: - Gauche : les années

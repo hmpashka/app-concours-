@@ -76,3 +76,13 @@ public enum RapprochementCSV {
         return communs * 10 - jours
     }
 }
+
+extension RapprochementCSV {
+    /// Le CSV qui ressemble le plus à ce concours (le plus récent si plusieurs se valent), nil : aucun.
+    public static func meilleur(concours: String, parmi csvs: [URL]) -> URL? {
+        let notes = csvs.compactMap { u in note(concours: concours, csv: u.lastPathComponent).map { (u, $0) } }
+        guard let max = notes.map(\.1).max() else { return nil }
+        func date(_ u: URL) -> Date { (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast }
+        return notes.filter { $0.1 == max }.map(\.0).max { date($0) < date($1) }
+    }
+}

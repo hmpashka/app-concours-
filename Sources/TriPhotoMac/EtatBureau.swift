@@ -37,6 +37,8 @@ final class EtatBureau: ObservableObject {
 
     let index: IndexArchives?
     let indexeur: IndexeurArchives?
+    /// « Envoyer sur le NAS » (sauvegarde des concours, HUGO 26/11/2026).
+    let envoi: EtatEnvoiNAS
     /// Vrai pendant un concours (le tri tourne) : l'indexation se met en pause, le concours passe avant tout.
     var concoursEnCours: () -> Bool = { false }
 
@@ -50,10 +52,17 @@ final class EtatBureau: ObservableObject {
     init() {
         index = try? IndexArchives(dossier: EtatBureau.dossier)
         indexeur = index.map { IndexeurArchives(index: $0) }
+        envoi = EtatEnvoiNAS()
         if !dossierCSV.isEmpty { indexeur?.dossierCSV = URL(fileURLWithPath: dossierCSV, isDirectory: true) }
         archives = Stockage.lire([ArchiveAnnee].self, nom: "au-bureau.json") ?? []
         indexeur?.surProgression = { [weak self] id, p in
             Task { @MainActor [weak self] in self?.recu(id, p) }
+        }
+        envoi.dossierCSV = { [weak self] in self?.dossierCSV ?? "" }
+        envoi.surFin = { [weak self] t in
+            // le concours est sur le NAS : l'année correspondante se met à jour dans l'index
+            guard let self, let a = self.archives.first(where: { t.annee.hasPrefix($0.chemin) || $0.chemin.hasPrefix(t.annee) }) else { return }
+            self.chercherNouveautes(a)
         }
         relireComptes()
         verifierDisques()
@@ -206,6 +215,7 @@ final class EtatBureau: ObservableObject {
         verifierDisques()
         let auto = concoursEnCours()
         if auto != pauseAuto { pauseAuto = auto; reglerPause() }
+        if envoi.pauseConcours != auto { envoi.pauseConcours = auto }
         if presents != avant || enAttente > 0 { copierEnAttente() }
         // la nuit (1 h à 5 h) : chaque année branchée est revérifiée une fois
         let h = Calendar.current.component(.hour, from: Date())
