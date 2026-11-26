@@ -20,7 +20,7 @@ namespace Loupedeck.GroomPixPlugin
         public static readonly BitmapColor Rouge = new BitmapColor(230, 30, 20);
         public static readonly BitmapColor OrVif = new BitmapColor(255, 190, 0);
         public static readonly BitmapColor Gris = new BitmapColor(0, 0, 0);
-        public static readonly BitmapColor GrisTexte = new BitmapColor(90, 90, 90);
+        public static readonly BitmapColor GrisTexte = new BitmapColor(150, 150, 150);
 
         public enum Genre { Normal, Attention, Ok, Erreur, Or, Eteint }
 
@@ -39,7 +39,7 @@ namespace Loupedeck.GroomPixPlugin
             var h = b.Height;
             // taille du gros texte selon sa longueur
             var n = Math.Max(1, gros?.Length ?? 1);
-            var police = n <= 2 ? h * 42 / 100 : n <= 4 ? h * 30 / 100 : n <= 6 ? h * 22 / 100 : h * 16 / 100;
+            var police = n <= 2 ? h * 42 / 100 : n <= 4 ? h * 30 / 100 : n <= 6 ? h * 22 / 100 : n <= 8 ? h * 17 / 100 : h * 14 / 100;
             if (String.IsNullOrEmpty(petit))
             {
                 Texte(b, gros ?? "", 0, 0, w, h, texte, police);
