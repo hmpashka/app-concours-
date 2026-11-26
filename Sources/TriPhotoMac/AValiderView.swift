@@ -419,7 +419,8 @@ struct Liste00View: View {
     @State private var selection: Set<Int64> = []
     @State private var saisie = ""
     @State private var enGrand: DepartVisionneuse?
-    @State private var supprimees: [[Int64]] = []         // pour « Annuler » (⌘Z)
+    @State private var supprimees: [[Int64]] = []         // pour « Annuler la suppression »
+    @State private var gardees: [[Int64]] = []            // « OK, on garde comme ça » : pour les remettre
 
     /// Épreuve des photos choisies (« #07_00 » → 07) : les noms trouvés dans cette épreuve passent devant.
     private var epreuveChoisie: String? {
@@ -474,6 +475,10 @@ struct Liste00View: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 4))
                                     .overlay(RoundedRectangle(cornerRadius: 4)
                                         .stroke(selection.contains(f.id) ? Theme.accent : Theme.bordure, lineWidth: selection.contains(f.id) ? 3 : 1))
+                                // le code complet de la photo (HUGO 26/11), puis l'heure et le boîtier
+                                Text(f.codeRetenu.isEmpty ? "sans code" : f.codeRetenu)
+                                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(f.codeRetenu.isEmpty ? Theme.attention : Theme.texte)
                                 Text("\(f.prise.map { $0.formatted(date: .omitted, time: .standard) } ?? "?") · \(f.boitier)")
                                     .font(.system(size: 10)).foregroundStyle(Theme.texteDiscret).lineLimit(1)
                             }
@@ -515,6 +520,19 @@ struct Liste00View: View {
                     Button("Annuler la suppression") { moteur.annulerSuppression(supprimees.removeLast()) }
                         .buttonStyle(BoutonStyle())
                 }
+                if !gardees.isEmpty {
+                    Button("Remettre dans la liste") { moteur.garder00(gardees.removeLast(), false) }
+                        .buttonStyle(BoutonStyle())
+                }
+                Button("OK, on garde comme ça") {
+                    let ids = Array(selection)
+                    moteur.garder00(ids)
+                    gardees.append(ids)
+                    selection = []
+                }
+                .buttonStyle(BoutonStyle())
+                .disabled(selection.isEmpty)
+                .help("Ces photos restent avec leur code actuel (_00 ou sans code) et quittent cette liste. Rien n'est déplacé.")
                 Button("Supprimer") {
                     let ids = Array(selection)
                     moteur.supprimer(ids)

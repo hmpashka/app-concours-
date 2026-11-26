@@ -1003,7 +1003,7 @@ public final class Moteur: ObservableObject {
         }
         if maintenant.timeIntervalSince(dernierCalcul) >= 10 {
             dernierCalcul = maintenant
-            cache00 = j.fiches00(depuis: debutJournee)
+            cache00 = j.fiches00(depuis: debutJournee).filter { !$0.a(Moteur.garde00) }
             let derniere = j.dernieres(30).compactMap { CodePassage.lire($0.codeRetenu) }.first { $0.special == nil }
             if let e = derniere?.epreuve { cacheCourbe = (e, j.photosParCode(epreuve: e, depuis: debutJournee).map { CodeCompte(code: $0.code, photos: $0.photos) }) }
         }
@@ -1524,6 +1524,24 @@ public final class Moteur: ObservableObject {
             guard let j = self?.journal, var f = j.fiche(id: id) else { return }
             f.classe = f.classe == classe ? "" : classe
             j.mettreAJour(f)
+        }
+    }
+
+    static let garde00 = "garde00"
+
+    /// « OK, on garde comme ça » (HUGO 26/11) : ces photos restent en _00 (ou sans code) et quittent la liste des _00.
+    /// Rien n'est déplacé ni effacé. `garder00(ids, false)` les remet dans la liste.
+    public func garder00(_ ids: [Int64], _ garder: Bool = true) {
+        file.async { [weak self] in
+            guard let self, let j = self.journal else { return }
+            for id in ids {
+                guard var f = j.fiche(id: id) else { continue }
+                if garder { f.marquer(Moteur.garde00); f.noter("HUGO", "gardée en \(f.codeRetenu.isEmpty ? "sans code" : f.codeRetenu)") }
+                else { f.retirer(Moteur.garde00) }
+                j.mettreAJour(f)
+            }
+            self.cache00 = j.fiches00(depuis: self.debutJournee).filter { !$0.a(Moteur.garde00) }
+            self.publier(journal: j, maintenant: Date())
         }
     }
 
