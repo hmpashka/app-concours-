@@ -35,13 +35,15 @@ public struct ConfigMoteur {
     /// Rush : dès que tant de photos attendent dans « À valider », tout part avec le code du photographe et reste
     /// « à reprendre au calme ». 0 : jamais automatique (bouton seulement).
     public var rushAuto: Int
-
-    public init(reception: URL, importLightroom: URL, tampon: URL?, serveur: URL, cote: Int, qualite: Int,
+    /// Photos traitées en même temps au plus (HUGO 26/11 : « 10, 20 en parallèle »). 0 : automatique, selon les
+    /// cœurs du Mac (Mac mini 10 cœurs : jusqu'à 8). Le tri reste en priorité basse : Lightroom passe toujours avant.
+    public var ouvriersMax: Int
+reception: URL, importLightroom: URL, tampon: URL?, serveur: URL, cote: Int, qualite: Int,
                 cube: FichierCube?, concours: Concours?, tailleLot: Int, silenceMinutes: Int,
                 retarderSiOccupe: Bool, journal: URL, travailLightroom: URL? = nil, chrono: ConfigChrono? = nil,
                 attente00Minutes: Double = 2, galerie: ConfigGalerie? = nil,
                 galerieEnLigne: ConfigGalerieEnLigne? = nil, fichierTerrain: URL? = nil,
-                memoire: Memoire? = nil, remises: ConfigRemises? = nil, sauvegarde: URL? = nil, rushAuto: Int = 0) {
+                memoire: Memoire? = nil, remises: ConfigRemises? = nil, sauvegarde: URL? = nil, rushAuto: Int = 0, ouvriersMax: Int = 0) {
         self.reception = reception
         self.importLightroom = importLightroom
         self.tampon = tampon
@@ -64,6 +66,7 @@ public struct ConfigMoteur {
         self.remises = remises
         self.sauvegarde = sauvegarde
         self.rushAuto = rushAuto
+        self.ouvriersMax = ouvriersMax
     }
 }
 
@@ -130,6 +133,8 @@ public struct ResumeMoteur {
     public var bienArrivees: [FichePhoto] = []
     /// Heure du chrono maintenant (horloge du Mac + écart).
     public var heureChrono: Double = 0
+    /// Change dès qu'une photo est ajoutée ou modifiée dans le journal (Revue en direct).
+    public var versionJournal = 0
     /// Début du nom des photos d'un boîtier (« DERB ») → boîtier : retrouve le boîtier d'une photo illisible.
     public var prefixeBoitier: [String: String] = [:]
 
@@ -407,7 +412,9 @@ public final class Moteur: ObservableObject {
         // Régulateur : Lightroom travaille-t-il ?
         charge = regulateur.chargeLightroom()
         let retard = vuesEnAttente.values.min().map { maintenant.timeIntervalSince($0) } ?? 0
-        ouvriers.maxConcurrentOperationCount = RegleRegulateur.ouvriers(chargeLightroom: charge, fileEnRetard: retard > 30)
+        // Photos en attente depuis plus de 5 s (rafale) : on ouvre toutes les files d'un coup.
+        ouvriers.maxConcurrentOperationCount = RegleRegulateur.ouvriers(chargeLightroom: charge, fileEnRetard: retard > 5,
+                                                                        plafond: RegleRegulateur.plafond(reglage: c.ouvriersMax))
 
         // Nouvelles photos complètes dans le dossier de réception.
         let presentes = Moteur.lister(c.reception)
@@ -903,6 +910,7 @@ public final class Moteur: ObservableObject {
         r.chargeLightroom = charge
         r.ouvriers = ouvriers.maxConcurrentOperationCount
         r.message = message
+        r.versionJournal = j.version
         r.enPause = pause
 
         // Étape 2 : séries à valider, photos de code, chrono, _00, courbe.

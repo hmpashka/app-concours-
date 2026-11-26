@@ -13,15 +13,21 @@ final class CacheVignettes {
     init() {
         cache.countLimit = 600
         fil.qualityOfService = .utility
-        fil.maxConcurrentOperationCount = 2
+        fil.maxConcurrentOperationCount = 4
     }
 
-    func image(_ chemin: String, cote: Int) -> NSImage? { cache.object(forKey: "\(cote)|\(chemin)" as NSString) }
+    /// Clé du cache : le premier chemin NON VIDE. Avant (essai du 26/11), toutes les photos sans copie sur le serveur
+    /// partageaient la clé « 260| » : la galerie montrait la même image pour toutes, ou restait vide.
+    static func cle(_ chemins: [String], cote: Int) -> NSString {
+        "\(cote)|\(chemins.first { !$0.isEmpty } ?? "")" as NSString
+    }
+
+    func image(_ chemins: [String], cote: Int) -> NSImage? { cache.object(forKey: Self.cle(chemins, cote: cote)) }
 
     /// Lit la vignette en arrière-plan. Rend l'opération, pour pouvoir l'abandonner si la vignette disparaît.
     @discardableResult
     func charger(_ chemins: [String], cote: Int, fini: @escaping (NSImage?) -> Void) -> Operation? {
-        let cle = "\(cote)|\(chemins.first ?? "")" as NSString
+        let cle = Self.cle(chemins, cote: cote)
         if let im = cache.object(forKey: cle) { fini(im); return nil }
         let op = BlockOperation()
         op.addExecutionBlock { [weak op, cache] in
@@ -50,6 +56,7 @@ struct VignettePhoto: View {
     @State private var lecture: Operation?
     @State private var visible = false
     @State private var essais = 0                        // fichier pas encore là (iCloud qui télécharge) : on réessaie
+    @State private var introuvable = false               // plus de fichier à lire : on le dit au lieu de tourner
 
     var body: some View {
         Rectangle().fill(entiere ? Color.clear : Theme.carte)
@@ -60,6 +67,9 @@ struct VignettePhoto: View {
                     } else {
                         Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
                     }
+                } else if introuvable {
+                    Image(systemName: "photo.badge.exclamationmark").foregroundStyle(Theme.texteTresDiscret)
+                        .help("Photo introuvable pour l'instant (déplacée, supprimée, ou serveur débranché).")
                 } else {
                     ProgressView().controlSize(.small)
                 }
@@ -70,21 +80,24 @@ struct VignettePhoto: View {
             .onChange(of: chemins) { nouveaux in
                 image = nil
                 essais = 0
+                introuvable = false
                 lire(nouveaux)
             }
     }
 
     private func lire(_ l: [String]) {
         guard image == nil else { return }
-        image = CacheVignettes.partage.image(l.first ?? "", cote: cote)
+        image = CacheVignettes.partage.image(l, cote: cote)
         guard image == nil else { return }
         lecture?.cancel()
         lecture = CacheVignettes.partage.charger(l, cote: cote) { im in
             image = im
-            // Photo pas encore lisible (mémoire iCloud en cours de téléchargement sur ce Mac) : on réessaie un moment
-            // au lieu de tourner pour toujours (essai du 26/11).
-            guard im == nil, visible, essais < 40,
-                  !l.contains(where: { !$0.isEmpty && FileManager.default.fileExists(atPath: $0) }) else { return }
+            guard im == nil, visible else { return }
+            // Photo pas encore lisible (iCloud qui télécharge, transfert pas fini, serveur lent) : on réessaie un moment.
+            // Au bout d'un moment, ou si aucun fichier n'existe, un symbole remplace la roue (essai du 26/11 :
+            // des vignettes tournaient pour toujours).
+            let existe = l.contains { !$0.isEmpty && FileManager.default.fileExists(atPath: $0) }
+            guard essais < (existe ? 10 : 3) else { introuvable = true; return }
             essais += 1
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                 if visible, image == nil, chemins == l { lire(l) }

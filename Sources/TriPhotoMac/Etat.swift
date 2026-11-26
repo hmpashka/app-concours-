@@ -111,7 +111,10 @@ final class Etat: ObservableObject {
         let r = reglages
         guard !r.urlGalerieStand.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         return ConfigGalerie(adresse: r.urlGalerieStand, identifiant: r.identifiantGalerieStand,
-                             motDePasse: motDePasseGalerie, minutes: Double(r.minutesGalerieStand),
+                             motDePasse: motDePasseGalerie,
+                             // 0 = « en direct » (HUGO 26/11) : toutes les 30 s pendant une rafale, 10 s après la dernière photo
+                             minutes: r.minutesGalerieStand == 0 ? 0.5 : Double(r.minutesGalerieStand),
+                             calmeSecondes: r.minutesGalerieStand == 0 ? 10 : 30,
                              empreinte: r.empreinteGalerieStand,
                              sauverEmpreinte: { emp in
                                  Task { @MainActor in Etat.courant?.reglages.empreinteGalerieStand = emp }
@@ -336,7 +339,7 @@ final class Etat: ObservableObject {
                                              remises: configRemises(),
                                              sauvegarde: r.sauvegardeActive && !r.dossierSauvegarde.isEmpty
                                                  ? URL(fileURLWithPath: r.dossierSauvegarde, isDirectory: true) : nil,
-                                             rushAuto: r.rushAutoPhotos))
+                                             rushAuto: r.rushAutoPhotos, ouvriersMax: r.photosEnMemeTemps))
             if !fichierDebutExiste { creerFichierDebut(silencieux: true) }
             garderListing()
             let m = moteur

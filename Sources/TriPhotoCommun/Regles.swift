@@ -36,13 +36,24 @@ public enum RegleTampon {
 /// Lightroom à fond) pour un besoin de 100 par minute.
 public enum RegleRegulateur {
     /// - Parameter chargeLightroom: part du Mac utilisée par Lightroom, de 0 (rien) à 1 (tous les cœurs).
-    public static func ouvriers(chargeLightroom: Double, fileEnRetard: Bool) -> Int {
-        if fileEnRetard { return 3 }            // la file prend du retard : on rattrape, la priorité basse protège Lightroom
+    ///   - plafond: photos traitées en même temps au plus (voir `plafond(reglage:)`).
+    /// Rafale (des photos attendent) : toutes les files sont ouvertes, même si Lightroom travaille — le tri est en
+    /// priorité basse, macOS donne toujours la main à Lightroom d'abord. Au calme : moins de files, Mac plus léger.
+    public static func ouvriers(chargeLightroom: Double, fileEnRetard: Bool, plafond: Int = 3) -> Int {
+        let p = max(1, plafond)
+        if fileEnRetard { return p }
         switch chargeLightroom {
-        case ..<0.15: return 3
-        case ..<0.45: return 2
+        case ..<0.15: return max(1, min(p, max(3, p / 2)))
+        case ..<0.45: return max(1, min(p, 2))
         default: return 1
         }
+    }
+
+    /// Plafond de photos traitées en même temps : le réglage s'il est donné (2 à 16), sinon selon le Mac :
+    /// cœurs moins 2 (Lightroom et macOS), entre 3 et 8 (au-delà, le disque et le serveur ne suivent plus).
+    public static func plafond(reglage: Int, coeurs: Int = ProcessInfo.processInfo.activeProcessorCount) -> Int {
+        if reglage > 0 { return min(16, max(1, reglage)) }
+        return min(8, max(3, coeurs - 2))
     }
 
     /// Lightroom est-il « occupé » (import, aperçus, export) ?

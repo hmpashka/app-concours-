@@ -419,6 +419,39 @@ struct Liste00View: View {
     @State private var selection: Set<Int64> = []
     @State private var saisie = ""
     @State private var enGrand: DepartVisionneuse?
+    @State private var supprimees: [[Int64]] = []         // pour « Annuler » (⌘Z)
+
+    /// Épreuve des photos choisies (« #07_00 » → 07) : les noms trouvés dans cette épreuve passent devant.
+    private var epreuveChoisie: String? {
+        let eps = Set(moteur.resume.sans00.filter { selection.contains($0.id) }.compactMap { CodePassage.lire($0.codeRetenu)?.epreuve })
+        return eps.count == 1 ? eps.first : nil
+    }
+
+    /// Recherche par nom (HUGO 26/11 : « sur les _00 on ne sait pas quel code ») : on tape une partie du nom du
+    /// cavalier ou du cheval lu sur l'écran du terrain ou reconnu sur la photo, l'app donne les codes possibles.
+    private struct Candidat: Identifiable {
+        var code: CodePassage
+        var cavalier: String
+        var cheval: String
+        var id: String { code.texte }
+    }
+
+    private var candidats: [Candidat] {
+        let t = saisie.trimmingCharacters(in: .whitespaces).lowercased()
+        guard t.count >= 2, !t.contains("_"), !t.contains("#"), let concours = etat.concours else { return [] }
+        if t.allSatisfy(\.isNumber) {
+            // un dossard seul (« 34 ») : dans l'épreuve des photos choisies d'abord, sinon partout
+            let l = concours.epreuves.compactMap { e in e.engage(dossard: t).map { (e, $0) } }
+            let pref = l.filter { $0.0.cle == epreuveChoisie }
+            return (pref.isEmpty ? l : pref).prefix(8).map { Candidat(code: CodePassage(epreuve: $0.0.numero, dossard: $0.1.dossard), cavalier: $0.1.cavalier, cheval: $0.1.cheval) }
+        }
+        var l: [(Epreuve, Engage)] = []
+        for e in concours.epreuves {
+            for g in e.engages where g.cavalier.lowercased().contains(t) || g.cheval.lowercased().contains(t) { l.append((e, g)) }
+        }
+        l.sort { ($0.0.cle == epreuveChoisie ? 0 : 1) < ($1.0.cle == epreuveChoisie ? 0 : 1) }
+        return l.prefix(8).map { Candidat(code: CodePassage(epreuve: $0.0.numero, dossard: $0.1.dossard), cavalier: $0.1.cavalier, cheval: $0.1.cheval) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -462,12 +495,35 @@ struct Liste00View: View {
                     }
                 }
             }
+            if !candidats.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack {
+                        ForEach(candidats) { c in
+                            Button("\(c.code.texte) · \(c.cavalier) · \(c.cheval)") { saisie = c.code.texte }
+                                .buttonStyle(BoutonStyle())
+                        }
+                    }
+                }
+            }
             HStack {
-                TextField("Code (#08_14)", text: $saisie).textFieldStyle(.roundedBorder).frame(width: 160)
+                TextField("Code (#08_14), dossard ou nom", text: $saisie).textFieldStyle(.roundedBorder).frame(width: 220)
                 if let c = CodePassage.lire(saisie), let g = etat.concours?.couple(pour: c) {
                     Text("\(g.cavalier) · \(g.cheval)").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
                 }
                 Spacer()
+                if !supprimees.isEmpty {
+                    Button("Annuler la suppression") { moteur.annulerSuppression(supprimees.removeLast()) }
+                        .buttonStyle(BoutonStyle())
+                }
+                Button("Supprimer") {
+                    let ids = Array(selection)
+                    moteur.supprimer(ids)
+                    supprimees.append(ids)
+                    selection = []
+                }
+                .buttonStyle(BoutonStyle())
+                .disabled(selection.isEmpty)
+                .help("Retire la copie du serveur local et de la galerie en ligne, original à la Corbeille. « Annuler la suppression » la remet.")
                 Button("Appliquer à \(selection.count) photo\(selection.count > 1 ? "s" : "")") {
                     if let c = CodePassage.lire(saisie) { moteur.appliquer(code: c.texte, a: Array(selection)) }
                     selection = []

@@ -34,6 +34,7 @@ struct RevueView: View {
     @State private var chargement = 0                     // n° du dernier chargement demandé (frappe rapide)
     @State private var colonnes = 5                       // colonnes de la galerie (pour ↑ ↓)
     @AppStorage("revue.tailleVignette") private var taille: Double = 160
+    @State private var majPrevue = false                  // Revue en direct : un rechargement attend déjà
 
     private enum Retour {                                 // un geste peut toucher plusieurs photos (galerie)
         case suppression([FichePhoto])
@@ -75,8 +76,9 @@ struct RevueView: View {
         }
     }
 
-    /// « Supprimer » n'existe que dans les filtres « À traiter » : jamais sur les bonnes photos.
-    private var suppressionPermise: Bool { ordre.groupe == .aTraiter }
+    /// « Supprimer » : dans « Toutes » et « À traiter » (HUGO 26/11 : « depuis l'app on ne peut pas supprimer »),
+    /// jamais sur les bonnes photos. Toujours annulable (⌘Z), original à la Corbeille.
+    private var suppressionPermise: Bool { ordre.groupe != .bonnes }
 
     private struct Classe: Identifiable {
         var id: String { cle }
@@ -106,6 +108,9 @@ struct RevueView: View {
         .onChange(of: recherche) { _ in charger() }
         .onChange(of: etat.momentRevue?.heure) { _ in charger() }
         .onChange(of: etat.photosRevue?.ids) { _ in charger() }
+        // En direct (essai du 26/11) : nouvelles photos, codes changés, photos retirées dans Lightroom… la Revue suit,
+        // au plus toutes les 3 s, sans perdre la photo regardée ni le choix fait dans la galerie.
+        .onChange(of: moteur.resume.versionJournal) { _ in enDirect() }
         .background(raccourcis)
         .onReceive(etat.ordresLoupedeck) { recevoirLoupedeck($0) }
         // Sortie du plein écran par le bouton vert ou le menu Présentation : la Revue suit (bandeau remis).
@@ -377,6 +382,17 @@ struct RevueView: View {
         Array(Set(etat.reglages.pistes.map(\.nom).filter { !$0.isEmpty } + pisteParBoitier.values)).sorted()
     }
 
+    private func enDirect() {
+        guard !majPrevue else { return }
+        majPrevue = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            majPrevue = false
+            // on tape un code ou une recherche : on attend la fin pour ne rien bousculer
+            if changerCode || saisieActive { enDirect(); return }
+            charger()
+        }
+    }
+
     private func charger() {
         let ep = epreuve.isEmpty ? nil : epreuve
         let b = boitier
@@ -426,8 +442,8 @@ struct RevueView: View {
             DispatchQueue.main.async {
                 guard numero == chargement else { return }   // un chargement plus récent est en route : on l'attend
                 let garde = courante?.id ?? etat.revuePhotoId   // retour sur l'onglet : la photo où on en était
-                photos = l
-                etiquettes = cats
+                if photos != l { photos = l }          // en direct : rien ne bouge à l'écran si rien n'a changé
+                if etiquettes != cats { etiquettes = cats }
                 index = garde.flatMap { g in l.firstIndex { $0.id == g } } ?? 0
                 choix = choix.intersection(l.map(\.id))
             }
@@ -489,15 +505,14 @@ struct RevueView: View {
                 .onExitCommand { saisieActive = false }
             Text("Filtre").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
             Picker("", selection: $ordre) {
-                Section("Toutes les photos") { ForEach(Ordre.du(.toutes)) { Text($0.rawValue).tag($0) } }
+                Section("Toutes les photos (suppression possible)") { ForEach(Ordre.du(.toutes)) { Text($0.rawValue).tag($0) } }
                 Section("Photos à traiter (suppression possible)") { ForEach(Ordre.du(.aTraiter)) { Text($0.rawValue).tag($0) } }
                 Section("Bonnes photos (jamais supprimées ici)") { ForEach(Ordre.du(.bonnes)) { Text($0.rawValue).tag($0) } }
             }
             .labelsHidden()
-            Text(ordre.groupe == .aTraiter ? "À traiter : ⌫ supprime (serveur, galerie en ligne, original à la Corbeille), ⌘Z annule."
-                 : ordre.groupe == .bonnes ? "Bonnes photos : rien n'est supprimé ici. ⌫ retire la photo de cette sélection seulement, ⌘Z annule."
-                 : "Pour supprimer, passe par un filtre « À traiter ».")
-                .font(.system(size: 11)).foregroundStyle(ordre.groupe == .aTraiter ? Theme.attention : Theme.texteTresDiscret)
+            Text(ordre.groupe == .bonnes ? "Bonnes photos : rien n'est supprimé ici. ⌫ retire la photo de cette sélection seulement, ⌘Z annule."
+                 : "⌫ supprime (serveur, galerie en ligne, original à la Corbeille), ⌘Z annule. Plusieurs d'un coup : ⇧ ou ⌘ + clic dans la galerie.")
+                .font(.system(size: 11)).foregroundStyle(ordre.groupe == .bonnes ? Theme.texteTresDiscret : Theme.attention)
             if ordre == .belles {
                 Text("Pour les réseaux sociaux : la plus belle photo de chaque couple, d'après la mémoire (catégorie « Meilleures ») et la netteté.")
                     .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)

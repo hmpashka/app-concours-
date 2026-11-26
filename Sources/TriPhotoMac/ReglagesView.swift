@@ -225,6 +225,13 @@ struct ReglagesView: View {
                         value: $etat.reglages.rushAutoPhotos, in: 0...200, step: 10)
                     .help("Les propositions du chrono restent dans « À valider › À reprendre au calme ».")
             }
+            Ligne("Photos traitées en même temps") {
+                Stepper(etat.reglages.photosEnMemeTemps == 0
+                        ? "automatique : jusqu'à \(RegleRegulateur.plafond(reglage: 0)) sur ce Mac pendant une rafale"
+                        : "jusqu'à \(etat.reglages.photosEnMemeTemps) pendant une rafale",
+                        value: $etat.reglages.photosEnMemeTemps, in: 0...16)
+                    .help("Pendant une rafale, toutes ces files travaillent ensemble, en priorité basse : Lightroom passe toujours avant. Au calme, l'app en garde moins pour laisser le Mac léger. Pris en compte au prochain démarrage du tri.")
+            }
             ChoixChemin(titre: "Passages pour le mode entraînement (facultatif)",
                         aide: "Fichier JSON des passages d'un ancien concours : remplace les HM Timing pour s'entraîner.",
                         chemin: $etat.reglages.fichierPassagesEntrainement, fichier: true, types: [.json])
@@ -437,8 +444,11 @@ struct ReglagesView: View {
                         .textFieldStyle(.roundedBorder)
                 }
                 Ligne("Rafraîchir la galerie") {
-                    Stepper("toutes les \(etat.reglages.minutesGalerieStand) min au plus, et à la fin de chaque rafale",
-                            value: $etat.reglages.minutesGalerieStand, in: 1...30)
+                    Stepper(etat.reglages.minutesGalerieStand == 0
+                            ? "en direct : toutes les 30 s pendant une rafale, et 10 s après la dernière photo"
+                            : "toutes les \(etat.reglages.minutesGalerieStand) min au plus, et à la fin de chaque rafale",
+                            value: $etat.reglages.minutesGalerieStand, in: 0...30)
+                        .help("Tout en bas (0) : en direct. Seuls les dossiers qui ont reçu des photos sont relus, jamais à chaque photo.")
                 }
                 HStack {
                     Button(testStandEnCours ? "Essai en cours…" : "Tester la connexion") {

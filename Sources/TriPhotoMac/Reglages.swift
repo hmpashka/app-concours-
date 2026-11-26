@@ -94,6 +94,7 @@ struct ReglagesConcours: Codable, Equatable {
     var attenteChronoMinutes = 3       // au-delà, la photo part avec son code, marquée « sans vérification »
     var attente00Minutes = 2           // une photo en _00 attend une photo de code ou le chrono
     var rushAutoPhotos = 40            // rush : au-delà, tout part avec le code du photographe (0 : jamais tout seul)
+    var photosEnMemeTemps = 0          // photos traitées en même temps au plus (0 : automatique selon le Mac)
     var fichierPassagesEntrainement = ""   // mode entraînement : passages d'un ancien concours (JSON)
 
     // 2. Dossiers
@@ -203,6 +204,7 @@ struct ReglagesConcours: Codable, Equatable {
         attenteChronoMinutes = lire(.attenteChronoMinutes, attenteChronoMinutes)
         attente00Minutes = lire(.attente00Minutes, attente00Minutes)
         rushAutoPhotos = lire(.rushAutoPhotos, rushAutoPhotos)
+        photosEnMemeTemps = lire(.photosEnMemeTemps, photosEnMemeTemps)
         fichierPassagesEntrainement = lire(.fichierPassagesEntrainement, fichierPassagesEntrainement)
         dossierReception = lire(.dossierReception, dossierReception)
         dossierImportLightroom = lire(.dossierImportLightroom, dossierImportLightroom)
