@@ -549,6 +549,15 @@ struct ReglagesView: View {
             }
             .pickerStyle(.segmented).labelsHidden().frame(width: 320)
         }
+        Ligne("Dossier du concours") {
+            Text(FichierEngages.nomFichier(concours: "", dernierJour: etat.finConcours).prefix(9))
+                .font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.texteDiscret)
+            TextField(etat.nomConcoursFichier.isEmpty ? "nom au choix" : "vide : « \(etat.nomConcoursFichier) »",
+                      text: $etat.reglages.nomDossierGalerie)
+                .textFieldStyle(.roundedBorder).frame(width: 260)
+        }
+        Text("Les photos du concours vont dans le dossier « \(etat.dossierConcoursGalerie) » \(versDossier ? "(créé dans le dossier choisi ci-dessous)" : "(créé dans le dossier distant)"). Le début = la date du dernier jour du concours (aa-mm-jj), comme les fichiers d'attribution. Le nom des photos ne change pas. Si ce nom change en cours de concours, les photos repartent dans le nouveau dossier ; l'ancien n'est pas touché.")
+            .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
         if versDossier {
             ChoixChemin(titre: "Dossier de la galerie",
                         aide: "Pas encore choisi : rien n'est écrit. Un disque externe convient.",
@@ -687,8 +696,17 @@ struct ReglagesView: View {
         envoiDossierEnCours = true
         envoiDossierOK = nil
         envoiDossier = "Comparaison du dossier avec ce qui est déjà en ligne…"
-        GalerieEnLigne.envoyerDossier(URL(fileURLWithPath: etat.reglages.dossierLocalGalerie, isDirectory: true),
-                                      config: g, etat: etat.fichierEnvoiDossier) { _, _, message, fini, ok in
+        // Le dossier distant des réglages, sans le dossier du concours : chaque dossier de concours du Mac part
+        // dans le dossier du même nom en ligne.
+        var racine = g
+        racine.dossier = etat.reglages.dossierGalerie
+        let base = etat.fichierEnvoiDossier
+        GalerieEnLigne.envoyerDossiers(URL(fileURLWithPath: etat.reglages.dossierLocalGalerie, isDirectory: true),
+                                       config: racine, etat: { sous in
+            guard let sous else { return base }
+            let nom = (base.lastPathComponent as NSString).deletingPathExtension + "--" + NomDossier.nettoyer(sous) + ".json"
+            return base.deletingLastPathComponent().appendingPathComponent(nom)
+        }) { _, _, message, fini, ok in
             Task { @MainActor in
                 envoiDossier = message
                 if fini {

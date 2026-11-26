@@ -56,11 +56,14 @@ public struct ConfigGalerieEnLigne: Sendable {
     /// Sans connexion au concours : les copies de la galerie vont dans ce dossier du Mac (ou d'un disque) au lieu
     /// du FTP, tenu à jour de la même façon. nil : envoi par FTP / SFTP.
     public var dossierLocal: String?
+    /// Dossier du concours DANS le dossier du Mac (« 26-11-29_LAMOTTE INDOOR »), créé s'il manque. Vide : à plat.
+    /// (Par FTP, le dossier du concours est déjà ajouté à `dossier`.)
+    public var sousDossierLocal: String
 
     public init(protocole: Protocole, hote: String, port: Int, identifiant: String, motDePasse: String, dossier: String,
                 accepterCertificat: Bool, laNuit: Bool, heureNuit: Int, heureMatin: Int, limiteKo: Int, cote: Int,
                 qualite: Int, cube: FichierCube?, cubeDuServeur: Bool, numero: Bool, auteurParDefaut: String,
-                depuis: Date, fichierEtat: URL, unifi: ConfigUniFi? = nil, dossierLocal: String? = nil) {
+                depuis: Date, fichierEtat: URL, unifi: ConfigUniFi? = nil, dossierLocal: String? = nil, sousDossierLocal: String = "") {
         self.protocole = protocole
         self.hote = hote
         self.port = port
@@ -82,6 +85,7 @@ public struct ConfigGalerieEnLigne: Sendable {
         self.fichierEtat = fichierEtat
         self.unifi = unifi
         self.dossierLocal = dossierLocal
+        self.sousDossierLocal = sousDossierLocal
     }
 
     /// Copies écrites dans un dossier du Mac (pas d'internet, pas de nuit, pas de régulateur).
@@ -484,13 +488,22 @@ struct Transfert {
     // MARK: Dossier du Mac
 
     /// Le dossier doit exister : il n'est jamais recréé (disque débranché → rien n'est écrit sur le Mac par erreur).
+    /// Le dossier du concours, lui, est créé dans le dossier choisi s'il manque.
     private func dossierPret() throws -> URL {
         let d = config.urlDossierLocal
         var estDossier: ObjCBool = false
         guard FileManager.default.fileExists(atPath: d.path, isDirectory: &estDossier), estDossier.boolValue else {
             throw Erreur.echec("dossier « \(d.lastPathComponent) » introuvable (disque débranché ?).")
         }
-        return d
+        let sous = config.sousDossierLocal.trimmingCharacters(in: .whitespaces)
+        guard !sous.isEmpty else { return d }
+        let c = d.appendingPathComponent(sous, isDirectory: true)
+        do { try FileManager.default.createDirectory(at: c, withIntermediateDirectories: false) } catch {
+            guard FileManager.default.fileExists(atPath: c.path) else {
+                throw Erreur.echec("impossible de créer le dossier du concours « \(sous) » (droits ou disque plein ?).")
+            }
+        }
+        return c
     }
 
     private func testerDossier() throws {
@@ -846,6 +859,54 @@ extension GalerieEnLigne {
             } catch {
                 progression(fait, total, "Arrêté après \(fait) / \(total) : \(error.localizedDescription) Recliquer reprend où ça s'est arrêté.", true, false)
             }
+        }
+    }
+
+    /// « Envoyer ce dossier en ligne » quand le dossier du Mac range un dossier par concours (« 26-11-29_LAMOTTE ») :
+    /// chaque dossier de concours part dans le dossier du même nom en ligne (dans le dossier distant des réglages),
+    /// l'un après l'autre ; les photos laissées à plat (anciennes versions) partent à plat, comme avant.
+    /// `etat(nil)` : fichier d'état des photos à plat ; `etat("26-11-29_LAMOTTE")` : celui d'un dossier de concours.
+    public static func envoyerDossiers(_ racine: URL, config: ConfigGalerieEnLigne, etat: @escaping @Sendable (String?) -> URL,
+                                       progression: @escaping @Sendable (_ fait: Int, _ total: Int, _ message: String,
+                                                                         _ fini: Bool, _ ok: Bool) -> Void) {
+        DispatchQueue.global(qos: .utility).async {
+            let fm = FileManager.default
+            guard let liste = try? fm.contentsOfDirectory(at: racine, includingPropertiesForKeys: [.isDirectoryKey],
+                                                          options: [.skipsHiddenFiles]) else {
+                progression(0, 0, "Dossier « \(racine.lastPathComponent) » introuvable (disque débranché ?).", true, false)
+                return
+            }
+            let sous = liste.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+                .map(\.lastPathComponent).sorted()
+            let images: Set<String> = ["jpg", "jpeg", "png", "heic", "tif", "tiff"]
+            let aPlat = liste.contains { images.contains($0.pathExtension.lowercased()) } || fm.fileExists(atPath: etat(nil).path)
+            var travaux: [(URL, ConfigGalerieEnLigne, URL, String?)] = []
+            if aPlat || sous.isEmpty { travaux.append((racine, config, etat(nil), nil)) }
+            for n in sous {
+                var c = config
+                c.dossier = config.dossier.trimmingCharacters(in: .whitespaces).isEmpty ? n
+                    : (config.dossier.hasSuffix("/") ? config.dossier + n : config.dossier + "/" + n)
+                travaux.append((racine.appendingPathComponent(n, isDirectory: true), c, etat(n), n))
+            }
+            final class Bilan: @unchecked Sendable { var messages: [String] = []; var ok = true }
+            let bilan = Bilan()
+            for (i, (d, c, e, nom)) in travaux.enumerated() {
+                let fin = DispatchSemaphore(value: 0)
+                let titre = nom.map { "« \($0) » : " } ?? ""
+                let etape = travaux.count > 1 ? "(\(i + 1)/\(travaux.count)) " : ""
+                envoyerDossier(d, config: c, etat: e) { fait, total, message, fini, ok in
+                    if fini {
+                        bilan.messages.append(titre + message)
+                        if !ok { bilan.ok = false }
+                        fin.signal()
+                    } else {
+                        progression(fait, total, etape + titre + message, false, true)
+                    }
+                }
+                fin.wait()
+                if !bilan.ok { break }
+            }
+            progression(0, 0, bilan.messages.joined(separator: "\n"), true, bilan.ok)
         }
     }
 }

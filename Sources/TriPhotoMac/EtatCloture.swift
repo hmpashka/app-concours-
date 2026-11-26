@@ -20,7 +20,8 @@ extension Etat {
          "\(r.accepterCertificatGalerie)", "\(r.galerieLaNuit)", "\(r.heureNuitGalerie)", "\(r.heureMatinGalerie)",
          "\(r.limiteKoGalerie)", r.auteurGalerie, "\(r.coteGalerie)", "\(r.qualiteGalerie)", "\(r.numeroIncruste)",
          "\(r.cubeGalerieIdentique)", r.cubeGalerie, r.cubeServeur,
-         "\(r.seuilUniFi)", "\(r.galerieVersDossier)", r.dossierLocalGalerie].joined(separator: "|")
+         "\(r.seuilUniFi)", "\(r.galerieVersDossier)", r.dossierLocalGalerie,
+         r.nomDossierGalerie, r.nomConcours, "\(r.nombreJours)"].joined(separator: "|")
     }
 
     /// Premier jour du concours (fichier FFE), sinon aujourd'hui moins les jours du concours.
@@ -57,10 +58,36 @@ extension Etat {
         if r.galerieVersDossier {
             guard !r.dossierLocalGalerie.isEmpty, var c = configGalerieFTP(obligatoire: false) else { return nil }
             c.dossierLocal = r.dossierLocalGalerie
-            c.fichierEtat = Stockage.dossier.appendingPathComponent("galerie-dossier-\(cleConcours).json")
+            c.dossier = r.dossierGalerie        // le dossier du concours va dans le dossier du Mac, pas dans `dossier`
+            c.sousDossierLocal = dossierConcoursGalerie
+            c.fichierEtat = Stockage.dossier.appendingPathComponent("galerie-dossier-\(cleConcours)\(Etat.suffixeEtat(dossierConcoursGalerie)).json")
             return c
         }
         return configGalerieFTP(obligatoire: true)
+    }
+
+    /// Dossier du concours dans la galerie (HUGO 26/11) : « CODE_NOM », le code = aa-mm-jj du dernier jour du
+    /// concours (comme les fichiers d'attribution et les dossiers du NAS), le nom = celui des réglages, sinon celui
+    /// du concours. « 26-11-29_LAMOTTE INDOOR ».
+    var dossierConcoursGalerie: String {
+        Etat.nomDossierGalerie(nom: reglages.nomDossierGalerie.isEmpty ? nomConcoursFichier : reglages.nomDossierGalerie,
+                               dernierJour: finConcours)
+    }
+
+    static func nomDossierGalerie(nom: String, dernierJour: Date) -> String {
+        (FichierEngages.nomFichier(concours: nom, dernierJour: dernierJour) as NSString).deletingPathExtension
+    }
+
+    /// Un fichier d'état par dossier de concours : le dossier change (nom modifié) → tout repart dans le nouveau
+    /// dossier, rien n'est supprimé dans l'ancien.
+    static func suffixeEtat(_ sous: String) -> String { sous.isEmpty ? "" : "--" + NomDossier.nettoyer(sous) }
+
+    /// « /www/album » + « 26-11-29_LAMOTTE » → « /www/album/26-11-29_LAMOTTE » (vide : le dossier du concours seul).
+    static func joindre(_ racine: String, _ sous: String) -> String {
+        let r = racine.trimmingCharacters(in: .whitespaces)
+        guard !sous.isEmpty else { return r }
+        if r.isEmpty { return sous }
+        return r.hasSuffix("/") ? r + sous : r + "/" + sous
     }
 
     /// Fichier qui garde ce que « Envoyer ce dossier en ligne » a déjà envoyé (par dossier choisi).
@@ -78,12 +105,12 @@ extension Etat {
         let cube = chemin.isEmpty ? nil : try? FichierCube(fichier: URL(fileURLWithPath: chemin))
         return ConfigGalerieEnLigne(protocole: r.protocoleGalerie, hote: Etat.hoteSeul(hote), port: r.portGalerie,
                                     identifiant: r.identifiantGalerie, motDePasse: motDePasseGalerieEnLigne,
-                                    dossier: r.dossierGalerie, accepterCertificat: r.accepterCertificatGalerie,
+                                    dossier: Etat.joindre(r.dossierGalerie, dossierConcoursGalerie), accepterCertificat: r.accepterCertificatGalerie,
                                     laNuit: r.galerieLaNuit, heureNuit: r.heureNuitGalerie, heureMatin: r.heureMatinGalerie,
                                     limiteKo: r.limiteKoGalerie, cote: r.coteGalerie, qualite: r.qualiteGalerie, cube: cube,
                                     cubeDuServeur: r.cubeGalerieIdentique, numero: r.numeroIncruste,
                                     auteurParDefaut: r.auteurGalerie, depuis: debutConcours,
-                                    fichierEtat: Stockage.dossier.appendingPathComponent("galerie-en-ligne-\(cleConcours).json"),
+                                    fichierEtat: Stockage.dossier.appendingPathComponent("galerie-en-ligne-\(cleConcours)\(Etat.suffixeEtat(dossierConcoursGalerie)).json"),
                                     unifi: configUniFi())
     }
 

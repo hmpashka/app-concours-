@@ -12,6 +12,26 @@ final class GalerieDossierTests: XCTestCase {
                              dossierLocal: dossier.path)
     }
 
+    /// Le dossier du concours (« 26-11-29_LAMOTTE ») est créé dans le dossier choisi ; le dossier choisi, lui, jamais.
+    func testDossierDuConcours() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("galerie-concours-\(UUID().uuidString)")
+        try fm.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+        var c = config(base)
+        c.sousDossierLocal = "26-11-29_LAMOTTE"
+        let t = Transfert(config: c)
+        let a = base.appendingPathComponent("a.jpg")
+        try Data("un".utf8).write(to: a)
+        try t.envoyer([(a, "IMG_1-32.JPG")])
+        XCTAssertTrue(fm.fileExists(atPath: base.appendingPathComponent("26-11-29_LAMOTTE/IMG_1-32.JPG").path))
+
+        var absent = config(base.appendingPathComponent("debranche"))
+        absent.sousDossierLocal = "26-11-29_LAMOTTE"
+        XCTAssertThrowsError(try Transfert(config: absent).envoyer([(a, "IMG_1-32.JPG")]))
+        XCTAssertFalse(fm.fileExists(atPath: base.appendingPathComponent("debranche").path))
+    }
+
     func testCopieRemplaceRetire() throws {
         let fm = FileManager.default
         let base = fm.temporaryDirectory.appendingPathComponent("galerie-dossier-\(UUID().uuidString)")
