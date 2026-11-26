@@ -13,6 +13,7 @@ enum Ecran: String, CaseIterable, Identifiable {
     case messages = "Messages"
     case memoire = "Mémoire"
     case commandes = "Commandes"
+    case auBureau = "Au bureau"
     case reglages = "Réglages"
     var id: String { rawValue }
 }
@@ -78,6 +79,8 @@ final class Etat: ObservableObject {
     @Published var messageMemoire = ""
     /// Listings des concours et commandes de pack photo (dossier iCloud partagé entre les Mac).
     let archives: Archives
+    /// Onglet « Au bureau » : archives des années passées, index, recherche, copies sur le Bureau.
+    let bureau = EtatBureau()
     /// Ancien dossier de la mémoire, s'il y reste des vignettes pas encore téléchargées d'iCloud.
     @Published var ancienDossierMemoire: URL?
     /// Retour à l'ancien dossier de la mémoire après un choix refusé (rien à déplacer).
@@ -114,6 +117,7 @@ final class Etat: ObservableObject {
             entrainement.dossierCible = URL(fileURLWithPath: reglages.dossierReception)
         }
         let m = moteur
+        bureau.concoursEnCours = { m.actif }
         serveur.resume = { m.resume }
         serveur.reglages = { [weak self] in self?.reglages ?? ReglagesConcours() }
         serveur.concours = { [weak self] in self?.concours }

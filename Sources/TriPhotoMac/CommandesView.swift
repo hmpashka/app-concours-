@@ -424,8 +424,14 @@ struct CommandesView: View {
                                     Text(ch).font(.system(size: 13)).frame(width: 220, alignment: .leading)
                                     Text(k.lignes.filter { $0.cheval == ch }.map { CodePassage(epreuve: $0.epreuve, dossard: $0.dossard).texte }.joined(separator: "  "))
                                         .font(.system(size: 13, design: .monospaced)).foregroundStyle(Theme.accent).textSelection(.enabled)
+                                    Spacer()
+                                    Button("Retrouver aux archives") { retrouverAuxArchives(k, cheval: ch) }
+                                        .buttonStyle(BoutonStyle())
+                                        .help("Onglet « Au bureau » : cherche \(k.prenom) \(k.nom) avec \(ch) dans toutes les années d'archives.")
                                 }
                             }
+                            Button("Retrouver toutes ses photos aux archives (tous chevaux)") { retrouverAuxArchives(k, cheval: nil) }
+                                .buttonStyle(BoutonPlat()).font(.system(size: 12)).foregroundStyle(Theme.accent)
                             Text("Remise des prix : \(k.remise == true ? "oui" : k.remise == false ? "non" : "pas connue")")
                                 .font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
                         }
@@ -461,6 +467,17 @@ struct CommandesView: View {
             }
             .padding(24)
         }
+    }
+
+    /// Ouvre l'onglet « Au bureau » avec la recherche du client toute prête (cavalier, et le cheval s'il est donné) ;
+    /// les copies iront dans Bureau › Groom Pix Copies › « NOM Prénom - CHEVAL ».
+    private func retrouverAuxArchives(_ k: Commande, cheval: String?) {
+        let qui = [k.prenom, k.nom].filter { !$0.isEmpty }.joined(separator: " ")
+        let texte = [qui, cheval ?? ""].filter { !$0.isEmpty }.joined(separator: " ")
+        let dossier = [[k.nom, k.prenom].filter { !$0.isEmpty }.joined(separator: " "), cheval ?? ""]
+            .filter { !$0.isEmpty }.joined(separator: " - ")
+        etat.bureau.ouvrir(recherche: texte, dossier: dossier)
+        etat.ecran = .auBureau
     }
 
     private static let vide = Commande(concours: "", nomConcours: "", nom: "", prenom: "", lignes: [], prix: 0)

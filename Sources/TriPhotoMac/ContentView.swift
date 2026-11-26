@@ -21,6 +21,7 @@ struct ContentView: View {
                 case .messages: MessagesView(serveur: etat.serveur)
                 case .memoire: MemoireView(moteur: etat.moteur)
                 case .commandes: CommandesView(archives: etat.archives)
+                case .auBureau: AuBureauView(bureau: etat.bureau)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

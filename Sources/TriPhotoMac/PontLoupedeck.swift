@@ -202,7 +202,7 @@ extension Etat {
     }
 
     private static let nomsEcrans: [Ecran: String] = [.accueil: "accueil", .aValider: "aValider", .revue: "revue",
-                                                       .messages: "messages", .memoire: "memoire", .commandes: "commandes",
+                                                       .messages: "messages", .memoire: "memoire", .commandes: "commandes", .auBureau: "auBureau",
                                                        .reglages: "reglages"]
 
     func etatLoupedeck() -> EtatLoupedeck {
