@@ -242,8 +242,11 @@ public final class IndexArchives: @unchecked Sendable {
         var r = ""
         r.reserveCapacity(plie.count)
         var espace = true
-        for c in plie {
-            if c.isLetter || c.isNumber || c == "#" || c == "_" {
+        let car = Array(plie)
+        for (k, c) in car.enumerated() {
+            // « _ » gardé seulement dans un code (« 12_45 ») ; « 16_CLUB » ou « 01_PREPA » : deux mots
+            let codeSouligne = c == "_" && k > 0 && k + 1 < car.count && car[k - 1].isNumber && car[k + 1].isNumber
+            if c.isLetter || c.isNumber || c == "#" || codeSouligne {
                 r.append(c)
                 espace = false
             } else if !espace {
@@ -381,11 +384,19 @@ public final class IndexArchives: @unchecked Sendable {
     public func chercher(_ r: RechercheArchives) -> (photos: [PhotoArchive], total: Int) {
         var conditions: [String] = []
         var valeurs: [Valeur] = []
+        // Chaque mot tapé doit être le DÉBUT d'un mot (« 70 » trouve « PREPA 70 », pas « R3CR2870 ») ;
+        // dans les noms de fichier, n'importe quel bout suffit.
+        let debutDeMot = r.champ != .nomFichier
         for mot in IndexArchives.normaliser(r.texte).split(separator: " ") {
-            conditions.append("\(r.champ.colonne) LIKE ? ESCAPE '\\'")
             let echappe = mot.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "%", with: "\\%")
                 .replacingOccurrences(of: "_", with: "\\_")
-            valeurs.append(.t("%\(echappe)%"))
+            if debutDeMot {
+                conditions.append("(' ' || \(r.champ.colonne)) LIKE ? ESCAPE '\\'")
+                valeurs.append(.t("% \(echappe)%"))
+            } else {
+                conditions.append("\(r.champ.colonne) LIKE ? ESCAPE '\\'")
+                valeurs.append(.t("%\(echappe)%"))
+            }
         }
         if let a = r.archive { conditions.append("archive = ?"); valeurs.append(.t(a)) }
         if let c = r.concours { conditions.append("concours = ?"); valeurs.append(.t(c)) }
@@ -738,11 +749,45 @@ public final class IndexeurArchives: @unchecked Sendable {
         p.etape = .liste
         signaler(a, p, forcer: true)
 
-        // 1. La liste des dossiers (rapide : le disque donne la taille et la date sans ouvrir les photos).
+        // Dossier par dossier (essai sur le NAS le 26/11 : lister toute une année d'abord prenait plus de 10 min
+        // sans rien lire) : on liste un dossier (le disque donne taille et date sans ouvrir les photos), puis on lit
+        // tout de suite le début de ses photos nouvelles ou changées. Ce qui est lu est gardé : un arrêt ne perd rien.
         let cles: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .ubiquitousItemDownloadingStatusKey]
-        var aLire: [(rel: String, url: URL, taille: Int64, modif: Double, xmp: URL?)] = []
         var dejaVues: [Int64] = []
         var incomplet = false
+        var arrete = false
+        var compteur = 0
+        p.etape = .lecture
+
+        func lire(_ aLire: [(rel: String, url: URL, taille: Int64, modif: Double, xmp: URL?)]) {
+            guard !aLire.isEmpty else { return }
+            p.aLire += aLire.count
+            index.debut()
+            defer { index.fin() }
+            for f in aLire {
+                guard attendre(a, &p) else { arrete = true; return }
+                autoreleasepool {
+                    let (lu, vignette) = LecturePhoto.lire(f.url, xmp: f.xmp)
+                    if lu.prise == nil && lu.motsCles.isEmpty && lu.copyright.isEmpty && vignette == nil && !a.present {
+                        incomplet = true              // disque parti pendant la lecture
+                        return
+                    }
+                    if let id = index.enregistrer(archive: a.id, chemin: f.rel, taille: f.taille, modif: f.modif, lu: lu,
+                                                  vignette: false, passe: passe) {
+                        if let vignette, index.ecrireVignette(vignette, archive: a.id, id: id) { index.marquerVignette(id) }
+                        else { try? fm.removeItem(at: index.urlVignette(archive: a.id, id: id)) }   // ancienne vignette d'une photo changée
+                    } else {
+                        p.erreurs += 1
+                    }
+                }
+                p.lues += 1
+                compteur += 1
+                if compteur % 50 == 0 { index.fin(); index.debut() }
+                signaler(a, p)
+                if pauseEntrePhotos > 0 { Thread.sleep(forTimeInterval: pauseEntrePhotos) }
+            }
+        }
+
         var pile: [String] = [""]
         while let rel = pile.popLast() {
             guard attendre(a, &p) else { return p }
@@ -759,13 +804,15 @@ public final class IndexeurArchives: @unchecked Sendable {
                 continue
             }
             let connues = index.connues(archive: a.id, dossier: rel)
+            var aLire: [(rel: String, url: URL, taille: Int64, modif: Double, xmp: URL?)] = []
             let noms = Set(contenu.map { $0.lastPathComponent.lowercased() })
+            var sous: [String] = []
             for u in contenu {
                 let v = try? u.resourceValues(forKeys: Set(cles))
                 let nom = u.lastPathComponent
                 let r = rel.isEmpty ? nom : rel + "/" + nom
                 if v?.isDirectory == true {
-                    pile.append(r)
+                    sous.append(r)
                     continue
                 }
                 guard LecturePhoto.extensions.contains(u.pathExtension.lowercased()) else { continue }
@@ -795,36 +842,12 @@ public final class IndexeurArchives: @unchecked Sendable {
             }
             if dejaVues.count >= 2000 { index.vues(dejaVues, passe: passe); dejaVues.removeAll() }
             signaler(a, p)
+            // les dossiers dans l'ordre alphabétique (concours par date) : la pile les reprend à l'envers
+            pile += sous.sorted { $0.localizedStandardCompare($1) == .orderedDescending }
+            lire(aLire)
+            if arrete { index.vues(dejaVues, passe: passe); return p }
         }
         index.vues(dejaVues, passe: passe)
-
-        // 2. La lecture des photos nouvelles ou changées (le début du fichier seulement).
-        p.etape = .lecture
-        p.aLire = aLire.count
-        signaler(a, p, forcer: true)
-        index.debut()
-        for (k, f) in aLire.enumerated() {
-            guard attendre(a, &p) else { index.fin(); return p }
-            autoreleasepool {
-                let (lu, vignette) = LecturePhoto.lire(f.url, xmp: f.xmp)
-                if lu.prise == nil && lu.motsCles.isEmpty && lu.copyright.isEmpty && vignette == nil && !a.present {
-                    incomplet = true                  // disque parti pendant la lecture
-                    return
-                }
-                if let id = index.enregistrer(archive: a.id, chemin: f.rel, taille: f.taille, modif: f.modif, lu: lu,
-                                              vignette: false, passe: passe) {
-                    if let vignette, index.ecrireVignette(vignette, archive: a.id, id: id) { index.marquerVignette(id) }
-                    else { try? fm.removeItem(at: index.urlVignette(archive: a.id, id: id)) }   // ancienne vignette d'une photo changée
-                } else {
-                    p.erreurs += 1
-                }
-            }
-            p.lues += 1
-            if k % 50 == 49 { index.fin(); index.debut() }
-            signaler(a, p)
-            if pauseEntrePhotos > 0 { Thread.sleep(forTimeInterval: pauseEntrePhotos) }
-        }
-        index.fin()
 
         // 3. Les photos qui n'existent plus sur le disque sortent de l'index (seulement après un tour complet,
         //    et jamais plus de la moitié d'un coup : un disque mal branché ne vide pas l'index).
