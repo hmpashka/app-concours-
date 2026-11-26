@@ -67,7 +67,7 @@ final class StandsUniFi: ObservableObject {
     private func vu(_ r: RouteurVu?) {
         enCours = false
         if routeur != r { routeur = r }
-        guard let r else { nouvelUDM = nil; return }
+        guard let r, !r.mac.isEmpty else { nouvelUDM = nil; return }
         if let i = udms.firstIndex(where: { $0.mac == r.mac }) {
             if udms[i].derniereAdresse != r.adresse { udms[i].derniereAdresse = r.adresse }
             nouvelUDM = nil
@@ -187,7 +187,7 @@ struct RegulateurUniFiView: View {
             if !stands.udms.isEmpty {
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
                     GridRow {
-                        Text("UDM connus"); Text("Identifiant (adresse MAC)"); Text("Débit montant"); Text("Clé"); Text("")
+                        Text("UDM connus"); Text("Identifiant"); Text("Débit montant"); Text("Clé"); Text("")
                     }
                     .font(.system(size: 11)).foregroundStyle(Theme.texteDiscret)
                     ForEach(stands.udms) { u in
@@ -214,7 +214,7 @@ struct RegulateurUniFiView: View {
                         .foregroundStyle(t.ok == false ? Theme.erreur : (t.ok == true ? Theme.ok : Theme.texteDiscret))
                 }
             }
-            if let r = stands.routeur, stands.udmIci == nil, stands.nouvelUDM == nil {
+            if let r = stands.routeur, !r.mac.isEmpty, stands.udmIci == nil, stands.nouvelUDM == nil {
                 Button("Ajouter le routeur de ce réseau comme UDM…") { fiche = .ajouter(r) }
                     .buttonStyle(BoutonStyle())
                     .help("Si l'app ne l'a pas reconnu toute seule comme une console UniFi.")
@@ -242,9 +242,15 @@ struct RegulateurUniFiView: View {
         } else if let n = stands.nouvelUDM {
             BandeauNouvelUDM(routeur: n, ouvrir: { fiche = .ajouter(n) })
         } else {
-            LigneEtat(couleur: Theme.texteDiscret, fond: Theme.carte,
-                      titre: stands.routeur == nil ? "Pas de réseau" : "Ailleurs (bureau, autre wifi)",
-                      detail: "aucun UDM connu : régulateur en pause, la galerie envoie normalement")
+            if let r = stands.routeur, r.mac.isEmpty {
+                LigneEtat(couleur: Theme.attention, fond: Theme.attentionFond,
+                          titre: "Routeur \(r.adresse) muet",
+                          detail: "autorise Groom Pix dans Réglages Système › Confidentialité et sécurité › Réseau local, puis relance l'app")
+            } else {
+                LigneEtat(couleur: Theme.texteDiscret, fond: Theme.carte,
+                          titre: stands.routeur == nil ? "Pas de réseau" : "Ailleurs (bureau, autre wifi)",
+                          detail: "aucun UDM connu : régulateur en pause, la galerie envoie normalement")
+            }
         }
     }
 
@@ -353,7 +359,7 @@ struct FicheUDM: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(existant == nil ? "Nouvel UDM" : "UDM « \(existant?.nom ?? "") »").font(.system(size: 15, weight: .semibold))
-            Text("Identifiant (adresse MAC) : \(mac)" + (adresse.map { " · \($0)" } ?? ""))
+            Text("Identifiant : \(mac)" + (adresse.map { " · \($0)" } ?? ""))
                 .font(.system(size: 11)).foregroundStyle(Theme.texteDiscret)
             Ligne("Nom") {
                 TextField("Remorque A", text: $nom).textFieldStyle(.roundedBorder)

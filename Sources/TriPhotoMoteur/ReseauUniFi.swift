@@ -27,7 +27,10 @@ public struct UDMConnu: Codable, Sendable, Equatable, Identifiable {
 /// Le routeur du réseau où le Mac est branché en ce moment.
 public struct RouteurVu: Sendable, Equatable {
     public var adresse: String          // « 192.168.1.1 »
-    public var mac: String              // « 74:ac:b9:12:4f:0a »
+    /// Identifiant de la console : son adresse MAC (« 74:ac:b9:12:4f:0a »), ou, si macOS cache la table du réseau
+    /// à l'app, l'empreinte de son certificat (« certificat 3fa94c… »), propre à chaque UDM. Vide : routeur muet
+    /// (accès au réseau local pas autorisé à Groom Pix, ou pas une console).
+    public var mac: String
     public init(adresse: String, mac: String) {
         self.adresse = adresse
         self.mac = mac
@@ -42,7 +45,27 @@ public enum DetectionUDM {
         if let mac = macDe(ip) { return RouteurVu(adresse: ip, mac: mac) }
         // Pas encore dans la table du Mac (aucun échange récent avec le routeur) : un ping, puis on relit.
         _ = lancer("/sbin/ping", ["-c", "1", "-t", "1", "-n", ip])
-        return macDe(ip).map { RouteurVu(adresse: ip, mac: $0) }
+        if let mac = macDe(ip) { return RouteurVu(adresse: ip, mac: mac) }
+        // macOS cache la table à l'app (signature de développement) : le certificat de la console l'identifie aussi.
+        if let e = empreinteCertificat(ip) { return RouteurVu(adresse: ip, mac: "certificat " + e.prefix(16)) }
+        return RouteurVu(adresse: ip, mac: "")
+    }
+
+    /// Empreinte SHA-256 du certificat HTTPS du routeur (aucune donnée envoyée). nil : pas de réponse.
+    public static func empreinteCertificat(_ adresse: String) -> String? {
+        guard let url = URL(string: "https://\(adresse)/") else { return nil }
+        let c = URLSessionConfiguration.ephemeral
+        c.timeoutIntervalForRequest = 4
+        c.timeoutIntervalForResource = 6
+        let d = SansVerification()
+        let s = URLSession(configuration: c, delegate: d, delegateQueue: nil)
+        let fini = DispatchSemaphore(value: 0)
+        var req = URLRequest(url: url)
+        req.httpMethod = "HEAD"
+        s.dataTask(with: req) { _, _, _ in fini.signal() }.resume()
+        _ = fini.wait(timeout: .now() + 7)
+        s.invalidateAndCancel()
+        return d.empreinte
     }
 
     /// « gateway: 192.168.1.1 » dans `route -n get default` (IPv4 seulement). Avec un VPN allumé, la route par défaut
@@ -125,10 +148,17 @@ public enum DetectionUDM {
     }
 
     /// Certificat auto-signé de la console : accepté pour ce seul coup d'œil (rien de secret n'est envoyé).
-    private final class SansVerification: NSObject, URLSessionDelegate {
+    private final class SansVerification: NSObject, URLSessionDelegate, @unchecked Sendable {
+        private let verrou = NSLock()
+        private var _empreinte: String?
+        var empreinte: String? { verrou.lock(); defer { verrou.unlock() }; return _empreinte }
         func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
                         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
             if let t = challenge.protectionSpace.serverTrust {
+                if let chaine = SecTrustCopyCertificateChain(t) as? [SecCertificate], let cert = chaine.first {
+                    let e = SHA256.hash(data: SecCertificateCopyData(cert) as Data).map { String(format: "%02x", $0) }.joined()
+                    verrou.lock(); _empreinte = e; verrou.unlock()
+                }
                 completionHandler(.useCredential, URLCredential(trust: t))
             } else {
                 completionHandler(.performDefaultHandling, nil)
@@ -231,7 +261,7 @@ final class ReseauUniFi: NSObject, URLSessionDelegate, @unchecked Sendable {
     /// L'UDM connu du réseau où le Mac est branché (nil : bureau, autre wifi, UDM pas encore ajouté).
     private func cibleActuelle() -> CibleUniFi? {
         if let forcee { return forcee }
-        guard let r = DetectionUDM.routeurActuel(),
+        guard let r = DetectionUDM.routeurActuel(), !r.mac.isEmpty,
               let u = config.udms.first(where: { $0.mac == r.mac }),
               let cle = config.cles[u.mac], !cle.isEmpty else { return nil }
         return CibleUniFi(mac: u.mac, nom: u.nom, adresse: r.adresse, cle: cle, montantMbit: Double(u.montantMbit),
