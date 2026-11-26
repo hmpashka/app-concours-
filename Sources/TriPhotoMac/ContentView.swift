@@ -42,6 +42,9 @@ struct ContentView: View {
         .sheet(item: $etat.cloture) { g in
             ClotureView(moteur: etat.moteur, genre: g).environmentObject(etat)
         }
+        .sheet(item: $etat.nouveauConcours) { d in
+            NouveauConcoursView(demande: d).environmentObject(etat)
+        }
     }
 }
 

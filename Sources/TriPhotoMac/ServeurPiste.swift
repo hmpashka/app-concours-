@@ -168,6 +168,11 @@ final class ServeurPiste: ObservableObject {
         ajouter(MessagePiste(qui: "Stand", piste: "", texte: t, heure: Date().timeIntervalSince1970, pour: pour))
     }
 
+    /// Concours rangé : messages oubliés (le fichier du jour est parti avec le concours). Concours rouvert : relus.
+    func relireMessages() {
+        messages = Stockage.lire([MessagePiste].self, nom: fichierMessages) ?? []
+    }
+
     private func ajouter(_ m: MessagePiste) {
         // nouvelle journée : on repart d'un fichier neuf (l'ancien reste sur le Mac)
         if let d = messages.last, ServeurPiste.jour(Date(timeIntervalSince1970: d.heure)) != ServeurPiste.jour() { messages = [] }

@@ -102,6 +102,18 @@ final class CaptureHorseComp: ObservableObject {
         envoyer?(passages, "")
     }
 
+    /// Concours rangé (son fichier est parti avec lui) : passages oubliés, sans rien écrire.
+    func oublierPassages() {
+        suivi = SuiviIncrustation()
+        passages = []
+    }
+
+    /// Concours rouvert : passages relus dans son fichier remis en place.
+    func relirePassages() {
+        suivi = SuiviIncrustation()
+        passages = Stockage.lire([Passage].self, nom: fichier) ?? []
+    }
+
     // MARK: - Lecture
 
     private func lire() {

@@ -93,6 +93,25 @@ struct ClotureView: View {
                 if moteur.actif && toutEstParti {
                     Button("Arrêter le tri") { etat.arreterJournee() }.buttonStyle(BoutonStyle())
                         .help("La galerie en ligne continue d'envoyer tant que l'app reste ouverte.")
+                } else if moteur.actif {
+                    // HUGO 26/11 : la clôture ne doit jamais bloquer (galerie lente…).
+                    Button("Arrêter quand même") { etat.arreterJournee() }.buttonStyle(BoutonStyle())
+                        .help("Le tri s'arrête. La galerie en ligne continue d'envoyer tant que l'app reste ouverte.")
+                }
+            }
+            if !toutEstParti {
+                HStack(spacing: 4) {
+                    Text("Pas le temps d'attendre ?").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+                    Button("Commencer un nouveau concours…") {
+                        fermer()
+                        let e = etat
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 400_000_000)     // une fenêtre à la fois
+                            e.nouveauConcours = .nouveau
+                        }
+                    }
+                    .buttonStyle(.link).font(.system(size: 12))
+                    Text("(ce concours est rangé, à finir plus tard)").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
                 }
             }
         }

@@ -172,6 +172,17 @@ public final class GalerieEnLigne: @unchecked Sendable {
 
     deinit { minuterie?.cancel() }
 
+    /// Concours rangé : plus rien n'est envoyé ni écrit (le lot en cours finit d'abord). Son état reste dans son
+    /// fichier, rangé avec le concours, et repart de là si on rouvre le concours.
+    private var arretee = false
+    public func arreter() {
+        file.sync {
+            arretee = true
+            minuterie?.cancel()
+            minuterie = nil
+        }
+    }
+
     public var etat: EtatGalerieEnLigne {
         verrou.lock(); defer { verrou.unlock() }
         return _etat
@@ -301,6 +312,7 @@ public final class GalerieEnLigne: @unchecked Sendable {
     }
 
     private func tour() {
+        if arretee { return }
         if etat.pauseManuelle { majEtat(); return }
         guard listeRecue, !enCours, Date() >= reessayerApres, config.estRegle else { majEtat(); return }
         let (envoyer, supprimer) = aFaire()
@@ -387,6 +399,7 @@ public final class GalerieEnLigne: @unchecked Sendable {
     }
 
     private func sauver() {
+        if arretee { return }
         let enc = JSONEncoder()
         enc.outputFormatting = [.sortedKeys]
         if let d = try? enc.encode(envoyees) { try? d.write(to: config.fichierEtat, options: .atomic) }

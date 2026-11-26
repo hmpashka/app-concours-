@@ -187,6 +187,8 @@ struct ReglagesView: View {
             }
             }
             Divider().overlay(Theme.bordure)
+            ConcoursRangesView()
+            Divider().overlay(Theme.bordure)
             // ① Les chronos du concours (maquette « Pistes et chronos » validée par HUGO le 25/11/2026)
             Text("Les chronos du concours").font(.system(size: 13, weight: .semibold))
             Text("Un chrono = un ordinateur HM Timing (une ou plusieurs pistes), ou une page d'incrustation Horse & Comp (une piste). Ajoute-en autant qu'il y en a sur le terrain.")

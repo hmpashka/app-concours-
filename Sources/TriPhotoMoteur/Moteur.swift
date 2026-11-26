@@ -274,6 +274,9 @@ public final class Moteur: ObservableObject {
     public static let dossierAValider = "_À valider"
     public static let dossierPhotosCode = "_Photos de code"
     public static let dossierSynchro = "_Synchro"
+    /// Dossier de la réception où un concours rangé laisse ses photos pas finies (« Restes – Grand Prix ») :
+    /// jamais trié par le concours suivant.
+    public static let prefixeRestes = "Restes – "
     static let doublonAccepte = "Doublon accepté par HUGO"
     static let codeGarde = "Code du photographe gardé par HUGO"
     static let pasPhotoCode = "Pas une photo de code (HUGO)"
@@ -324,6 +327,75 @@ public final class Moteur: ObservableObject {
             config = nil
         }
         DispatchQueue.main.async { self.actif = false }
+    }
+
+    /// Photos JPEG d'un dossier (sous-dossiers compris), comme le tri les voit. `toutCompter` : aussi celles des
+    /// sous-dossiers de travail (_À valider, _Doublons…), mais jamais les « Restes – » d'un concours rangé.
+    public static func nombreDePhotos(dans dossier: URL, toutCompter: Bool = false) -> Int {
+        if !toutCompter { return lister(dossier).count }
+        let fm = FileManager.default
+        guard let e = fm.enumerator(at: dossier, includingPropertiesForKeys: nil,
+                                    options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return 0 }
+        var n = 0
+        for case let url as URL in e {
+            if url.lastPathComponent.hasPrefix(prefixeRestes) { e.skipDescendants(); continue }
+            let ext = url.pathExtension.lowercased()
+            if ext == "jpg" || ext == "jpeg" { n += 1 }
+        }
+        return n
+    }
+
+    /// Nouveau concours (HUGO 26/11) : arrête le tri ET oublie tout ce qui tient au concours en cours (journal
+    /// fermé, galerie en ligne arrêtée, chrono, engagés terrain, synchro…), pour que ses fichiers puissent être
+    /// rangés. Les photos déjà en traitement finissent d'abord. À appeler hors du fil principal (attend).
+    public func fermerConcours() {
+        file.sync {
+            minuterie?.cancel()
+            minuterie = nil
+            config = nil
+        }
+        ouvriers.waitUntilAllOperationsAreFinished()
+        detections.cancelAllOperations()
+        detections.waitUntilAllOperationsAreFinished()
+        let galerieEnLigne = file.sync { enLigne }
+        galerieEnLigne?.arreter()
+        file.sync {
+            journal = nil
+            enLigne = nil
+            galerie = nil
+            suivi = nil
+            chrono = nil
+            reconnaissance = nil
+            tailles = [:]
+            enCours = []
+            reessayerApres = [:]
+            vuesEnAttente = [:]
+            enAttenteChrono = [:]
+            pisteDuBoitier = [:]
+            derniereSerie = [:]
+            cache00 = []
+            cacheCourbe = ("", [])
+            cacheCompte = [:]
+            cacheBienArrivees = []
+            nomsARenvoyer = [:]
+            alertesVues = [:]
+            prefixeBoitier = [:]
+            demandeSynchro = nil
+            dernierSynchro = nil
+            boitiersSynchro = [:]
+            terrain = []
+            remisesFaites = [:]
+            etatRemises = EtatRemises()
+            etatDetections = EtatDetections()
+            forcerTampon = false
+            pause = false
+            message = ""
+            alerteSauvegarde = ""
+        }
+        DispatchQueue.main.async {
+            self.actif = false
+            self.resume = ResumeMoteur()
+        }
     }
 
     // MARK: - Un tour (chaque seconde)
@@ -400,7 +472,8 @@ public final class Moteur: ObservableObject {
                                     options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
         var l: [(URL, UInt64)] = []
         for case let url as URL in e {
-            if [dossierARenvoyer, dossierDoublons, dossierAValider, dossierPhotosCode, dossierSynchro].contains(url.lastPathComponent) {
+            if [dossierARenvoyer, dossierDoublons, dossierAValider, dossierPhotosCode, dossierSynchro].contains(url.lastPathComponent)
+                || url.lastPathComponent.hasPrefix(prefixeRestes) {
                 e.skipDescendants()
                 continue
             }

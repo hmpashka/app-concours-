@@ -68,6 +68,10 @@ final class Etat: ObservableObject {
     }
     @Published var montrerTerrain = false
     @Published var cloture: GenreCloture?
+    /// Fenêtre « Commencer un nouveau concours » / « Rouvrir un concours rangé » (HUGO 26/11).
+    @Published var nouveauConcours: DemandeNouveauConcours?
+    /// Concours rangés sur ce Mac (pas finis ou finis), à rouvrir.
+    @Published var concoursRanges: [ConcoursRange] = []
     /// Engagés terrain quand le tri ne tourne pas (sinon : ceux du moteur, qui ajoute aussi ceux du chrono).
     @Published var terrainHorsTri: [EngageTerrain] = []
     @Published var messageAttribution = ""
@@ -120,6 +124,7 @@ final class Etat: ObservableObject {
         memoire = Memoire(dossier: Etat.dossierMemoire(r))
         archives = Archives(dossier: Etat.dossierListings(r))
         concours = Stockage.lire(Concours.self, nom: "concours.json")
+        concoursRanges = ConcoursRange.tous()
         entrainement = Entrainement()
         if !reglages.dossierReception.isEmpty {
             entrainement.dossierCible = URL(fileURLWithPath: reglages.dossierReception)
@@ -243,6 +248,9 @@ final class Etat: ObservableObject {
             erreurFFE = error.localizedDescription
         }
     }
+
+    /// Concours rangé (plus de fichier FFE) ou rouvert (son fichier FFE lu relu).
+    func remplacerConcours(_ c: Concours?) { concours = c }
 
     /// Recharge le même fichier (après une mise à jour du SIF par exemple).
     func rechargerFFE() {

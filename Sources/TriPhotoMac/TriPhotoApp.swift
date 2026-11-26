@@ -81,6 +81,7 @@ struct MenusTriPhoto: Commands {
             Divider()
             Button("Clôturer la journée…") { etat.cloture = .journee }
             Button("Clôturer le concours…") { etat.cloture = .finale }
+            Button("Nouveau concours…") { etat.nouveauConcours = .nouveau }
             Divider()
             Button("Mode entraînement…") { etat.montrerEntrainement = true }
                 .raccourci(raccourcis[.entrainement])
