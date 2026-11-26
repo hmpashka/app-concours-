@@ -755,7 +755,7 @@ public final class Moteur: ObservableObject {
     static func motsCles(_ f: FichePhoto, code: CodePassage?, config c: ConfigMoteur) -> [String] {
         var m: [String] = []
         if let code, let couple = c.concours?.couple(pour: code) {
-            m += [couple.cavalier, couple.cheval].filter { !$0.isEmpty }
+            m += couple.motsCles
         }
         if f.chute { m.append("CHUTE") }
         return m

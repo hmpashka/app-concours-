@@ -65,6 +65,14 @@ final class FichierEngagesTests: XCTestCase {
         XCTAssertEqual(EngageTerrain.couper("Jean Dupont").nom, "Dupont")
     }
 
+    func testMotsClesPrenomNomPuisCheval() {
+        XCTAssertEqual(Engage(dossard: "12", cavalier: "Alice TEST", cheval: "CHEVAL UN").motsCles, ["Alice TEST", "CHEVAL UN"])
+        XCTAssertEqual(Engage(dossard: "12", cavalier: "TEST Alice", cheval: "CHEVAL UN").motsCles, ["Alice TEST", "CHEVAL UN"])
+        XCTAssertEqual(Engage(dossard: "12", cavalier: "ALICE TEST", cheval: "Tornade").motsCles, ["Alice TEST", "Tornade"])
+        XCTAssertEqual(Engage(dossard: "12", cavalier: "DE LA TOUR jean-marc", cheval: "").motsCles, ["Jean-Marc DE LA TOUR"])
+        XCTAssertEqual(Engage(dossard: "12", cavalier: " Zoe  MARTIN ", cheval: "TORNADE, HN").motsCles, ["Zoe MARTIN", "TORNADE HN"])
+    }
+
     func testNomDuFichier() {
         let d = FichierEngages.dateISO("2026-11-22")
         XCTAssertEqual(FichierEngages.nomFichier(concours: "Lamotte Indoor", dernierJour: d), "26-11-22_LAMOTTE INDOOR.csv")

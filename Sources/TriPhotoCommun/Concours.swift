@@ -25,6 +25,35 @@ public struct Engage: Codable, Hashable, Sendable {
         self.horsClassement = horsClassement
         self.terrain = terrain
     }
+
+    /// Les mots-clés des photos de ce couple, dans cet ordre : « Prénom NOM » puis le nom du cheval
+    /// (Lightroom les montre « Prénom NOM, NOM DU CHEVAL »). Le cavalier est remis dans cet ordre quelle que soit
+    /// la source (FFE « Prénom NOM », chrono « NOM Prénom », tout en majuscules…) ; le prénom prend une majuscule
+    /// au début de chaque partie (« jean-marc » → « Jean-Marc »), le nom reste tel quel.
+    public var motsCles: [String] {
+        [Engage.prenomNom(cavalier), Engage.nettoyer(cheval)].filter { !$0.isEmpty }
+    }
+
+    public static func prenomNom(_ cavalier: String) -> String {
+        let propre = nettoyer(cavalier)
+        guard propre.contains(" ") else { return propre }
+        let (nom, prenom) = EngageTerrain.couper(propre)
+        return [majusculeInitiale(prenom), nom].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// Espaces en trop retirés ; une virgule couperait le mot-clé en deux dans Lightroom : remplacée par un espace.
+    static func nettoyer(_ t: String) -> String {
+        t.replacingOccurrences(of: ",", with: " ").split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    static func majusculeInitiale(_ t: String) -> String {
+        var r = "", debut = true
+        for c in t {
+            r += debut ? c.uppercased() : c.lowercased()
+            debut = c == " " || c == "-" || c == "'" || c == "’"
+        }
+        return r
+    }
 }
 
 public struct Epreuve: Codable, Hashable, Identifiable, Sendable {
