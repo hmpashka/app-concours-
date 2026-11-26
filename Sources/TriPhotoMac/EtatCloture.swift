@@ -20,7 +20,7 @@ extension Etat {
          "\(r.accepterCertificatGalerie)", "\(r.galerieLaNuit)", "\(r.heureNuitGalerie)", "\(r.heureMatinGalerie)",
          "\(r.limiteKoGalerie)", r.auteurGalerie, "\(r.coteGalerie)", "\(r.qualiteGalerie)", "\(r.numeroIncruste)",
          "\(r.cubeGalerieIdentique)", r.cubeGalerie, r.cubeServeur,
-         "\(r.seuilUniFi)", "\(r.galerieVersDossier)", r.dossierLocalGalerie, r.nomPersoGalerie].joined(separator: "|")
+         "\(r.seuilUniFi)", "\(r.galerieVersDossier)", r.dossierLocalGalerie].joined(separator: "|")
     }
 
     /// Premier jour du concours (fichier FFE), sinon aujourd'hui moins les jours du concours.
@@ -84,7 +84,7 @@ extension Etat {
                                     cubeDuServeur: r.cubeGalerieIdentique, numero: r.numeroIncruste,
                                     auteurParDefaut: r.auteurGalerie, depuis: debutConcours,
                                     fichierEtat: Stockage.dossier.appendingPathComponent("galerie-en-ligne-\(cleConcours).json"),
-                                    unifi: configUniFi(), nomPerso: r.nomPersoGalerie)
+                                    unifi: configUniFi())
     }
 
     /// Régulateur réseau : les UDM connus de ce Mac (nil : aucun, pas de régulateur). Le moteur prend tout seul

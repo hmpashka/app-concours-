@@ -549,14 +549,6 @@ struct ReglagesView: View {
             }
             .pickerStyle(.segmented).labelsHidden().frame(width: 320)
         }
-        Ligne("Nom des photos") {
-            Text("CODE_").font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.texteDiscret)
-            TextField("texte au choix (vide : rien)", text: $etat.reglages.nomPersoGalerie)
-                .textFieldStyle(.roundedBorder).frame(width: 200)
-            Text("_nom de la photo").font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.texteDiscret)
-        }
-        Text("Exemple : « \(PhotoEnLigne.nomGalerie(code: "#07_34", perso: etat.reglages.nomPersoGalerie, photo: "DR__7563-49.JPG")) ». Si le code de la photo change, elle est renvoyée sous son nouveau nom et l'ancienne est retirée. Le numéro incrusté reste le nom de la photo.")
-            .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
         if versDossier {
             ChoixChemin(titre: "Dossier de la galerie",
                         aide: "Pas encore choisi : rien n'est écrit. Un disque externe convient.",

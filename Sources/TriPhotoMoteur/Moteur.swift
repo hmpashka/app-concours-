@@ -1692,27 +1692,13 @@ public struct EtatCloture: Sendable {
 extension Moteur {
     /// Les photos à mettre en ligne : celles qui ont une copie sur le serveur local, depuis le début du concours.
     private func photosEnLigne(journal j: Journal, config g: ConfigGalerieEnLigne) -> [PhotoEnLigne] {
-        // Nom en ligne : « CODE_<texte des réglages>_<nom de la photo> ». Le code change → nouveau nom : la photo
-        // est envoyée sous le nouveau nom et l'ancien fichier est supprimé (comme une photo retirée).
-        var pris = Set<String>()
-        return j.fichesEnLigne(depuis: g.depuis).compactMap { f in
-            let photo = URL(fileURLWithPath: f.copie).lastPathComponent
-            guard !photo.isEmpty else { return nil }
+        j.fichesEnLigne(depuis: g.depuis).compactMap { f in
+            let nom = URL(fileURLWithPath: f.copie).lastPathComponent
+            guard !nom.isEmpty else { return nil }
             let photographe = boitiersSynchro[f.boitier]?.photographe ?? ""
             let auteur = photographe.isEmpty ? g.auteurParDefaut : photographe
-            // Deux photos qui donneraient le même nom (même code, même nom dans deux dossiers) : la galerie remplacerait
-            // la première par la seconde. La seconde prend « -2 », « -3 »… (ordre d'arrivée : toujours le même).
-            var nom = PhotoEnLigne.nomGalerie(code: f.codeRetenu, perso: g.nomPerso, photo: photo)
-            if pris.contains(nom.lowercased()) {
-                let ext = (nom as NSString).pathExtension, base = (nom as NSString).deletingPathExtension
-                var n = 2
-                while pris.contains("\(base)-\(n).\(ext)".lowercased()) { n += 1 }
-                nom = ext.isEmpty ? "\(base)-\(n)" : "\(base)-\(n).\(ext)"
-            }
-            pris.insert(nom.lowercased())
             return PhotoEnLigne(nom: nom, signature: "\(f.copie)|\(f.codeRetenu)|\(auteur)", original: f.chemin,
-                                copie: f.copie, copyright: f.codeRetenu, auteur: auteur,
-                                numero: (photo as NSString).deletingPathExtension)
+                                copie: f.copie, copyright: f.codeRetenu, auteur: auteur)
         }
     }
 
