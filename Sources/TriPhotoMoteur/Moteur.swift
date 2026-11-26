@@ -38,7 +38,8 @@ public struct ConfigMoteur {
     /// Photos traitées en même temps au plus (HUGO 26/11 : « 10, 20 en parallèle »). 0 : automatique, selon les
     /// cœurs du Mac (Mac mini 10 cœurs : jusqu'à 8). Le tri reste en priorité basse : Lightroom passe toujours avant.
     public var ouvriersMax: Int
-reception: URL, importLightroom: URL, tampon: URL?, serveur: URL, cote: Int, qualite: Int,
+
+    public init(reception: URL, importLightroom: URL, tampon: URL?, serveur: URL, cote: Int, qualite: Int,
                 cube: FichierCube?, concours: Concours?, tailleLot: Int, silenceMinutes: Int,
                 retarderSiOccupe: Bool, journal: URL, travailLightroom: URL? = nil, chrono: ConfigChrono? = nil,
                 attente00Minutes: Double = 2, galerie: ConfigGalerie? = nil,
