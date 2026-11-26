@@ -52,6 +52,8 @@ final class IndexArchivesTests: XCTestCase {
         XCTAssertEqual(LecturePhoto.codeDans("HM Photographie #12_045"), "#12_45")
         XCTAssertEqual(LecturePhoto.codeDans("© HM 2024-25"), "")
         XCTAssertEqual(ArchiveAnnee.anneeDevinee("Archives 2025"), "2025")
+        let carte = LecteurAttributionCSV.lire(Data("TYPE;CHP1;CHP2\r\nHMV;05;Club 2;24/11/2026;012;MARTIN;julie;Cavalier;;;P;QUAPRICE;;;;;;;\r\n05;Club 2;24/11/2026;99;Remise des prix;;;;;;;;;;;;;\r\n".utf8))
+        XCTAssertEqual(carte, ["#05_12": ["Julie MARTIN", "QUAPRICE"]])
     }
 
     func testRecherche() throws {
@@ -148,11 +150,29 @@ final class IndexArchivesTests: XCTestCase {
         XCTAssertEqual(idx.chercher(RechercheArchives(texte: "durand")).total, 0)
         XCTAssertEqual(idx.chercher(RechercheArchives(texte: "zoe balou")).total, 1)
 
+        // photo sans mots-clés (archives) : cavalier et cheval tirés du CSV d'attribution du concours
+        try photo(racine.appendingPathComponent("26-11-24_LAMOTTE INDOOR/12 Pro 2 GP/DERB1350-36.JPG"), mots: [], copyright: "#12_47")
+        let csv = racine.appendingPathComponent("26-11-24_LAMOTTE INDOOR/26-11-24_LAMOTTE INDOOR.csv")
+        try Data("80;Divers;24/11/2026;80;DIVERS;;;;;;;;;;;;;\r\n12;Pro 2 GP;24/11/2026;00;INCONNU;;;;;;;;;;;;;\r\n12;Pro 2 GP;24/11/2026;47;LEROY;marc;Cavalier;;;Proprio;ULYSSE;Cheval;;10;M;Bai;SF;\r\n".utf8).write(to: csv)
+        p = indexeur.indexerIci(a)
+        XCTAssertEqual(p.lues, 1)
+        let l = idx.chercher(RechercheArchives(texte: "marc leroy ulysse"))
+        XCTAssertEqual(l.total, 1)
+        XCTAssertEqual(l.photos.first?.motsCles, ["Marc LEROY", "ULYSSE"])
+        XCTAssertEqual(idx.chercher(RechercheArchives(texte: "ulysse", champ: .motsCles)).total, 1)
+        // CSV corrigé : appliqué sans relire les photos
+        try Data("HMV;12;Pro 2 GP;24/11/2026;47;LEROY;marc;Cavalier;;;Proprio;VOLTAIRE;Cheval;;10;M;Bai;SF;\r\n".utf8).write(to: csv)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(60)], ofItemAtPath: csv.path)
+        p = indexeur.indexerIci(a)
+        XCTAssertEqual(p.lues, 0)
+        XCTAssertEqual(idx.chercher(RechercheArchives(texte: "leroy voltaire")).total, 1)
+        XCTAssertEqual(idx.chercher(RechercheArchives(texte: "ulysse")).total, 0)
+
         // disque débranché : la recherche marche toujours, rien n'est retiré
         let absent = ArchiveAnnee(id: "A26", annee: "2026", chemin: racine.appendingPathComponent("nulle-part").path)
         XCTAssertFalse(absent.present)
         XCTAssertEqual(indexeur.indexerIci(absent).etape, .absent)
-        XCTAssertEqual(idx.compte(archive: "A26").photos, 2)
+        XCTAssertEqual(idx.compte(archive: "A26").photos, 3)
 
         // l'original n'a jamais été touché
         XCTAssertEqual(try Data(contentsOf: p1), avant)

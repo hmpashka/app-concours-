@@ -103,8 +103,8 @@ public struct RechercheArchives: Equatable, Sendable {
         public var id: String { rawValue }
         var colonne: String {
             switch self {
-            case .partout: return "n_tout"
-            case .motsCles: return "n_mots"
+            case .partout: return "(n_tout || ' ' || n_csv)"
+            case .motsCles: return "(n_mots || ' ' || n_csv)"
             case .nomFichier: return "n_nom"
             case .copyright: return "n_copyright"
             case .concours: return "n_concours"
@@ -166,8 +166,13 @@ public final class IndexArchives: @unchecked Sendable {
             mots TEXT NOT NULL, copyright TEXT NOT NULL, vignette INTEGER NOT NULL, passe INTEGER NOT NULL,
             n_tout TEXT NOT NULL, n_nom TEXT NOT NULL, n_concours TEXT NOT NULL, n_epreuve TEXT NOT NULL,
             n_mots TEXT NOT NULL, n_copyright TEXT NOT NULL,
+            mots_csv TEXT NOT NULL DEFAULT '', n_csv TEXT NOT NULL DEFAULT '',
             UNIQUE(archive, chemin))
         """)
+        // cavalier et cheval tirés du fichier d'attribution du concours (photos d'archives sans mots-clés)
+        executer("ALTER TABLE photos ADD COLUMN mots_csv TEXT NOT NULL DEFAULT ''")
+        executer("ALTER TABLE photos ADD COLUMN n_csv TEXT NOT NULL DEFAULT ''")
+        executer("CREATE TABLE IF NOT EXISTS csv (archive TEXT NOT NULL, concours TEXT NOT NULL, signature TEXT NOT NULL, PRIMARY KEY(archive, concours))")
         executer("CREATE INDEX IF NOT EXISTS photos_dossier ON photos(archive, dossier)")
         executer("CREATE INDEX IF NOT EXISTS photos_prise ON photos(prise)")
         executer("CREATE INDEX IF NOT EXISTS photos_concours ON photos(archive, concours)")
@@ -298,7 +303,7 @@ public final class IndexArchives: @unchecked Sendable {
     /// Ajoute ou met à jour une photo. Rend son id (gardé d'une lecture à l'autre : la vignette garde son nom).
     @discardableResult
     func enregistrer(archive: String, chemin: String, taille: Int64, modif: Double, lu: LecturePhoto, vignette: Bool,
-                     passe: Int64) -> Int64? {
+                     passe: Int64, csv: [String: [String]] = [:]) -> Int64? {
         let (concours, epreuve, dossier) = IndexArchives.decouper(chemin)
         let nom = (chemin as NSString).lastPathComponent
         let num = IndexArchives.numeroEpreuve(code: lu.code, epreuve: epreuve)
@@ -307,20 +312,23 @@ public final class IndexArchives: @unchecked Sendable {
         let codeCourt = lu.code.replacingOccurrences(of: "#", with: "")
         let tout = n([nom, concours, epreuve, lu.code, codeCourt, mots.replacingOccurrences(of: "\n", with: " "), lu.copyright]
             .joined(separator: " "))
+        let motsCSV = (lu.code.isEmpty ? nil : csv[lu.code]) ?? []
         let ok = modifier("""
         INSERT INTO photos (archive, chemin, dossier, nom, taille, modif, prise, concours, epreuve, num, code, mots,
-            copyright, vignette, passe, n_tout, n_nom, n_concours, n_epreuve, n_mots, n_copyright)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            copyright, vignette, passe, n_tout, n_nom, n_concours, n_epreuve, n_mots, n_copyright, mots_csv, n_csv)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(archive, chemin) DO UPDATE SET dossier = excluded.dossier, nom = excluded.nom,
             taille = excluded.taille, modif = excluded.modif, prise = excluded.prise, concours = excluded.concours,
             epreuve = excluded.epreuve, num = excluded.num, code = excluded.code, mots = excluded.mots,
             copyright = excluded.copyright, vignette = excluded.vignette, passe = excluded.passe,
             n_tout = excluded.n_tout, n_nom = excluded.n_nom, n_concours = excluded.n_concours,
-            n_epreuve = excluded.n_epreuve, n_mots = excluded.n_mots, n_copyright = excluded.n_copyright
+            n_epreuve = excluded.n_epreuve, n_mots = excluded.n_mots, n_copyright = excluded.n_copyright,
+            mots_csv = excluded.mots_csv, n_csv = excluded.n_csv
         """, [.t(archive), .t(chemin), .t(dossier), .t(nom), .i(taille), .r(modif),
               lu.prise.map { Valeur.r($0.timeIntervalSince1970) } ?? Valeur.nul, .t(concours), .t(epreuve), .t(num), .t(lu.code),
               .t(mots), .t(lu.copyright), .i(vignette ? 1 : 0), .i(passe), .t(tout), .t(n(nom)), .t(n(concours)),
-              .t(n(epreuve)), .t(n(mots)), .t(n(lu.copyright))])
+              .t(n(epreuve)), .t(n(mots)), .t(n(lu.copyright)), .t(motsCSV.joined(separator: "\n")),
+              .t(n(motsCSV.joined(separator: " ")))])
         guard ok else { return nil }
         var id: Int64?
         lignes("SELECT id FROM photos WHERE archive = ? AND chemin = ?", [.t(archive), .t(chemin)]) { id = sqlite3_column_int64($0, 0) }
@@ -366,16 +374,19 @@ public final class IndexArchives: @unchecked Sendable {
 
     // MARK: - Lecture (recherche)
 
-    private static let colonnes = "id, archive, chemin, nom, taille, prise, concours, epreuve, code, mots, copyright, vignette"
+    private static let colonnes = "id, archive, chemin, nom, taille, prise, concours, epreuve, code, mots, copyright, vignette, mots_csv"
 
     private static func photo(_ st: OpaquePointer?) -> PhotoArchive {
-        let mots = texte(st, 9)
+        var mots = texte(st, 9).components(separatedBy: "\n").filter { !$0.isEmpty }
+        for m in texte(st, 12).components(separatedBy: "\n") where !m.isEmpty && !mots.contains(where: { $0.lowercased() == m.lowercased() }) {
+            mots.append(m)
+        }
         return PhotoArchive(
             id: sqlite3_column_int64(st, 0), archive: texte(st, 1), chemin: texte(st, 2), nom: texte(st, 3),
             taille: sqlite3_column_int64(st, 4),
             prise: sqlite3_column_type(st, 5) == SQLITE_NULL ? nil : Date(timeIntervalSince1970: sqlite3_column_double(st, 5)),
             concours: texte(st, 6), epreuve: texte(st, 7), code: texte(st, 8),
-            motsCles: mots.isEmpty ? [] : mots.components(separatedBy: "\n"), copyright: texte(st, 10),
+            motsCles: mots, copyright: texte(st, 10),
             vignette: sqlite3_column_int(st, 11) != 0)
     }
 
@@ -759,6 +770,10 @@ public final class IndexeurArchives: @unchecked Sendable {
         var compteur = 0
         p.etape = .lecture
 
+        // fichiers d'attribution (CSV) du concours en cours : cavalier et cheval de chaque code
+        var concoursCSV = ""
+        var carteCSV: [String: [String]] = [:]
+
         func lire(_ aLire: [(rel: String, url: URL, taille: Int64, modif: Double, xmp: URL?)]) {
             guard !aLire.isEmpty else { return }
             p.aLire += aLire.count
@@ -773,7 +788,7 @@ public final class IndexeurArchives: @unchecked Sendable {
                         return
                     }
                     if let id = index.enregistrer(archive: a.id, chemin: f.rel, taille: f.taille, modif: f.modif, lu: lu,
-                                                  vignette: false, passe: passe) {
+                                                  vignette: false, passe: passe, csv: carteCSV) {
                         if let vignette, index.ecrireVignette(vignette, archive: a.id, id: id) { index.marquerVignette(id) }
                         else { try? fm.removeItem(at: index.urlVignette(archive: a.id, id: id)) }   // ancienne vignette d'une photo changée
                     } else {
@@ -804,6 +819,25 @@ public final class IndexeurArchives: @unchecked Sendable {
                 continue
             }
             let connues = index.connues(archive: a.id, dossier: rel)
+            let concoursIci = rel.split(separator: "/").first.map(String.init) ?? ""
+            if concoursIci != concoursCSV {
+                concoursCSV = concoursIci
+                carteCSV = [:]
+            }
+            if !rel.isEmpty && !rel.contains("/") {
+                // le dossier du concours : ses .csv (fichiers d'attribution), lus à chaque passage (ils sont petits)
+                let csvs = contenu.filter { $0.pathExtension.lowercased() == "csv" }
+                    .sorted { $0.lastPathComponent < $1.lastPathComponent }
+                var signature = ""
+                for u in csvs {
+                    let d = (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate?.timeIntervalSince1970) ?? 0
+                    signature += "\(u.lastPathComponent)|\(Int(d));"
+                    carteCSV.merge(LecteurAttributionCSV.lire(fichier: u)) { _, nouveau in nouveau }
+                }
+                if index.signatureCSV(archive: a.id, concours: rel) != signature {
+                    index.appliquerCSV(archive: a.id, concours: rel, carte: carteCSV, signature: signature)
+                }
+            }
             var aLire: [(rel: String, url: URL, taille: Int64, modif: Double, xmp: URL?)] = []
             let noms = Set(contenu.map { $0.lastPathComponent.lowercased() })
             var sous: [String] = []
@@ -871,6 +905,30 @@ public final class IndexeurArchives: @unchecked Sendable {
 }
 
 extension IndexArchives {
+    /// Signature des fichiers d'attribution d'un concours déjà appliqués (noms et dates), vide si aucun.
+    func signatureCSV(archive: String, concours: String) -> String? {
+        var s: String?
+        lignes("SELECT signature FROM csv WHERE archive = ? AND concours = ?", [.t(archive), .t(concours)]) { s = IndexArchives.texte($0, 0) }
+        return s
+    }
+
+    /// Applique le fichier d'attribution aux photos déjà indexées d'un concours (sans relire les photos).
+    func appliquerCSV(archive: String, concours: String, carte: [String: [String]], signature: String) {
+        var codes: [(Int64, String)] = []
+        lignes("SELECT id, code FROM photos WHERE archive = ? AND concours = ?", [.t(archive), .t(concours)]) {
+            codes.append((sqlite3_column_int64($0, 0), IndexArchives.texte($0, 1)))
+        }
+        debut()
+        for (id, code) in codes {
+            let m = (code.isEmpty ? nil : carte[code]) ?? []
+            modifier("UPDATE photos SET mots_csv = ?, n_csv = ? WHERE id = ?",
+                     [.t(m.joined(separator: "\n")), .t(IndexArchives.normaliser(m.joined(separator: " "))), .i(id)])
+        }
+        modifier("INSERT INTO csv (archive, concours, signature) VALUES (?,?,?) ON CONFLICT(archive, concours) DO UPDATE SET signature = excluded.signature",
+                 [.t(archive), .t(concours), .t(signature)])
+        fin()
+    }
+
     /// Nombre de photos plus vues pendant la passe (avant de les retirer).
     func lignesAbsentes(archive: String, passe: Int64, _ fin: (Int) -> Void) {
         var n = 0
