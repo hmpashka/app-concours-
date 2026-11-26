@@ -9,7 +9,7 @@ import TriPhotoMoteur
 
 let args = CommandLine.arguments
 guard args.count >= 2 else {
-    print("Usage : essai-bureau <dossier d'une année> [--chercher \"texte\"] [--index <dossier>] [--douce]")
+    print("Usage : essai-bureau <dossier d'une année> [--chercher \"texte\"] [--index <dossier>] [--douce] [--csv <dossier des CSV>]")
     exit(1)
 }
 func valeur(_ nom: String) -> String? {
@@ -22,6 +22,7 @@ let dossierIndex = valeur("--index").map { URL(fileURLWithPath: $0, isDirectory:
 let index = try IndexArchives(dossier: dossierIndex)
 let indexeur = IndexeurArchives(index: index)
 indexeur.pauseEntrePhotos = args.contains("--douce") ? 0.02 : 0
+if let c = valeur("--csv") { indexeur.dossierCSV = URL(fileURLWithPath: c, isDirectory: true) }
 let archive = ArchiveAnnee(id: "essai", annee: ArchiveAnnee.anneeDevinee(racine.lastPathComponent), chemin: racine.path)
 
 print("Archive : \(racine.path)")

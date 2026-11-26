@@ -59,6 +59,14 @@ struct AuBureauView: View {
                 }
             }
             Spacer(minLength: 0)
+            Text("FICHIERS CSV DES CONCOURS").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accent)
+            Text(bureau.dossierCSV.isEmpty ? "Aucun : la recherche par cavalier ou cheval ne marche que sur les photos qui ont des mots-clés."
+                                           : (bureau.dossierCSV as NSString).abbreviatingWithTildeInPath)
+                .font(.system(size: 11)).foregroundStyle(Theme.texteDiscret).lineLimit(3).truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(bureau.dossierCSV.isEmpty ? "Choisir le dossier des CSV…" : "Changer de dossier…") { bureau.choisirDossierCSV() }
+                .buttonStyle(BoutonStyle())
+                .help("Chaque CSV d'attribution est relié à son concours par la date et le nom : le code de chaque photo donne alors le cavalier et le cheval.")
             Text("INDEX SUR CE MAC").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accent)
             let photos = bureau.comptes.values.reduce(0) { $0 + $1.photos }
             Text("Fiches : \(octets(bureau.tailles.index)) · Vignettes : \(octets(bureau.tailles.vignettes))\n\(photos.formatted()) photos, dans Bibliothèque › Application Support")

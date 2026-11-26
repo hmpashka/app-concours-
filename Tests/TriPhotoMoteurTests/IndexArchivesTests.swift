@@ -54,6 +54,15 @@ final class IndexArchivesTests: XCTestCase {
         XCTAssertEqual(ArchiveAnnee.anneeDevinee("Archives 2025"), "2025")
         let carte = LecteurAttributionCSV.lire(Data("TYPE;CHP1;CHP2\r\nHMV;05;Club 2;24/11/2026;012;MARTIN;julie;Cavalier;;;P;QUAPRICE;;;;;;;\r\n05;Club 2;24/11/2026;99;Remise des prix;;;;;;;;;;;;;\r\n".utf8))
         XCTAssertEqual(carte, ["#05_12": ["Julie MARTIN", "QUAPRICE"]])
+        // formats 2025 (code en 1re colonne, en-tête HMV;CHP1) et 2026 (sans en-tête, cavalier entier)
+        XCTAssertEqual(LecteurAttributionCSV.lire(Data("HMV;CHP1;CHP2\r\n#01_00;1;PREPA 50;;0;Inconnu PREPA 50;;;;;;\r\n#01_07;1;PREPA 50;;7;DURAND;paul;;;;;ECLAIR;\r\n".utf8)),
+                       ["#01_07": ["Paul DURAND", "ECLAIR"]])
+        XCTAssertEqual(LecteurAttributionCSV.lire(Data("1;CLUB 3;;1;PETIT Zoe;;;;;;BALOU\n".utf8)), ["#01_01": ["Zoe PETIT", "BALOU"]])
+        // rapprochement CSV ↔ dossier de concours
+        XCTAssertNotNil(RapprochementCSV.note(concours: "25-02-16_CLUB BERGENNE", csv: "25-02-15_CLUB BERGENNE SERV copie.csv"))
+        XCTAssertNil(RapprochementCSV.note(concours: "25-02-16_CLUB BERGENNE", csv: "25-02-23_SUBLIGNY.csv"))
+        XCTAssertNil(RapprochementCSV.note(concours: "25-02-16_CLUB BERGENNE", csv: "24-02-16_CLUB BERGENNE.csv"))
+        XCTAssertNotNil(RapprochementCSV.note(concours: "26-01-03-GALOPIN", csv: "26-01-03 GALOPIN.csv"))
     }
 
     func testRecherche() throws {

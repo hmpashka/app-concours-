@@ -680,6 +680,7 @@ public final class IndexeurArchives: @unchecked Sendable {
     public var pauseEntrePhotos: TimeInterval = 0.02
 
     private let verrou = NSLock()
+    private var _dossierCSV: URL?
     private var file: [ArchiveAnnee] = []
     private var enMarche = false
     private var _pause = false
@@ -690,6 +691,26 @@ public final class IndexeurArchives: @unchecked Sendable {
     public var enPause: Bool {
         get { verrou.lock(); defer { verrou.unlock() }; return _pause }
         set { verrou.lock(); _pause = newValue; verrou.unlock() }
+    }
+
+    /// Dossier où HUGO range les fichiers CSV d'attribution (« CSO EN COUR/old », sous-dossiers compris) : chacun
+    /// est relié à son dossier de concours d'après la date et le nom (RapprochementCSV).
+    public var dossierCSV: URL? {
+        get { verrou.lock(); defer { verrou.unlock() }; return _dossierCSV }
+        set { verrou.lock(); _dossierCSV = newValue; verrou.unlock() }
+    }
+
+    /// Les CSV du dossier choisi : chemin, nom, date de modification.
+    private func catalogueCSV() -> [(url: URL, nom: String, modif: Double)] {
+        guard let d = dossierCSV,
+              let e = FileManager.default.enumerator(at: d, includingPropertiesForKeys: [.contentModificationDateKey],
+                                                     options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
+        var l: [(url: URL, nom: String, modif: Double)] = []
+        for case let u as URL in e where u.pathExtension.lowercased() == "csv" {
+            let m = (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate?.timeIntervalSince1970) ?? 0
+            l.append((u, u.lastPathComponent, m))
+        }
+        return l
     }
 
     public var occupe: Bool { verrou.lock(); defer { verrou.unlock() }; return enMarche }
@@ -773,6 +794,7 @@ public final class IndexeurArchives: @unchecked Sendable {
         // fichiers d'attribution (CSV) du concours en cours : cavalier et cheval de chaque code
         var concoursCSV = ""
         var carteCSV: [String: [String]] = [:]
+        let catalogue = catalogueCSV()
 
         func lire(_ aLire: [(rel: String, url: URL, taille: Int64, modif: Double, xmp: URL?)]) {
             guard !aLire.isEmpty else { return }
@@ -826,8 +848,14 @@ public final class IndexeurArchives: @unchecked Sendable {
             }
             if !rel.isEmpty && !rel.contains("/") {
                 // le dossier du concours : ses .csv (fichiers d'attribution), lus à chaque passage (ils sont petits)
-                let csvs = contenu.filter { $0.pathExtension.lowercased() == "csv" }
+                var csvs = contenu.filter { $0.pathExtension.lowercased() == "csv" }
                     .sorted { $0.lastPathComponent < $1.lastPathComponent }
+                // + ceux du dossier des CSV qui ressemblent le plus à ce concours (date proche, mots du nom), du plus
+                //   ancien au plus récent : le plus récent l'emporte
+                let notes = catalogue.compactMap { c in RapprochementCSV.note(concours: rel, csv: c.nom).map { (c, $0) } }
+                if let meilleure = notes.map(\.1).max() {
+                    csvs += notes.filter { $0.1 == meilleure }.map(\.0).sorted { $0.modif < $1.modif }.map(\.url)
+                }
                 var signature = ""
                 for u in csvs {
                     let d = (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate?.timeIntervalSince1970) ?? 0
