@@ -18,6 +18,7 @@ struct MemoireView: View {
     @State private var message = ""
     @State private var travail = false
     @State private var enGrand: DepartVisionneuse?
+    @State private var gros = 0                           // exemples trop gros (photos entières au lieu de vignettes)
 
     private var memoire: Memoire { etat.memoire }
 
@@ -49,8 +50,10 @@ struct MemoireView: View {
         let m = memoire
         DispatchQueue.global(qos: .userInitiated).async {
             let c = m.categories()
+            let g = m.tropGros()
             DispatchQueue.main.async {
                 categories = c
+                gros = g
                 if !c.contains(where: { $0.cle == choisie }) { choisie = c.first?.cle ?? "bonne" }
                 chargerExemples()
             }
@@ -109,8 +112,30 @@ struct MemoireView: View {
             }
             Button("Montrer dans le Finder") { NSWorkspace.shared.activateFileViewerSelecting([memoire.dossier]) }
                 .buttonStyle(BoutonStyle())
+            if gros > 0 {
+                // essai du 26/11 : des photos entières (4 à 7 Mo) dans la mémoire, lentes à télécharger sur chaque Mac
+                Text("\(gros) exemple\(gros > 1 ? "s sont des photos entières" : " est une photo entière") au lieu de vignettes : la mémoire est lente à s'afficher et à se partager.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.attention)
+                Button(travail ? "Allègement…" : "Alléger la mémoire") { alleger() }
+                    .buttonStyle(BoutonStyle(principal: true)).disabled(travail)
+                    .help("Chaque photo entière est remplacée par sa vignette de 360 px. La photo entière part à la Corbeille.")
+            }
         }
         .padding(14)
+    }
+
+    private func alleger() {
+        let m = memoire
+        travail = true
+        DispatchQueue.global(qos: .utility).async {
+            let r = m.alleger()
+            DispatchQueue.main.async {
+                travail = false
+                message = "\(r.allegees) photo\(r.allegees > 1 ? "s" : "") remplacée\(r.allegees > 1 ? "s" : "") par leur vignette (photos entières à la Corbeille)."
+                    + (r.enAttente > 0 ? " \(r.enAttente) encore illisible\(r.enAttente > 1 ? "s" : "") : à refaire plus tard." : "")
+                charger()
+            }
+        }
     }
 
     private func creerCategorie() {

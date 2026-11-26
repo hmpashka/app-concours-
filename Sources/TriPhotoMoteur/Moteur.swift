@@ -802,7 +802,8 @@ public final class Moteur: ObservableObject {
         var r = ResumeMoteur()
         let compte = j.compter(depuis: debutJournee)
         r.recues = compte.values.reduce(0, +)
-        r.parMinute = Double(j.terminees(depuis: maintenant.addingTimeInterval(-300))) / 5
+        // « en ce moment » : les 2 dernières minutes (sur 5 minutes, le chiffre restait affiché longtemps après la rafale)
+        r.parMinute = Double(j.terminees(depuis: maintenant.addingTimeInterval(-120))) / 2
         r.enFile = vuesEnAttente.count
         r.retardSecondes = vuesEnAttente.values.min().map { maintenant.timeIntervalSince($0) } ?? 0
         // à renvoyer : tant que le fichier abîmé est encore dans « _À renvoyer » (HUGO le supprime une fois renvoyé)

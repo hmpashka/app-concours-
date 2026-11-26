@@ -11,7 +11,7 @@ struct RevueView: View {
     @ObservedObject var moteur: Moteur
     @State private var epreuve: String = ""          // vide : toutes
     @State private var boitier: String = ""          // vide : tous
-    @State private var ordre: Ordre = .douteuses
+    @AppStorage("revue.ordre") private var ordre: Ordre = .douteuses
     @State private var photos: [FichePhoto] = []
     @State private var index = 0
     @State private var nouveauCode = ""
@@ -27,7 +27,8 @@ struct RevueView: View {
     @FocusState private var saisieActive: Bool           // on tape dans la recherche : les lettres ne classent pas
     @State private var zoom: CGFloat = 1                 // molette du Loupedeck
     // Vue galerie (HUGO 25/11, comme la Bibliothèque de Lightroom) : G la grille, E / Entrée la photo en grand.
-    @State private var galerie = false
+    @AppStorage("revue.galerie") private var galerie = false   // gardé quand on change d'onglet (essai du 26/11)
+    @State private var galerieAvantPleinEcran = false     // P depuis la galerie : on y revient en sortant
     @State private var choix: Set<Int64> = []             // photos choisies dans la galerie (⇧ / ⌘ clic)
     @State private var etiquettes: [Int64: String] = [:]  // « sol », « floue », « code » proposés (calculés au chargement)
     @State private var chargement = 0                     // n° du dernier chargement demandé (frappe rapide)
@@ -92,8 +93,9 @@ struct RevueView: View {
         Group {
             if etat.pleinEcran, let f = courante { vuePleinEcran(f) } else { ecranNormal }
         }
-        .onAppear(perform: charger)
+        .onAppear { Clic.surveiller(); charger() }
         .onChange(of: galerie) { g in if !g { choix = [] } }
+        .onChange(of: courante?.id) { id in if let id { etat.revuePhotoId = id } }
         .onChange(of: epreuve) { _ in charger() }
         .onChange(of: boitier) { _ in charger() }
         .onChange(of: ordre) { _ in charger() }
@@ -106,6 +108,12 @@ struct RevueView: View {
         .onChange(of: etat.photosRevue?.ids) { _ in charger() }
         .background(raccourcis)
         .onReceive(etat.ordresLoupedeck) { recevoirLoupedeck($0) }
+        // Sortie du plein écran par le bouton vert ou le menu Présentation : la Revue suit (bandeau remis).
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
+            guard etat.pleinEcran else { return }
+            etat.pleinEcran = false
+            if galerieAvantPleinEcran { galerie = true; galerieAvantPleinEcran = false }
+        }
         .onChange(of: signatureLoupedeck) { _ in publierLoupedeck() }
         .onAppear(perform: publierLoupedeck)
         .onDisappear {
@@ -166,7 +174,8 @@ struct RevueView: View {
         let entrer = !etat.pleinEcran
         guard !entrer || courante != nil else { return }
         if let w = NSApp.keyWindow ?? NSApp.mainWindow, w.styleMask.contains(.fullScreen) != entrer { w.toggleFullScreen(nil) }
-        if entrer { galerie = false; choix = [] }
+        if entrer { galerieAvantPleinEcran = galerie; galerie = false }
+        else if galerieAvantPleinEcran { galerie = true; galerieAvantPleinEcran = false }
         etat.pleinEcran = entrer
     }
 
@@ -416,7 +425,7 @@ struct RevueView: View {
             let cats = RevueView.aTraiter(l)
             DispatchQueue.main.async {
                 guard numero == chargement else { return }   // un chargement plus récent est en route : on l'attend
-                let garde = courante?.id
+                let garde = courante?.id ?? etat.revuePhotoId   // retour sur l'onglet : la photo où on en était
                 photos = l
                 etiquettes = cats
                 index = garde.flatMap { g in l.firstIndex { $0.id == g } } ?? 0
@@ -494,7 +503,7 @@ struct RevueView: View {
                     .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
             }
             Button("Actualiser") { charger() }.buttonStyle(BoutonStyle())
-            Text("\(photos.count) photos").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+            Text(Pluriel.photos(photos.count)).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
                 .padding(.top, 8)
         }
         .padding(14)
@@ -506,16 +515,21 @@ struct RevueView: View {
     private var centre: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
+                // Le titre ne se coupe jamais ; l'aide prend la version qui tient en entier, ou disparaît (essai du 26/11).
                 if galerie {
-                    Text("\(photos.count) photo\(photos.count > 1 ? "s" : "")").font(.system(size: 13, weight: .semibold))
-                    Text(choix.count > 1 ? "\(choix.count) photos choisies : les touches et les boutons s'appliquent à toutes (⌘Z annule)"
-                         : "clic : choisir · ⇧ ou ⌘ clic : plusieurs · double-clic ou Entrée : en grand")
-                        .font(.system(size: 11)).foregroundStyle(choix.count > 1 ? Theme.accent : Theme.texteTresDiscret)
-                        .lineLimit(1)
+                    Text(Pluriel.photos(photos.count)).font(.system(size: 13, weight: .semibold)).fixedSize()
+                    if choix.count > 1 {
+                        aide(["\(choix.count) photos choisies : les touches et les boutons s'appliquent à toutes (⌘Z annule)",
+                              "\(choix.count) choisies · ⌘Z annule"], accent: true)
+                    } else {
+                        aide(["clic : choisir · ⇧ ou ⌘ clic : plusieurs · double-clic ou Entrée : en grand",
+                              "⇧ ou ⌘ clic : plusieurs · double-clic : en grand"])
+                    }
                 } else if courante != nil {
-                    Text("Photo \(index + 1) sur \(photos.count)").font(.system(size: 13, weight: .semibold))
-                    Text("← → pour avancer · la lettre pour classer · X : chute · M : meilleure · R : réseaux · G : galerie · P : plein écran")
-                        .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret).lineLimit(1)
+                    Text("Photo \(index + 1) sur \(photos.count)").font(.system(size: 13, weight: .semibold)).fixedSize()
+                    aide(["← → avancer · B F S C classer · X chute · M meilleure · R réseaux · G galerie · P plein écran · Échap galerie",
+                          "← → avancer · lettre : classer · G galerie · P plein écran",
+                          "← → · G · P"])
                 }
                 Spacer(minLength: 8)
                 if !galerie, let f = courante {
@@ -554,6 +568,23 @@ struct RevueView: View {
             }
         }
         .padding(20)
+    }
+
+    /// Une ligne d'aide : la plus longue version qui tient en entier, sinon rien (jamais de « … »).
+    private func aide(_ versions: [String], accent: Bool = false) -> some View {
+        let v = versions + ["", "", ""]
+        func ligne(_ t: String) -> some View {
+            Text(t).font(.system(size: 11)).foregroundStyle(accent ? Theme.accent : Theme.texteTresDiscret)
+                .lineLimit(1).fixedSize()
+        }
+        return ViewThatFits(in: .horizontal) {
+            ligne(v[0])
+            ligne(v[1])
+            ligne(v[2])
+            ligne("")
+        }
+        .frame(minWidth: 0, alignment: .leading)
+        .layoutPriority(-1)
     }
 
     /// Les boutons sous la photo. Fenêtre étroite (deux panneaux ouverts sur un petit écran) : ils passent sur deux
@@ -653,9 +684,17 @@ struct RevueView: View {
         let active = i == index
         let choisie = choix.contains(f.id)
         return VStack(alignment: .leading, spacing: 3) {
-            VignettePhoto(chemins: [f.copie, f.chemin], cote: 260)
+            // en entier : une verticale se voit verticale (essai du 26/11), avec un fond autour
+            VignettePhoto(chemins: [f.copie, f.chemin], cote: 260, entiere: true)
+                .background(Theme.fond)
                 .aspectRatio(3 / 2, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 3))
+                .overlay(alignment: .bottomTrailing) {
+                    if choisie {
+                        Image(systemName: "checkmark.circle.fill").font(.system(size: 18))
+                            .foregroundStyle(Theme.surAccent, Theme.accent).padding(4)
+                    }
+                }
                 .overlay(alignment: .topLeading) {
                     if let e = etiquette(f) {
                         Text(e.texte).font(.system(size: 9, weight: .semibold)).padding(.horizontal, 4).padding(.vertical, 1)
@@ -683,7 +722,7 @@ struct RevueView: View {
         .padding(5)
         .background(active || choisie ? Theme.selection : Theme.carte, in: RoundedRectangle(cornerRadius: 4))
         .overlay(RoundedRectangle(cornerRadius: 4)
-            .stroke(active ? Theme.accent : choisie ? Theme.accent.opacity(0.6) : Color.clear, lineWidth: active ? 2 : 1.5))
+            .stroke(active || choisie ? Theme.accent : Color.clear, lineWidth: active ? 3 : 2.5))
         .contentShape(Rectangle())
         .onTapGesture { cliquer(i, f) }
         .simultaneousGesture(TapGesture(count: 2).onEnded { index = i; galerie = false })
@@ -704,7 +743,7 @@ struct RevueView: View {
 
     /// Clic : une photo. ⌘ clic : ajoute ou retire. ⇧ clic : toutes celles entre la photo active et celle-ci.
     private func cliquer(_ i: Int, _ f: FichePhoto) {
-        let touches = NSEvent.modifierFlags
+        let touches = Clic.touches
         if touches.contains(.shift), photos.indices.contains(index) {
             let (a, b) = (min(index, i), max(index, i))
             choix = Set(photos[a...b].map(\.id))
@@ -724,7 +763,8 @@ struct RevueView: View {
                 LazyHStack(spacing: 6) {
                     ForEach(Array(photos.enumerated()), id: \.element.id) { i, f in
                         Button { index = i } label: {
-                            VignettePhoto(chemins: [f.copie, f.chemin], cote: 260)
+                            VignettePhoto(chemins: [f.copie, f.chemin], cote: 260, entiere: true)
+                                .background(Theme.fond)
                                 .frame(width: 96, height: 64)
                                 .clipShape(RoundedRectangle(cornerRadius: 3))
                                 .overlay(RoundedRectangle(cornerRadius: 3).stroke(i == index ? Theme.accent : Color.clear, lineWidth: 2))
@@ -745,8 +785,22 @@ struct RevueView: View {
     private var panneauDroit: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
+                if galerie, choix.count > 1 {
+                    let l = photos.filter { choix.contains($0.id) }
+                    Text("\(l.count) photos choisies").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.accent)
+                    let codes = Set(l.map(\.codeRetenu))
+                    info("Codes", codes.count == 1 ? (codes.first.map { $0.isEmpty ? "sans code" : $0 } ?? "") : "\(codes.count) différents")
+                    let prises = l.compactMap(\.prise)
+                    if let a = prises.min(), let b = prises.max() {
+                        info("Prises", "\(a.formatted(date: .omitted, time: .shortened)) à \(b.formatted(date: .omitted, time: .shortened))")
+                    }
+                    Text("Les touches et les boutons s'appliquent aux \(l.count) photos. Échap : n'en garder aucune.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.texteDiscret)
+                    Divider().overlay(Theme.bordure)
+                    Text("Photo active").font(.system(size: 13, weight: .semibold))
+                }
                 if let f = courante {
-                    Text("Cette photo").font(.system(size: 14, weight: .semibold))
+                    if !(galerie && choix.count > 1) { Text("Cette photo").font(.system(size: 14, weight: .semibold)) }
                     info("Code", f.codeRetenu.isEmpty ? "sans code" : f.codeRetenu)
                     if !f.cavalier.isEmpty { info("Couple", "\(f.cavalier) · \(f.cheval)") }
                     info("Nom", f.nom)
@@ -931,7 +985,9 @@ struct RevueView: View {
             Button("") { galerie = false }.keyboardShortcut("e", modifiers: [])
             Button("") { if galerie { galerie = false } }.keyboardShortcut(.return, modifiers: [])
             Button("") { if galerie { choix = Set(photos.map(\.id)) } }.keyboardShortcut("a", modifiers: .command)
-            Button("") { if etat.pleinEcran { basculerPleinEcran() } else { choix = [] } }.keyboardShortcut(.escape, modifiers: [])
+            Button("") {
+                if etat.pleinEcran { basculerPleinEcran() } else if !galerie { galerie = true } else { choix = [] }
+            }.keyboardShortcut(.escape, modifiers: [])
             Button("") { basculerPleinEcran() }.keyboardShortcut("p", modifiers: [])
             ForEach(classes) { c in
                 Button("") { classer(c.cle) }.keyboardShortcut(KeyEquivalent(c.touche), modifiers: [])

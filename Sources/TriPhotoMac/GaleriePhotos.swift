@@ -7,18 +7,33 @@ import TriPhotoMoteur
 struct SelecteurVue: View {
     @Binding var galerie: Bool
 
+    /// Fenêtre étroite : les deux boutons gardent leur taille (jamais écrasés ni coupés) ; sans la place, les icônes seules.
     var body: some View {
-        HStack(spacing: 0) {
-            bouton("Galerie (G)", icone: "square.grid.3x3", actif: galerie) { galerie = true }
-            bouton("Photo (E)", icone: "square", actif: !galerie) { galerie = false }
+        ViewThatFits(in: .horizontal) {
+            boutons(court: false)
+            boutons(court: true)
         }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func boutons(court: Bool) -> some View {
+        HStack(spacing: 0) {
+            bouton(court ? "" : "Galerie (G)", icone: "square.grid.3x3", actif: galerie) { galerie = true }
+                .help("Galerie (G)")
+            bouton(court ? "" : "Photo (E)", icone: "square", actif: !galerie) { galerie = false }
+                .help("Photo en grand (E)")
+        }
+        .fixedSize()
         .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.bordure, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 5))
     }
 
     private func bouton(_ titre: String, icone: String, actif: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(titre, systemImage: icone)
+            Group {
+                if titre.isEmpty { Image(systemName: icone) } else { Label(titre, systemImage: icone) }
+            }
+                .lineLimit(1)
                 .font(.system(size: 12, weight: actif ? .semibold : .regular))
                 .padding(.horizontal, 10).padding(.vertical, 4)
                 .foregroundStyle(actif ? Theme.surAccent : Theme.texte)
@@ -40,6 +55,29 @@ struct CurseurTaille: View {
         }
         .help("Taille des vignettes")
     }
+}
+
+/// Touches tenues au moment du clic (⇧, ⌘). SwiftUI ne donne pas les touches avec un clic, et lire le clavier
+/// au moment où le geste se termine est trop tard : un ⇧-clic rapide était vu comme un clic simple (essai du 26/11).
+@MainActor
+enum Clic {
+    private(set) static var touches: NSEvent.ModifierFlags = []
+    private static var moniteur: Any?
+
+    /// À appeler à l'ouverture d'un écran avec une galerie (une seule surveillance pour toute l'app).
+    static func surveiller() {
+        guard moniteur == nil else { return }
+        moniteur = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { e in
+            let t = e.modifierFlags.intersection([.shift, .command, .option, .control])
+            MainActor.assumeIsolated { Clic.touches = t }
+            return e
+        }
+    }
+}
+
+/// « 0 photo », « 1 photo », « 2 photos » : en français, 0 et 1 au singulier, partout pareil.
+enum Pluriel {
+    static func photos(_ n: Int) -> String { "\(n) photo\(n > 1 ? "s" : "")" }
 }
 
 /// Nombre de colonnes de la galerie pour une largeur donnée (sert aussi aux flèches ↑ ↓).

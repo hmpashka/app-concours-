@@ -75,11 +75,14 @@ struct Bandeau: View {
     var body: some View {
         HStack(alignment: .center, spacing: 24) {
             VStack(alignment: .leading, spacing: 2) {
+                // une ligne chacun, coupés au milieu si la fenêtre est étroite (essai du 26/11 : titre sur 4 lignes)
                 Text(etat.reglages.nomConcours.isEmpty ? "Nouveau concours" : etat.reglages.nomConcours)
                     .font(.system(size: 15, weight: .semibold))
+                    .lineLimit(1).truncationMode(.middle)
                 Text(sousTitre).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
-                    .lineLimit(2).truncationMode(.tail)
+                    .lineLimit(1).truncationMode(.tail)
             }
+            .help("\(etat.reglages.nomConcours)\n\(sousTitre)")
             .layoutPriority(0)
             Spacer(minLength: 8)
             HStack(spacing: 2) {

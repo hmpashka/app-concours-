@@ -140,7 +140,7 @@ struct ReglagesView: View {
                     .frame(maxWidth: 820, alignment: .leading)
                     .frame(maxWidth: .infinity)
                 }
-                .onChange(of: section) { s in withAnimation { lecteur.scrollTo(s, anchor: .top) } }
+                .onChange(of: section) { s in lecteur.scrollTo(s, anchor: .top) }   // sans animation : le clic suivant tombe juste
                 .onAppear { lecteur.scrollTo(section, anchor: .top) }
             }
         }

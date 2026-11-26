@@ -23,7 +23,9 @@ final class Etat: ObservableObject {
     @Published var ecran: Ecran = .reglages
     @Published var panneauGauche = true
     @Published var panneauDroit = true
-    @Published var pleinEcran = false            // Revue : la photo seule sur fond noir (touche P)
+    @Published var pleinEcran = false
+    /// Photo où en était la Revue, pour y revenir après un tour dans un autre onglet (pas publié : rien à redessiner).
+    var revuePhotoId: Int64?            // Revue : la photo seule sur fond noir (touche P)
     @Published var montrerEntrainement = false
 
     @Published var reglages: ReglagesConcours {

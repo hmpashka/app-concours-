@@ -19,6 +19,11 @@ struct TriPhotoApp: App {
 
 /// Lancement depuis le Terminal (pendant le développement) : l'app passe quand même au premier plan avec son menu.
 final class Delegue: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    /// Pas d'onglets de fenêtre (menu Présentation « Afficher la barre d'onglets ») : ils ne servent à rien ici.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)

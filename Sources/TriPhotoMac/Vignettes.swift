@@ -48,6 +48,8 @@ struct VignettePhoto: View {
     var entiere = false
     @State private var image: NSImage?
     @State private var lecture: Operation?
+    @State private var visible = false
+    @State private var essais = 0                        // fichier pas encore là (iCloud qui télécharge) : on réessaie
 
     var body: some View {
         Rectangle().fill(entiere ? Color.clear : Theme.carte)
@@ -63,10 +65,11 @@ struct VignettePhoto: View {
                 }
             }
             .clipped()
-            .onAppear { lire(chemins) }
-            .onDisappear { lecture?.cancel(); lecture = nil }
+            .onAppear { visible = true; lire(chemins) }
+            .onDisappear { visible = false; lecture?.cancel(); lecture = nil }
             .onChange(of: chemins) { nouveaux in
                 image = nil
+                essais = 0
                 lire(nouveaux)
             }
     }
@@ -78,6 +81,14 @@ struct VignettePhoto: View {
         lecture?.cancel()
         lecture = CacheVignettes.partage.charger(l, cote: cote) { im in
             image = im
+            // Photo pas encore lisible (mémoire iCloud en cours de téléchargement sur ce Mac) : on réessaie un moment
+            // au lieu de tourner pour toujours (essai du 26/11).
+            guard im == nil, visible, essais < 40,
+                  !l.contains(where: { !$0.isEmpty && FileManager.default.fileExists(atPath: $0) }) else { return }
+            essais += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                if visible, image == nil, chemins == l { lire(l) }
+            }
         }
     }
 }

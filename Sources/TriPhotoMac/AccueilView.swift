@@ -51,8 +51,10 @@ struct AccueilView: View {
 
     // MARK: - Chiffres
 
+    /// Les grands chiffres : sur une ligne dans une fenêtre large, sur plusieurs lignes dans une fenêtre étroite
+    /// (essai du 26/11 : dans une petite fenêtre, les textes étaient coupés).
     private var chiffres: some View {
-        HStack(spacing: 12) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
             Tuile(titre: "Photos reçues aujourd'hui", valeur: "\(r.recues)",
                   detail: "\(Int(r.parMinute.rounded())) par minute en ce moment")
             Tuile(titre: "File d'attente", valeur: "\(r.enFile)",
@@ -150,14 +152,17 @@ struct AccueilView: View {
                 ForEach(r.photosParCode, id: \.code) { p in
                     let ecart = mediane > 0 && (Double(p.photos) > Double(mediane) * 2 || Double(p.photos) < Double(mediane) / 2)
                     VStack(spacing: 2) {
+                        // barres qui s'élargissent avec la fenêtre (plein écran : plus de graphique minuscule)
                         RoundedRectangle(cornerRadius: 2)
                             .fill(ecart ? Theme.orange : Theme.accent)
-                            .frame(width: 12, height: plusHaut > 0 ? CGFloat(p.photos) / CGFloat(plusHaut) * 70 + 2 : 2)
-                            .help("\(p.code) : \(p.photos) photos")
+                            .frame(minWidth: 4, maxWidth: 32)
+                            .frame(height: plusHaut > 0 ? CGFloat(p.photos) / CGFloat(plusHaut) * 120 + 2 : 2)
+                            .help("\(p.code) : \(Pluriel.photos(p.photos))")
                     }
                 }
             }
-            .frame(height: 76, alignment: .bottom)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 126, alignment: .bottom)
         }
     }
 
@@ -205,7 +210,7 @@ struct AccueilView: View {
                         }
                     }
                     Spacer()
-                    Text("\(b.photos) photos").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+                    Text(Pluriel.photos(b.photos)).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
                     if let d = b.derniere {
                         let silence = Date().timeIntervalSince(d)
                         Pastille(texte: silence < 300 ? "dernière il y a \(Self.duree(silence))" : "silencieux depuis \(Self.duree(silence))",
@@ -316,10 +321,11 @@ struct Tuile: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(titre).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
             Text(valeur).font(.system(size: 28, weight: .semibold)).foregroundStyle(alerte ? Theme.attention : Theme.texte)
-            Text(detail).font(.system(size: 11)).foregroundStyle(Theme.texteDiscret).lineLimit(1)
+            Text(detail).font(.system(size: 11)).foregroundStyle(Theme.texteDiscret).lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
         .background(Theme.carte, in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(alerte ? Theme.attention.opacity(0.5) : Theme.bordure, lineWidth: 1))
     }
