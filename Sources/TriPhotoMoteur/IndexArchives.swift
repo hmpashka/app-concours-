@@ -862,7 +862,8 @@ public final class IndexeurArchives: @unchecked Sendable {
                     signature += "\(u.lastPathComponent)|\(Int(d));"
                     carteCSV.merge(LecteurAttributionCSV.lire(fichier: u)) { _, nouveau in nouveau }
                 }
-                if index.signatureCSV(archive: a.id, concours: rel) != signature {
+                // aucun CSV trouvé (déplacé, disque débranché…) : on garde les noms déjà dans l'index
+                if !csvs.isEmpty, index.signatureCSV(archive: a.id, concours: rel) != signature {
                     index.appliquerCSV(archive: a.id, concours: rel, carte: carteCSV, signature: signature)
                 }
             }
