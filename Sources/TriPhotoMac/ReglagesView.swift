@@ -27,6 +27,8 @@ enum SectionReglages: String, CaseIterable, Identifiable {
 /// Écran Réglages (maquette 4a) : sections à gauche, réglages au centre, « Prêt à démarrer ? » à droite.
 struct ReglagesView: View {
     @EnvironmentObject var etat: Etat
+    @State private var testStand: (ok: Bool, texte: String)?
+    @State private var testStandEnCours = false
     @State private var section: SectionReglages = .concours
     @State private var montrerEpreuves = false
     @State private var testGalerie = ""
@@ -437,6 +439,15 @@ struct ReglagesView: View {
                             value: $etat.reglages.minutesGalerieStand, in: 1...30)
                 }
                 HStack {
+                    Button(testStandEnCours ? "Essai en cours…" : "Tester la connexion") {
+                        guard let c = etat.configGalerieStand() else { return }
+                        testStandEnCours = true
+                        testStand = nil
+                        EssaiGalerieStand.tester(c) { ok, m in
+                            Task { @MainActor in testStandEnCours = false; testStand = (ok, m) }
+                        }
+                    }
+                    .buttonStyle(BoutonStyle()).disabled(testStandEnCours)
                     Button("Rafraîchir maintenant") { etat.moteur.rafraichirGalerie() }
                         .buttonStyle(BoutonStyle()).disabled(!etat.moteur.actif)
                     if !etat.reglages.empreinteGalerieStand.isEmpty {
@@ -444,7 +455,10 @@ struct ReglagesView: View {
                             .buttonStyle(BoutonStyle())
                             .help("À faire seulement si le serveur du stand a changé de certificat.")
                     }
-                    if let g = etat.moteur.resume.galerie, !g.message.isEmpty {
+                    if let t = testStand {
+                        Text(t.ok ? "✓ " + t.texte : t.texte).font(.system(size: 11))
+                            .foregroundStyle(t.ok ? Theme.ok : Theme.erreur)
+                    } else if let g = etat.moteur.resume.galerie, !g.message.isEmpty {
                         Text(g.message).font(.system(size: 11)).foregroundStyle(g.ok == false ? Theme.erreur : Theme.texteDiscret)
                     }
                 }

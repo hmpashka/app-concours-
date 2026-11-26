@@ -102,6 +102,18 @@ final class Etat: ObservableObject {
     /// L'état en cours (pour les clics sur les notifications du Mac).
     static weak var courant: Etat?
 
+    /// Rafraîchissement de la galerie du stand (serveur local). nil : pas d'adresse.
+    func configGalerieStand() -> ConfigGalerie? {
+        let r = reglages
+        guard !r.urlGalerieStand.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return ConfigGalerie(adresse: r.urlGalerieStand, identifiant: r.identifiantGalerieStand,
+                             motDePasse: motDePasseGalerie, minutes: Double(r.minutesGalerieStand),
+                             empreinte: r.empreinteGalerieStand,
+                             sauverEmpreinte: { emp in
+                                 Task { @MainActor in Etat.courant?.reglages.empreinteGalerieStand = emp }
+                             })
+    }
+
     init() {
         let r = Stockage.lire(ReglagesConcours.self, nom: "reglages.json") ?? ReglagesConcours()
         reglages = r
@@ -309,13 +321,7 @@ final class Etat: ObservableObject {
                                              travailLightroom: r.dossierTravailLightroom.isEmpty ? nil
                                                  : URL(fileURLWithPath: r.dossierTravailLightroom, isDirectory: true),
                                              chrono: chrono, attente00Minutes: Double(r.attente00Minutes),
-                                             galerie: r.urlGalerieStand.isEmpty ? nil : ConfigGalerie(
-                                                 adresse: r.urlGalerieStand, identifiant: r.identifiantGalerieStand,
-                                                 motDePasse: motDePasseGalerie, minutes: Double(r.minutesGalerieStand),
-                                                 empreinte: r.empreinteGalerieStand,
-                                                 sauverEmpreinte: { emp in
-                                                     Task { @MainActor in Etat.courant?.reglages.empreinteGalerieStand = emp }
-                                                 }),
+                                             galerie: configGalerieStand(),
                                              galerieEnLigne: configGalerieEnLigne(),
                                              fichierTerrain: fichierTerrain,
                                              memoire: r.detectionsActives ? memoire : nil,

@@ -32,3 +32,13 @@ final class DetectionUDMTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode([UDMConnu].self, from: d), [u])
     }
 }
+
+/// Galerie du stand : l'adresse du partage (smb://) collée à la place de l'adresse web est corrigée.
+final class AdresseGalerieStandTests: XCTestCase {
+    func testAdresseWeb() {
+        XCTAssertEqual(GalerieStand.adresseWeb("smb://190.160.40.5"), "https://190.160.40.5")
+        XCTAssertEqual(GalerieStand.adresseWeb("190.160.40.5"), "https://190.160.40.5")
+        XCTAssertEqual(GalerieStand.adresseWeb(" https://190.160.40.5 "), "https://190.160.40.5")
+        XCTAssertEqual(GalerieStand.adresseWeb("smb://190.160.40.5/photos"), "https://190.160.40.5")
+    }
+}
