@@ -79,9 +79,11 @@ final class StandsUniFi: ObservableObject {
             nouvelUDM = u ? r : nil
             return
         }
-        DetectionUDM.estUniFi(r.adresse) { oui in
+        DetectionUDM.estUniFi(r.adresse) { reponse in
             Task { @MainActor in
                 let s = StandsUniFi.partages
+                // Pas de réponse : on ne retient rien, nouvel essai au prochain coup d'œil (30 s).
+                guard let oui = reponse else { return }
                 s.dejaRegarde[r.mac] = oui
                 if s.routeur == r, !s.udms.contains(where: { $0.mac == r.mac }) { s.nouvelUDM = oui ? r : nil }
             }

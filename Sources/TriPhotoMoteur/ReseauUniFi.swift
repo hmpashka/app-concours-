@@ -106,14 +106,16 @@ public enum DetectionUDM {
     }
 
     /// Ce routeur est-il une console UniFi ? Lit seulement la page d'accueil (« UniFi OS »), sans clé ni mot de passe,
-    /// pour ne pas proposer d'ajouter la box du bureau ou d'un hôtel.
-    public static func estUniFi(_ adresse: String, fini: @escaping @Sendable (Bool) -> Void) {
+    /// pour ne pas proposer d'ajouter la box du bureau ou d'un hôtel. nil : pas de réponse (réseau pas prêt,
+    /// accès au réseau local pas encore autorisé…), à réessayer.
+    public static func estUniFi(_ adresse: String, fini: @escaping @Sendable (Bool?) -> Void) {
         guard let url = URL(string: "https://\(adresse)/") else { fini(false); return }
         let c = URLSessionConfiguration.ephemeral
         c.timeoutIntervalForRequest = 5
         c.timeoutIntervalForResource = 8
         let s = URLSession(configuration: c, delegate: SansVerification(), delegateQueue: nil)
-        s.dataTask(with: url) { d, r, _ in
+        s.dataTask(with: url) { d, r, e in
+            if e != nil || r == nil { fini(nil); s.finishTasksAndInvalidate(); return }
             let corps = String(decoding: (d ?? Data()).prefix(200_000), as: UTF8.self).lowercased()
             let entetes = ((r as? HTTPURLResponse)?.allHeaderFields ?? [:]).map { "\($0.key) \($0.value)" }
                 .joined(separator: " ").lowercased()
