@@ -11,6 +11,21 @@ final class DetectionUDMTests: XCTestCase {
         XCTAssertNil(DetectionUDM.normaliser("74:ac:b9:12:4f"))
     }
 
+    /// VPN allumé : la route par défaut passe par le tunnel, on prend celle du câble / wifi.
+    func testPasserelleAvecVPN() {
+        let table = """
+        Routing tables
+
+        Internet:
+        Destination        Gateway            Flags               Netif Expire
+        default            link#40            UCSIg              utun12
+        default            192.168.1.254      UGScIg                en0
+        127                127.0.0.1          UCS                   lo0
+        """
+        XCTAssertEqual(DetectionUDM.passerelleDansTable(table), "192.168.1.254")
+        XCTAssertNil(DetectionUDM.passerelleDansTable("default  link#40  UCSIg  utun12"))
+    }
+
     func testUDMConnuGardeSesReglages() throws {
         let u = UDMConnu(mac: "74:ac:b9:12:4f:0a", nom: "Remorque A", montantMbit: 20, empreinte: "ab", derniereAdresse: "192.168.1.1")
         let d = try JSONEncoder().encode([u])

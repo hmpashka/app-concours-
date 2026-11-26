@@ -45,17 +45,35 @@ public enum DetectionUDM {
         return macDe(ip).map { RouteurVu(adresse: ip, mac: $0) }
     }
 
-    /// « gateway: 192.168.1.1 » dans `route -n get default` (IPv4 seulement).
+    /// « gateway: 192.168.1.1 » dans `route -n get default` (IPv4 seulement). Avec un VPN allumé, la route par défaut
+    /// passe par le tunnel (sans passerelle) : on prend alors la route par défaut du câble ou du wifi (`netstat -rn`).
     static func passerelle() -> String? {
-        guard let t = lancer("/sbin/route", ["-n", "get", "default"]) else { return nil }
-        for l in t.split(separator: "\n") {
-            let l = l.trimmingCharacters(in: .whitespaces)
-            guard l.hasPrefix("gateway:") else { continue }
-            let ip = l.dropFirst("gateway:".count).trimmingCharacters(in: .whitespaces)
-            let parts = ip.split(separator: ".")
-            return parts.count == 4 && parts.allSatisfy({ UInt8($0) != nil }) ? ip : nil
+        if let t = lancer("/sbin/route", ["-n", "get", "default"]) {
+            for l in t.split(separator: "\n") {
+                let l = l.trimmingCharacters(in: .whitespaces)
+                guard l.hasPrefix("gateway:") else { continue }
+                let ip = l.dropFirst("gateway:".count).trimmingCharacters(in: .whitespaces)
+                if estIPv4(ip) { return ip }
+            }
+        }
+        return lancer("/usr/sbin/netstat", ["-rn", "-f", "inet"]).flatMap(passerelleDansTable)
+    }
+
+    /// Première ligne « default  192.168.1.254  UGScg  en0 » dont la passerelle est une adresse IPv4
+    /// (les lignes du VPN « default  link#40  UCSIg  utun12 » sont sautées).
+    static func passerelleDansTable(_ table: String) -> String? {
+        for l in table.split(separator: "\n") {
+            let c = l.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+            guard c.count >= 2, c[0] == "default", estIPv4(c[1]) else { continue }
+            if let i = c.last, i.hasPrefix("utun") || i.hasPrefix("ipsec") || i.hasPrefix("ppp") { continue }
+            return c[1]
         }
         return nil
+    }
+
+    static func estIPv4(_ ip: String) -> Bool {
+        let p = ip.split(separator: ".", omittingEmptySubsequences: false)
+        return p.count == 4 && p.allSatisfy { UInt8($0) != nil }
     }
 
     /// « ? (192.168.1.1) at 74:ac:b9:12:4f:a on en0 ifscope [ethernet] » dans `arp -n 192.168.1.1`.
