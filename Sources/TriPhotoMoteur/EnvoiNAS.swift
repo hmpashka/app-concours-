@@ -487,22 +487,21 @@ public final class EnvoyeurNAS: @unchecked Sendable {
         let part = dossierCible.appendingPathComponent("." + nomFinal + ".part")
         if fm.fileExists(atPath: part.path) { try fm.removeItem(at: part) }       // reste d'un envoi coupé : il est à nous
         let hSource = try copier(source, vers: part, t: t, nomFichier: f.chemin)
+        // vérifiée AVANT de prendre la place : une copie ratée ne fait jamais disparaître la photo déjà sur le NAS
+        if t.verifier {
+            let hNAS = try EnvoyeurNAS.empreinte(part, controle: { !self.arretDemande })
+            if hNAS != hSource {
+                try? fm.removeItem(at: part)                 // c'est notre copie, ratée : on la refait
+                modifierFichier(t.id, f.chemin) { $0.etat = .aFaire }
+                throw NSError(domain: "EnvoiNAS", code: 3, userInfo: [NSLocalizedDescriptionKey: "Copie différente de l'original"])
+            }
+        }
         if f.remplacer && fm.fileExists(atPath: cible.path) {
             _ = try fm.replaceItemAt(cible, withItemAt: part)
         } else {
             try fm.moveItem(at: part, to: cible)
         }
-        modifierFichier(t.id, f.chemin) { $0.etat = .envoye; $0.message = "" }
-        if t.verifier {
-            let hNAS = try EnvoyeurNAS.empreinte(cible, controle: { !self.arretDemande })
-            if hNAS == hSource {
-                modifierFichier(t.id, f.chemin) { $0.etat = .verifie }
-            } else {
-                try? fm.removeItem(at: cible)                // c'est notre copie, ratée : on la refait
-                modifierFichier(t.id, f.chemin) { $0.etat = .aFaire }
-                throw NSError(domain: "EnvoiNAS", code: 3, userInfo: [NSLocalizedDescriptionKey: "Copie différente de l'original"])
-            }
-        }
+        modifierFichier(t.id, f.chemin) { $0.etat = t.verifier ? .verifie : .envoye; $0.message = "" }
     }
 
     /// Copie par morceaux (pause, arrêt et débit doux possibles) et rend l'empreinte de l'original.
