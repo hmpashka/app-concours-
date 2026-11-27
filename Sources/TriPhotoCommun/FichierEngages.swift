@@ -119,6 +119,27 @@ public enum FichierEngages {
         return entete + lignes(epreuves, terrain: terrain).map { "HMV;" + $0.joined(separator: ";") + fin }.joined()
     }
 
+    /// Listing « TAG » à lire sur le téléphone sans connexion (comme export_txt de l'ancien outil) : un bloc par épreuve,
+    /// son nom en majuscules, une ligne vide, puis « #EE_DD;NOM Prénom CHEVAL » (00 inconnu et 99 remise des prix
+    /// compris, bloc DIVERS en tête). UTF-8, fins de ligne \n, pas de \n après la dernière ligne.
+    public static func listingTexte(_ epreuves: [EpreuveEngages], terrain: [EngageTerrain]) -> String {
+        var sortie: [String] = []
+        var precedente: String?
+        for l in lignes(epreuves, terrain: terrain) {
+            guard l.count > 10, !l[0].isEmpty, !l[3].isEmpty, !l[4].isEmpty else { continue }
+            if l[0] != precedente {
+                if precedente != nil { sortie.append("") }
+                sortie.append(l[1].uppercased())
+                sortie.append("")
+                precedente = l[0]
+            }
+            let texte = [l[4], l[5], l[10]].map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                .joined(separator: " ")
+            sortie.append("#\(CodePassage.deuxChiffres(l[0]))_\(CodePassage.deuxChiffres(l[3]));\(texte)")
+        }
+        return sortie.joined(separator: "\n")
+    }
+
     /// Les lignes (18 champs chacune) : 80 divers, puis par épreuve 00, engagés (et engagés terrain), 99.
     public static func lignes(_ epreuves: [EpreuveEngages], terrain: [EngageTerrain]) -> [[String]] {
         var sortie: [[String]] = [["80", "divers", "", "00", "divers"] + Array(repeating: "", count: 13)]

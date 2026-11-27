@@ -340,7 +340,7 @@ final class Etat: ObservableObject {
                                              sauvegarde: r.sauvegardeActive && !r.dossierSauvegarde.isEmpty
                                                  ? URL(fileURLWithPath: r.dossierSauvegarde, isDirectory: true) : nil,
                                              rushAuto: r.rushAutoPhotos, ouvriersMax: r.photosEnMemeTemps))
-            if !fichierDebutExiste { creerFichierDebut(silencieux: true) }
+            if !fichierDebutExiste { creerFichierDebut(silencieux: true) } else { ecrireListingTexte() }
             garderListing()
             let m = moteur
             for c in horseComp {

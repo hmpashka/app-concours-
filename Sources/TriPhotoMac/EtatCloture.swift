@@ -196,6 +196,24 @@ extension Etat {
                                                                             suffixe: " fin"))
     }
 
+    /// Listing .txt « #EE_DD;NOM Prénom CHEVAL » à côté du fichier du début (même nom, .txt).
+    var fichierListingTexte: URL { fichierDebut.deletingPathExtension().appendingPathExtension("txt") }
+
+    /// (Ré)écrit le listing .txt avec les engagés terrain du moment : au début du concours et à chaque engagé terrain.
+    @discardableResult
+    func ecrireListingTexte() -> URL? {
+        guard let epreuves = try? epreuvesEngages() else { return nil }
+        let url = fichierListingTexte
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(FichierEngages.listingTexte(epreuves, terrain: engagesTerrain).utf8).write(to: url, options: .atomic)
+            return url
+        } catch {
+            messageAttribution = "Listing .txt : \(error.localizedDescription)"
+            return nil
+        }
+    }
+
     var fichierDebutExiste: Bool { FileManager.default.fileExists(atPath: fichierDebut.path) }
 
     func epreuvesEngages() throws -> [EpreuveEngages] {
@@ -213,7 +231,8 @@ extension Etat {
             let texte = FichierEngages.debut(try epreuvesEngages())
             let url = fichierDebut
             try ecrireEnGardantLAncien(texte, vers: url)
-            messageAttribution = "Fichier de début écrit : \(url.lastPathComponent)"
+            ecrireListingTexte()
+            messageAttribution = "Fichier de début écrit : \(url.lastPathComponent) (+ listing .txt)"
             return url
         } catch {
             if !silencieux { messageAttribution = "Fichier de début : \(error.localizedDescription)" }
@@ -233,6 +252,7 @@ extension Etat {
             } else {
                 try ecrireEnGardantLAncien(texte, vers: url)
             }
+            ecrireListingTexte()
             messageAttribution = "Fichier de fin écrit : \(url.lastPathComponent) (\(engagesTerrain.count) engagés terrain)"
             garderListing()
             return url
