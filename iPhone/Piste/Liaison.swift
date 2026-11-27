@@ -2,6 +2,7 @@ import Foundation
 import Network
 import TriPhotoCommun
 import UIKit
+import UserNotifications
 
 /// Le lien avec le Mac Groom Pix : cherche le Mac sur le wifi (Bonjour), s'y connecte, se reconnecte tout seul.
 /// Garde le nom et la piste choisis (ils restent d'un jour à l'autre).
@@ -20,7 +21,14 @@ final class Liaison: ObservableObject {
     @Published private(set) var etat = "Recherche du Mac Groom Pix sur le wifi…"
 
     @Published var nom: String { didSet { UserDefaults.standard.set(nom, forKey: "nom"); direBonjour() } }
-    @Published var piste: String { didSet { UserDefaults.standard.set(piste, forKey: "piste"); direct = nil; direBonjour() } }
+    @Published var piste: String {
+        didSet {
+            UserDefaults.standard.set(piste, forKey: "piste")
+            direct = nil
+            direBonjour()
+            SuiviEcran.partage.pisteChangee(nom: nom, piste: piste)
+        }
+    }
     /// Écran gardé allumé pendant le concours (les alertes s'affichent tout de suite). Réglable dans le menu.
     @Published var ecranAllume: Bool {
         didSet {
@@ -44,6 +52,7 @@ final class Liaison: ObservableObject {
         luJusqua = UserDefaults.standard.double(forKey: "luJusqua")
         ecranAllume = UserDefaults.standard.object(forKey: "ecranAllume") as? Bool ?? true
         macChoisi = UserDefaults.standard.string(forKey: "mac") ?? ""
+        Liaison.courante = self
     }
 
     var nonLus: Int { messages.filter { $0.qui != nom && $0.heure > luJusqua }.count }
@@ -51,6 +60,7 @@ final class Liaison: ObservableObject {
     // MARK: - Chercher le Mac
 
     func demarrer() {
+        NotifsPiste.partage.demander()
         guard chercheur == nil else { return }
         let b = NWBrowser(for: .bonjour(type: LienPiste.service, domain: nil), using: .tcp)
         b.browseResultsChangedHandler = { [weak self] resultats, _ in
@@ -135,8 +145,14 @@ final class Liaison: ObservableObject {
     private func recevoir(_ m: VersPiste) {
         switch m {
         case .accueil(let a): accueil = a
-        case .direct(let d): if d.piste == piste { direct = d }
-        case .messages(let l): messages = l
+        case .direct(let d):
+            if d.piste == piste {
+                direct = d
+                SuiviEcran.partage.mettreAJour(d)
+            }
+        case .messages(let l):
+            NotifsPiste.partage.nouveaux(l, avant: messages, moi: nom)
+            messages = l
         case .clients(let texte, let l): rechercheFaite = texte; clients = l
         case .commandes(let l): commandes = l
         case .theme(let t):
@@ -146,7 +162,31 @@ final class Liaison: ObservableObject {
 
     private func direBonjour() {
         canal?.envoyer(.bonjour(nom: nom, piste: piste, appareil: UIDevice.current.name, version: LienPiste.version))
+        // les jetons du service d'Apple, redonnés à chaque connexion (le Mac a pu redémarrer)
+        for (sorte, valeur) in jetons { canal?.envoyer(.jeton(sorte: sorte, valeur: valeur, production: Liaison.production)) }
     }
+
+    /// Jetons du service d'Apple (bulles, écran verrouillé) à donner au Mac.
+    private var jetons: [String: String] = [:]
+    /// Serveur d'Apple à utiliser pour cet iPhone, deviné tout seul :
+    /// app installée depuis le Mac (Xcode) → serveur d'essai ; app reçue par TestFlight ou l'App Store → serveur normal.
+    /// Une app TestFlight / App Store n'a pas de fichier « embedded.mobileprovision » ; une app du Mac en a un
+    /// qui dit « aps-environment = development ».
+    static let production: Bool = {
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let donnees = try? Data(contentsOf: url) else { return true }
+        let texte = String(decoding: donnees, as: UTF8.self)
+        guard let r = texte.range(of: "<key>aps-environment</key>") else { return false }
+        return texte[r.upperBound...].prefix(80).contains("production")
+    }()
+
+    func envoyerJeton(_ sorte: String, _ valeur: String) {
+        if sorte == "fin" { jetons["activite"] = nil } else { jetons[sorte] = valeur }
+        if connecte, let canal { canal.envoyer(.jeton(sorte: sorte, valeur: valeur, production: Liaison.production)) }
+    }
+
+    /// Liaison de l'app, pour le délégué (jeton des notifications) et l'écran verrouillé.
+    static weak var courante: Liaison?
 
     func envoyer(message texte: String, pour: String = "") {
         let t = texte.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -180,5 +220,46 @@ final class Liaison: ObservableObject {
 
     func alerteVue(_ a: AlerteCodePiste) {
         canal?.envoyer(.alerteVue(boitier: a.boitier, attendu: a.attendu))
+    }
+}
+
+/// Bulles et sons sur l'iPhone quand un message arrive pendant que l'app est ouverte (même devant).
+/// App fermée ou en veille : rien ne peut arriver sans le service d'Apple par internet (prévu après le 29/11).
+final class NotifsPiste: NSObject, UNUserNotificationCenterDelegate {
+    static let partage = NotifsPiste()
+    private var demande = false
+    /// Heure du dernier message déjà signalé, gardée même quand l'app est fermée :
+    /// à la réouverture, le Mac renvoie tout l'historique, mais rien n'est signalé deux fois.
+    private var dernierVu: Double {
+        get { UserDefaults.standard.object(forKey: "dernierMessageVu") as? Double ?? Date().timeIntervalSince1970 }
+        set { UserDefaults.standard.set(newValue, forKey: "dernierMessageVu") }
+    }
+
+    func demander() {
+        guard !demande else { return }
+        demande = true
+        let c = UNUserNotificationCenter.current()
+        c.delegate = self
+        c.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+    }
+
+    /// Nouveaux messages pour moi (ou pour tout le monde), écrits par quelqu'un d'autre.
+    func nouveaux(_ l: [MessagePiste], avant: [MessagePiste], moi: String) {
+        let depuis = dernierVu
+        dernierVu = max(depuis, l.map(\.heure).max() ?? depuis)
+        let connus = Set(avant.map(\.id))
+        for m in l where m.heure > depuis && !connus.contains(m.id) && m.qui != moi && (m.pour.isEmpty || m.pour == moi) {
+            let n = UNMutableNotificationContent()
+            n.title = m.incident ? "Incident · \(m.qui)" : (m.qui == "Stand" ? "Stand" : m.qui) + (m.pour.isEmpty ? " · à tous" : "")
+            n.body = m.texte
+            n.sound = m.incident ? .defaultCritical : .default
+            n.threadIdentifier = "messages"
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: m.id, content: n, trigger: nil))
+        }
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler fin: @escaping (UNNotificationPresentationOptions) -> Void) {
+        fin([.banner, .sound, .list])
     }
 }

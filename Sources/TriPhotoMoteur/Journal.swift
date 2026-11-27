@@ -19,7 +19,7 @@ public enum EtatPhoto: String, CaseIterable, Sendable {
 }
 
 /// Une ligne du journal.
-public struct FichePhoto: Identifiable, Sendable {
+public struct FichePhoto: Identifiable, Equatable, Sendable {
     public var id: Int64 = 0
     public var origine: String           // nom donné par le boîtier
     public var nom: String               // nom après renommage
@@ -54,6 +54,7 @@ public struct FichePhoto: Identifiable, Sendable {
 
     public func a(_ d: String) -> Bool { drapeaux.split(separator: "|").contains { $0 == d } }
     public mutating func marquer(_ d: String) { if !a(d) { drapeaux = drapeaux.isEmpty ? d : drapeaux + "|" + d } }
+    public mutating func retirer(_ d: String) { drapeaux = drapeaux.split(separator: "|").filter { $0 != d }.joined(separator: "|") }
     /// Ajoute une ligne à l'historique des codes : « 15:03:12 · boîtier · #11_00 ».
     public mutating func noter(_ qui: String, _ quoi: String) {
         let f = DateFormatter()
@@ -71,6 +72,8 @@ public struct FichePhoto: Identifiable, Sendable {
 /// Utilisé depuis une seule file (celle du moteur) : pas de verrou ici.
 final class Journal {
     private var db: OpaquePointer?
+    /// Augmente à chaque photo ajoutée ou changée : la Revue se met à jour toute seule quand il bouge.
+    private(set) var version = 0
     private static let transitoire = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     init(fichier: URL) throws {
@@ -173,6 +176,7 @@ final class Journal {
         lier(st, 5, f.code); lier(st, 6, f.etat.rawValue); lier(st, 7, f.chemin); lier(st, 8, f.copie)
         lier(st, 9, f.erreur); lier(st, 10, f.recue); lier(st, 11, Date())
         sqlite3_step(st)
+        version += 1
         return sqlite3_last_insert_rowid(db)
     }
 
@@ -193,6 +197,7 @@ final class Journal {
         sqlite3_bind_double(st, 25, f.belle); sqlite3_bind_double(st, 26, f.visage)
         sqlite3_bind_int64(st, 27, f.id)
         sqlite3_step(st)
+        version += 1
     }
 
     func fiche(id: Int64) -> FichePhoto? {
@@ -332,6 +337,15 @@ final class Journal {
         return liste(st)
     }
 
+    /// Photos qui portent une décision (drapeau), parties vers le serveur.
+    func fiches(drapeau: String, limite: Int = 2000) -> [FichePhoto] {
+        let st = preparer("SELECT \(Journal.colonnes) FROM photos WHERE instr(drapeaux, ?) > 0 AND etat IN ('copiee','tampon','envoyee') ORDER BY id LIMIT ?")
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, drapeau)
+        sqlite3_bind_int(st, 2, Int32(limite))
+        return liste(st).filter { $0.a(drapeau) }
+    }
+
     /// Photos qui ont une copie sur le serveur local (donc à mettre en ligne), reçues depuis le début du concours.
     func fichesEnLigne(depuis: Date) -> [FichePhoto] {
         let st = preparer("SELECT \(Journal.colonnes) FROM photos WHERE etat IN ('copiee','tampon','envoyee') AND copie<>'' AND recue>=? ORDER BY id")
@@ -364,6 +378,7 @@ final class Journal {
         sqlite3_bind_double(st, 3, belle); sqlite3_bind_double(st, 4, visage)
         sqlite3_bind_int64(st, 5, id)
         sqlite3_step(st)
+        version += 1
     }
 
     /// Détections à refaire : toutes (la mémoire a beaucoup changé) ou seulement celles faites sans mémoire prête (« ? »).

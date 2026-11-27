@@ -11,13 +11,13 @@ struct MessagesView: View {
     var body: some View {
         HStack(spacing: 0) {
             if etat.panneauGauche {
-                conversations.frame(width: 260).background(Theme.panneau)
+                conversations.frame(width: 260).background(Theme.panneau).repere("messages.conversations")
                 Divider().overlay(Theme.bordure)
             }
-            fil.frame(maxWidth: .infinity, maxHeight: .infinity)
+            fil.frame(maxWidth: .infinity, maxHeight: .infinity).repere("messages.fil")
             if etat.panneauDroit {
                 Divider().overlay(Theme.bordure)
-                iphones.frame(width: 280).background(Theme.panneau)
+                iphones.frame(width: 280).background(Theme.panneau).repere("messages.iphones")
             }
         }
         .onAppear { serveur.lu(conv) }
@@ -58,7 +58,7 @@ struct MessagesView: View {
             .background(conv == c ? Theme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 6))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BoutonPlat())
     }
 
     // MARK: - Fil
@@ -117,7 +117,9 @@ struct MessagesView: View {
     }
 
     private func envoyer() {
-        serveur.envoyerDuStand(texte, pour: conv)
+        let t = texte.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }               // Entrée tapée deux fois : jamais de message vide
+        serveur.envoyerDuStand(t, pour: conv)
         texte = ""
     }
 

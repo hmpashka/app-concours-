@@ -59,13 +59,26 @@ struct MessagesPisteView: View {
     @EnvironmentObject var liaison: Liaison
     @Environment(\.dismiss) private var fermer
     @State private var texte = ""
+    /// Destinataire choisi (HUGO 24/11) : vide = tout le monde, « Stand » = le Mac seulement, sinon une personne.
+    @State private var pour = ""
     private let rapides = ["Batterie", "Carte pleine", "Pause 5 min", "Besoin de relève"]
+
+    /// Les personnes vues dans les messages (sauf moi et le stand).
+    private var personnes: [String] {
+        var l: [String] = []
+        for m in liaison.messages {
+            for n in [m.qui, m.pour] where !n.isEmpty && n != "Stand" && n != liaison.nom && n != "iPhone" && !l.contains(n) { l.append(n) }
+        }
+        return l.sorted()
+    }
+
+    private var destinataires: [(String, String)] { [("", "Tout le monde"), ("Stand", "Le stand seulement")] + personnes.map { ($0, $0) } }
 
     var body: some View {
         ZStack {
             Style.fond
             VStack(alignment: .leading, spacing: 12) {
-                EnteteRetour(titre: "Messages", taille: 28, sousTitre: "Stand (Mac) et toutes les pistes") { fermer() }
+                EnteteRetour(titre: "Messages", taille: 28, sousTitre: "Choisis à qui tu écris : tout le monde, le stand ou une personne") { fermer() }
                 ScrollViewReader { lecteur in
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 10) {
@@ -81,8 +94,18 @@ struct MessagesPisteView: View {
                     }
                 }
                 Rangees(espace: 6) {
+                    ForEach(destinataires, id: \.0) { d in
+                        Button(d.1) { pour = d.0 }
+                            .font(.system(size: 13, weight: pour == d.0 ? .semibold : .regular))
+                            .foregroundStyle(pour == d.0 ? Style.nuit : Style.creme)
+                            .padding(.horizontal, 12).frame(minHeight: 36)
+                            .background(pour == d.0 ? Style.or : Style.voile.opacity(0.08), in: Capsule())
+                            .contentShape(Capsule())
+                    }
+                }
+                Rangees(espace: 6) {
                     ForEach(rapides, id: \.self) { r in
-                        Button(r) { liaison.envoyer(message: r) }
+                        Button(r) { liaison.envoyer(message: r, pour: pour) }
                             .font(.system(size: 13)).foregroundStyle(Style.creme)
                             .padding(.horizontal, 12).frame(minHeight: 36)
                             .background(Style.voile.opacity(0.08), in: Capsule())
@@ -90,14 +113,14 @@ struct MessagesPisteView: View {
                     }
                 }
                 HStack(spacing: 8) {
-                    TextField("", text: $texte, prompt: Text("Écrire au stand…").foregroundColor(Style.cremeDiscret), axis: .vertical)
+                    TextField("", text: $texte, prompt: Text(pour.isEmpty ? "Écrire à tout le monde…" : pour == "Stand" ? "Écrire au stand…" : "Écrire à \(pour)…").foregroundColor(Style.cremeDiscret), axis: .vertical)
                         .lineLimit(1...4)
                         .font(.system(size: 15)).foregroundStyle(Style.creme)
                         .padding(.horizontal, 16).padding(.vertical, 12)
                         .background(Style.voile.opacity(0.08), in: RoundedRectangle(cornerRadius: 22))
                         .overlay(RoundedRectangle(cornerRadius: 22).stroke(Style.voile.opacity(0.15), lineWidth: 1))
                     Button {
-                        liaison.envoyer(message: texte)
+                        liaison.envoyer(message: texte, pour: pour)
                         texte = ""
                     } label: {
                         Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold)).foregroundStyle(Style.nuit)
@@ -120,7 +143,7 @@ struct MessagesPisteView: View {
         return HStack {
             if moi { Spacer(minLength: 0) }
             VStack(alignment: .leading, spacing: 3) {
-                Text("\(qui)\(m.pour.isEmpty ? "" : (m.pour == liaison.nom ? " · pour toi" : " → \(m.pour)")) · \(Date(timeIntervalSince1970: m.heure).formatted(date: .omitted, time: .shortened))")
+                Text("\(qui)\(m.pour.isEmpty ? "" : (m.pour == liaison.nom ? " · pour toi" : m.pour == "Stand" ? " → le stand" : " → \(m.pour)")) · \(Date(timeIntervalSince1970: m.heure).formatted(date: .omitted, time: .shortened))")
                     .font(.system(size: 11)).foregroundStyle(Style.cremeDiscret)
                 Text(m.texte).font(.system(size: 15, weight: m.incident ? .semibold : .regular)).lineSpacing(2)
                     .foregroundStyle(m.incident ? Style.orangeClair : Style.creme)

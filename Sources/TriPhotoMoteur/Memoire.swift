@@ -154,6 +154,59 @@ public final class Memoire: @unchecked Sendable {
         return cible
     }
 
+    /// Remet en vraies vignettes les exemples trop gros (des photos entières copiées dans le dossier à la main :
+    /// 4 à 7 Mo au lieu de 25 Ko, lentes à télécharger sur chaque Mac). Chaque grosse photo est remplacée par sa
+    /// vignette de 360 px, sous le même nom ; la photo entière part à la Corbeille (on peut l'y reprendre).
+    /// Celles encore dans iCloud sont demandées et seront allégées la fois suivante.
+    public func alleger(limite: Int = 300_000) -> (allegees: Int, enAttente: Int) {
+        let fm = FileManager.default
+        var allegees = 0, enAttente = 0
+        let dossiers = ((try? fm.contentsOfDirectory(at: dossier, includingPropertiesForKeys: [.isDirectoryKey],
+                                                     options: [.skipsHiddenFiles])) ?? [])
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+        for d in dossiers {
+            let fichiers = (try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: [.fileSizeKey], options: [])) ?? []
+            for u in fichiers {
+                let nom = u.lastPathComponent
+                if nom.hasPrefix(".") && nom.lowercased().hasSuffix(".jpg.icloud") {
+                    // encore dans le nuage : on ne sait pas sa taille avant de l'avoir
+                    continue
+                }
+                guard nom.lowercased().hasSuffix(".jpg"),
+                      let taille = try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize, taille > limite else { continue }
+                guard let im = Memoire.image(u, cote: Memoire.cote) else { enAttente += 1; continue }
+                let tmp = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
+                guard let dest = CGImageDestinationCreateWithURL(tmp as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { continue }
+                CGImageDestinationAddImage(dest, im, [kCGImageDestinationLossyCompressionQuality: 0.7] as CFDictionary)
+                guard CGImageDestinationFinalize(dest) else { continue }
+                do {
+                    try fm.trashItem(at: u, resultingItemURL: nil)
+                    try fm.moveItem(at: tmp, to: u)
+                    allegees += 1
+                } catch {
+                    try? fm.removeItem(at: tmp)
+                }
+            }
+        }
+        if allegees > 0 { changee() }
+        return (allegees, enAttente)
+    }
+
+    /// Nombre d'exemples trop gros (déjà sur ce Mac) : pour proposer « Alléger ».
+    public func tropGros(limite: Int = 300_000) -> Int {
+        let fm = FileManager.default
+        var n = 0
+        let dossiers = ((try? fm.contentsOfDirectory(at: dossier, includingPropertiesForKeys: [.isDirectoryKey],
+                                                     options: [.skipsHiddenFiles])) ?? [])
+        for d in dossiers {
+            for u in (try? fm.contentsOfDirectory(at: d, includingPropertiesForKeys: [.fileSizeKey], options: [])) ?? []
+            where u.lastPathComponent.lowercased().hasSuffix(".jpg") && !u.lastPathComponent.hasPrefix(".") {
+                if let t = try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize, t > limite { n += 1 }
+            }
+        }
+        return n
+    }
+
     /// Retire un exemple : il part à la corbeille (renvoie où, pour pouvoir l'y reprendre).
     @discardableResult
     public func retirer(_ e: ExempleMemoire) -> URL? {

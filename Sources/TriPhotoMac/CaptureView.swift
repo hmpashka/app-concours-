@@ -6,6 +6,8 @@ import TriPhotoCommun
 struct CaptureView: View {
     @EnvironmentObject var etat: Etat
     @ObservedObject var capture: CaptureHorseComp
+    /// Le chrono Horse & Comp réglé ici (adresse, zones, épreuve).
+    @Binding var chrono: ReglagesConcours.ChronoConcours
     @Environment(\.dismiss) private var fermer
     @State private var zone = "dossard"
     @State private var debutTrace: CGPoint?
@@ -18,16 +20,16 @@ struct CaptureView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Capture Horse & Comp").font(.system(size: 16, weight: .semibold))
+                Text("Capture Horse & Comp · \(chrono.nom)").font(.system(size: 16, weight: .semibold))
                 Text(capture.etatPage).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
                 Spacer()
                 Button("Fermer") { fermer() }.buttonStyle(BoutonStyle()).keyboardShortcut(.cancelAction)
             }
             HStack {
-                TextField("Adresse de la page d'incrustation (https://…)", text: $etat.reglages.urlIncrustation)
+                TextField("Adresse de la page d'incrustation (https://…)", text: $chrono.urlIncrustation)
                     .textFieldStyle(.roundedBorder)
-                    .onSubmit { capture.ouvrir(etat.reglages.urlIncrustation) }
-                Button(capture.ouverte ? "Recharger" : "Ouvrir la page") { capture.ouvrir(etat.reglages.urlIncrustation) }
+                    .onSubmit { capture.ouvrir(chrono.urlIncrustation) }
+                Button(capture.ouverte ? "Recharger" : "Ouvrir la page") { capture.ouvrir(chrono.urlIncrustation) }
                     .buttonStyle(BoutonStyle(principal: true))
                 if capture.ouverte {
                     Button("Arrêter") { capture.fermer() }.buttonStyle(BoutonStyle())
@@ -41,7 +43,7 @@ struct CaptureView: View {
                             ForEach(SuiviIncrustation.zonesConnues, id: \.self) { Text(noms[$0] ?? $0).tag($0) }
                         }
                         .pickerStyle(.segmented).labelsHidden()
-                        Button("Effacer") { etat.reglages.zonesIncrustation[zone] = nil }.buttonStyle(BoutonStyle())
+                        Button("Effacer") { chrono.zones[zone] = nil }.buttonStyle(BoutonStyle())
                     }
                     page
                     Text("Glisse sur la page pour entourer la zone choisie. Dossard et nom suffisent ; l'épreuve évite de la choisir à la main.")
@@ -54,7 +56,7 @@ struct CaptureView: View {
                         HStack(alignment: .top) {
                             Circle().fill(couleurs[k] ?? .gray).frame(width: 8, height: 8).padding(.top, 4)
                             Text(noms[k] ?? k).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret).frame(width: 110, alignment: .leading)
-                            Text(capture.lu[k].map { $0.isEmpty ? "—" : $0 } ?? (etat.reglages.zonesIncrustation[k] == nil ? "zone pas dessinée" : "—"))
+                            Text(capture.lu[k].map { $0.isEmpty ? "—" : $0 } ?? (chrono.zones[k] == nil ? "zone pas dessinée" : "—"))
                                 .font(.system(size: 12, design: .monospaced)).lineLimit(2)
                         }
                     }
@@ -64,7 +66,7 @@ struct CaptureView: View {
                     Divider().overlay(Theme.bordure)
                     HStack {
                         Text("Épreuve").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
-                        Picker("", selection: $etat.reglages.epreuveForcee) {
+                        Picker("", selection: $chrono.epreuveForcee) {
                             Text("Lue sur la page").tag("")
                             ForEach(etat.concours?.epreuves ?? []) { e in Text(e.nomDossier).tag(e.numero) }
                         }
@@ -110,8 +112,8 @@ struct CaptureView: View {
                         .foregroundStyle(Theme.texteDiscret)
                         .frame(width: geo.size.width, height: geo.size.height)
                 }
-                ForEach(Array(etat.reglages.zonesIncrustation.keys.sorted()), id: \.self) { k in
-                    if let z = etat.reglages.zonesIncrustation[k], z.count == 4 {
+                ForEach(Array(chrono.zones.keys.sorted()), id: \.self) { k in
+                    if let z = chrono.zones[k], z.count == 4 {
                         Rectangle()
                             .stroke(couleurs[k] ?? .gray, lineWidth: 2)
                             .frame(width: z[2] * geo.size.width, height: z[3] * geo.size.height)
@@ -133,7 +135,7 @@ struct CaptureView: View {
                 .onEnded { _ in
                     if let t = trace, t.width > 4, t.height > 4 {
                         let W = geo.size.width, H = geo.size.height
-                        etat.reglages.zonesIncrustation[zone] = [t.minX / W, t.minY / H, t.width / W, t.height / H].map {
+                        chrono.zones[zone] = [t.minX / W, t.minY / H, t.width / W, t.height / H].map {
                             (min(max(Double($0), 0), 1) * 1000).rounded() / 1000
                         }
                     }

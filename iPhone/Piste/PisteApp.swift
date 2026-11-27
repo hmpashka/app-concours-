@@ -4,6 +4,7 @@ import TriPhotoCommun
 
 @main
 struct PisteApp: App {
+    @UIApplicationDelegateAdaptor(DelegueApp.self) private var delegue
     @StateObject private var liaison = Liaison()
     @Environment(\.scenePhase) private var phase
 

@@ -17,7 +17,7 @@ struct ClotureView: View {
     @State private var terrain = false
     private let minuterie = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    private var galerieReglee: Bool { !etat.reglages.adresseFTPGalerie.isEmpty }
+    private var galerieReglee: Bool { etat.galerieReglee }
     private var galerieAFaire: Int { e.galerie?.aFaire ?? 0 }
     /// Journée d'un concours de plusieurs jours, envoi de nuit : la galerie peut attendre la nuit.
     private var galerieCetteNuit: Bool { genre == .journee && etat.reglages.galerieLaNuit && (e.galerie?.attendLaNuit ?? false) }
@@ -50,7 +50,8 @@ struct ClotureView: View {
                           detail: "\(e.enErreur) photos n'ont pas pu partir (serveur absent ?). Elles sont retentées toutes seules.")
                 }
                 if galerieReglee {
-                    ligne(ok: galerieAFaire == 0, attention: galerieCetteNuit, titre: "Galerie en ligne",
+                    ligne(ok: galerieAFaire == 0, attention: galerieCetteNuit,
+                          titre: etat.reglages.galerieVersDossier ? "Galerie (dossier du Mac)" : "Galerie en ligne",
                           detail: texteGalerie)
                     if galerieAFaire > 0 {
                         Button(galerieCetteNuit ? "Envoyer maintenant au lieu de cette nuit" : "Relancer l'envoi") {
@@ -92,6 +93,25 @@ struct ClotureView: View {
                 if moteur.actif && toutEstParti {
                     Button("Arrêter le tri") { etat.arreterJournee() }.buttonStyle(BoutonStyle())
                         .help("La galerie en ligne continue d'envoyer tant que l'app reste ouverte.")
+                } else if moteur.actif {
+                    // HUGO 26/11 : la clôture ne doit jamais bloquer (galerie lente…).
+                    Button("Arrêter quand même") { etat.arreterJournee() }.buttonStyle(BoutonStyle())
+                        .help("Le tri s'arrête. La galerie en ligne continue d'envoyer tant que l'app reste ouverte.")
+                }
+            }
+            if !toutEstParti {
+                HStack(spacing: 4) {
+                    Text("Pas le temps d'attendre ?").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+                    Button("Commencer un nouveau concours…") {
+                        fermer()
+                        let e = etat
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 400_000_000)     // une fenêtre à la fois
+                            e.nouveauConcours = .nouveau
+                        }
+                    }
+                    .buttonStyle(.link).font(.system(size: 12))
+                    Text("(ce concours est rangé, à finir plus tard)").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
                 }
             }
         }

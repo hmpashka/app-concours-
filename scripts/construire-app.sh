@@ -16,7 +16,8 @@ APP="build/$NOM.app"
 
 if [ "${1:-}" = "universel" ]; then
     swift build -c release --arch arm64 --arch x86_64
-    BINAIRE=".build/apple/Products/Release/TriPhotoMac"
+    # chemin demandé à swift : il change selon la version (.build/apple/… ou .build/out/…)
+    BINAIRE="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/TriPhotoMac"
 else
     swift build -c release
     BINAIRE="$(swift build -c release --show-bin-path)/TriPhotoMac"
@@ -38,6 +39,8 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/$NOM.icns"
 rm -rf "$ICONSET"
 # icônes des deux thèmes (le Dock prend celle du thème choisi)
 cp Ressources/Icone-bleuOr.png Ressources/Icone-graphite.png "$APP/Contents/Resources/"
+# sons du Mac dans l'app : les bulles de notification ne savent jouer que les sons rangés dans l'app
+cp /System/Library/Sounds/*.aiff "$APP/Contents/Resources/" 2>/dev/null || true
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -73,5 +76,17 @@ PLIST
 
 # Bureau synchronisé par iCloud : il ajoute des attributs Finder que codesign refuse (« detritus not allowed »).
 xattr -cr "$APP"
-codesign --force --deep --sign - "$APP"
+# Signée avec le certificat « Apple Development » de HUGO s'il est sur le Mac : macOS accepte alors les
+# notifications et le trousseau ne redemande pas l'accès à chaque nouvelle version. Sinon signature locale.
+# par empreinte SHA-1 (2e colonne) : le nom seul est « ambiguous » quand deux certificats portent le même nom
+IDENT="$(security find-identity -v -p codesigning 2>/dev/null | grep -m1 "Apple Development" | awk '{print $2}' || true)"
+# signée hors du Bureau (iCloud y remet des attributs Finder que codesign refuse), puis recopiée
+T="$(mktemp -d)"
+ditto --noextattr "$APP" "$T/app.app"
+xattr -cr "$T/app.app"
+codesign --force --deep --sign "${IDENT:--}" "$T/app.app"
+rm -rf "$APP"
+ditto "$T/app.app" "$APP"
+rm -rf "$T"
+echo "Signée avec : ${IDENT:-signature locale}"
 echo "Prêt : $ICI/$APP"

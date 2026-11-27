@@ -236,6 +236,7 @@ struct BandeauLicence: View {
 
 struct CarteApparence: View {
     @ObservedObject var prefs = Preferences.partagees
+    @State private var probleme: String?
 
     var body: some View {
         Carte(titre: SectionReglages.apparence.rawValue,
@@ -255,6 +256,21 @@ struct CarteApparence: View {
                 .pickerStyle(.segmented).labelsHidden().frame(width: 380)
             }
             Ligne("Volume des sons de l'app") { Slider(value: $prefs.volume, in: 0...1).frame(width: 240) }
+            Ligne("Notifications du Mac") {
+                HStack(spacing: 10) {
+                    Button("Essayer") {
+                        Notifieur.partage.essayer()
+                        probleme = "Bulle d'essai envoyée à \(Date().formatted(date: .omitted, time: .standard)) : elle doit apparaître en haut à droite dans 1 s."
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { Notifieur.partage.probleme { if let p = $0 { probleme = p } } }
+                    }
+                    Button("Ouvrir les réglages du Mac") {
+                        if let u = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") { NSWorkspace.shared.open(u) }
+                    }
+                }
+            }
+            if let probleme {
+                Text(probleme).font(.system(size: 12)).foregroundStyle(Theme.attention)
+            }
             Toggle("Animation d'ouverture", isOn: $prefs.ouverture)
             Toggle("Son à l'ouverture", isOn: $prefs.sonOuverture).disabled(!prefs.ouverture)
             Divider().overlay(Theme.bordure)
@@ -278,7 +294,7 @@ struct CarteApparence: View {
                             }
                             .labelsHidden().frame(width: 110)
                             Button { Notifieur.partage.jouer(prefs.reglage(e).son) } label: { Image(systemName: "play.fill") }
-                                .buttonStyle(.plain).foregroundStyle(Theme.accent).disabled(prefs.reglage(e).son.isEmpty)
+                                .buttonStyle(BoutonPlat()).foregroundStyle(Theme.accent).disabled(prefs.reglage(e).son.isEmpty)
                         }
                         Toggle("", isOn: lien(e, \.enRush)).labelsHidden()
                     }
@@ -287,6 +303,7 @@ struct CarteApparence: View {
             Text("Discret : seulement la pastille dans l'app. Alerte : bannière, et l'icône du Dock rebondit jusqu'à ce que tu regardes. Trois notifications du même genre en moins d'une minute n'en font qu'une (« 10 × message »). Le mode « Ne pas déranger » du Mac reste respecté pour les bannières.")
                 .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
         }
+        .onAppear { Notifieur.partage.probleme { probleme = $0 } }
     }
 
     private func lien<T>(_ e: Evenement, _ k: WritableKeyPath<ReglageEvenement, T>) -> Binding<T> {

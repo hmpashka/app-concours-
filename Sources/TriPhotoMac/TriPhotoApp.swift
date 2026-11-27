@@ -19,16 +19,34 @@ struct TriPhotoApp: App {
 
 /// Lancement depuis le Terminal (pendant le développement) : l'app passe quand même au premier plan avec son menu.
 final class Delegue: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    /// Pas d'onglets de fenêtre (menu Présentation « Afficher la barre d'onglets ») : ils ne servent à rien ici.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         if Bundle.main.bundleIdentifier != nil { UNUserNotificationCenter.current().delegate = self }
+        // demande l'autorisation dès l'ouverture et déclare le bouton « Répondre » des bulles (sinon il n'apparaît jamais)
+        MainActor.assumeIsolated { Notifieur.partage.demanderAutorisation() }
     }
 
     /// Clic sur une notification (message ou incident d'un iPhone) : Groom Pix s'ouvre sur l'onglet Messages.
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler fin: @escaping () -> Void) {
-        let ecran = (response.notification.request.content.userInfo["ecran"] as? String).flatMap(Ecran.init(rawValue:)) ?? .messages
+        let info = response.notification.request.content.userInfo
+        // Réponse tapée dans la bulle : envoyée à l'auteur (ou à tout le monde si son message était pour tous)
+        if let r = response as? UNTextInputNotificationResponse {
+            if info["essai"] != nil { fin(); return }        // notification d'essai : la réponse ne part nulle part
+            let texte = r.userText
+            let qui = info["qui"] as? String ?? ""
+            let pour = (info["pour"] as? String ?? "").isEmpty ? "" : qui
+            DispatchQueue.main.async { Etat.courant?.serveur.envoyerDuStand(texte, pour: pour) }
+            fin()
+            return
+        }
+        let ecran = (info["ecran"] as? String).flatMap(Ecran.init(rawValue:)) ?? .messages
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
             Etat.courant?.ecran = ecran
@@ -63,6 +81,7 @@ struct MenusTriPhoto: Commands {
             Divider()
             Button("Clôturer la journée…") { etat.cloture = .journee }
             Button("Clôturer le concours…") { etat.cloture = .finale }
+            Button("Nouveau concours…") { etat.nouveauConcours = .nouveau }
             Divider()
             Button("Mode entraînement…") { etat.montrerEntrainement = true }
                 .raccourci(raccourcis[.entrainement])
@@ -78,6 +97,7 @@ struct MenusTriPhoto: Commands {
             Button("Messages") { etat.ecran = .messages }
             Button("Mémoire") { etat.ecran = .memoire }.raccourci(raccourcis[.memoire])
             Button("Commandes") { etat.ecran = .commandes }
+            Button("Au bureau") { etat.ecran = .auBureau }
             Button("Réglages") { etat.ecran = .reglages }
         }
         CommandGroup(after: .sidebar) {

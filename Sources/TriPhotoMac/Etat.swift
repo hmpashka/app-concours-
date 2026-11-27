@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import TriPhotoCommun
 import TriPhotoMoteur
@@ -12,6 +13,7 @@ enum Ecran: String, CaseIterable, Identifiable {
     case messages = "Messages"
     case memoire = "Mémoire"
     case commandes = "Commandes"
+    case auBureau = "Au bureau"
     case reglages = "Réglages"
     var id: String { rawValue }
 }
@@ -22,6 +24,9 @@ final class Etat: ObservableObject {
     @Published var ecran: Ecran = .reglages
     @Published var panneauGauche = true
     @Published var panneauDroit = true
+    @Published var pleinEcran = false
+    /// Photo où en était la Revue, pour y revenir après un tour dans un autre onglet (pas publié : rien à redessiner).
+    var revuePhotoId: Int64?            // Revue : la photo seule sur fond noir (touche P)
     @Published var montrerEntrainement = false
 
     @Published var reglages: ReglagesConcours {
@@ -47,7 +52,10 @@ final class Etat: ObservableObject {
     let moteur = Moteur()
     @Published var erreurDemarrage: String?
     let entrainement: Entrainement
-    let capture = CaptureHorseComp()
+    /// Une capture Horse & Comp par chrono Horse & Comp des réglages (page cachée, texte seulement).
+    private(set) var captures: [String: CaptureHorseComp] = [:]
+    /// Chrono Horse & Comp dont l'écran de capture est ouvert.
+    @Published var captureChoisie = ""
     @Published var montrerCapture = false
     @Published var montrerSynchro = false
     /// Mot de passe de la galerie du stand : dans le trousseau du Mac, jamais dans reglages.json.
@@ -58,12 +66,12 @@ final class Etat: ObservableObject {
     @Published var motDePasseGalerieEnLigne: String = Trousseau.lire("galerie-en-ligne") {
         didSet { Trousseau.ecrire("galerie-en-ligne", motDePasseGalerieEnLigne); galerieEnLigneChangee() }
     }
-    /// Clé API de la console UniFi (régulateur réseau) : dans le trousseau du Mac.
-    @Published var cleUniFi: String = Trousseau.lire("unifi") {
-        didSet { Trousseau.ecrire("unifi", cleUniFi); galerieEnLigneChangee() }
-    }
     @Published var montrerTerrain = false
     @Published var cloture: GenreCloture?
+    /// Fenêtre « Commencer un nouveau concours » / « Rouvrir un concours rangé » (HUGO 26/11).
+    @Published var nouveauConcours: DemandeNouveauConcours?
+    /// Concours rangés sur ce Mac (pas finis ou finis), à rouvrir.
+    @Published var concoursRanges: [ConcoursRange] = []
     /// Engagés terrain quand le tri ne tourne pas (sinon : ceux du moteur, qui ajoute aussi ceux du chrono).
     @Published var terrainHorsTri: [EngageTerrain] = []
     @Published var messageAttribution = ""
@@ -71,6 +79,8 @@ final class Etat: ObservableObject {
     @Published var messageMemoire = ""
     /// Listings des concours et commandes de pack photo (dossier iCloud partagé entre les Mac).
     let archives: Archives
+    /// Onglet « Au bureau » : archives des années passées, index, recherche, copies sur le Bureau.
+    let bureau = EtatBureau()
     /// Ancien dossier de la mémoire, s'il y reste des vignettes pas encore téléchargées d'iCloud.
     @Published var ancienDossierMemoire: URL?
     /// Retour à l'ancien dossier de la mémoire après un choix refusé (rien à déplacer).
@@ -79,11 +89,37 @@ final class Etat: ObservableObject {
     /// La mémoire partagée (dossier iCloud des stands).
     @Published var memoire: Memoire
     let acces = AccesDistance()
+    /// Loupedeck CT : pont local (ce Mac seulement) et ordres passés aux écrans Revue / À valider.
+    let loupedeck = PontLoupedeck()
+    let ordresLoupedeck = PassthroughSubject<OrdreLoupedeck, Never>()
+    /// Tenus à jour par la Revue et « À valider » (pas @Published : rien à redessiner).
+    var infoRevueLoupedeck: EtatLoupedeck.Revue?
+    var infoSerieLoupedeck: EtatLoupedeck.Serie?
+    var photoLoupedeck: Int64?
     @Published var etatAccesDistance = ""
     /// « Voir les photos de ce moment » (incident d'un iPhone) : la revue montre les photos autour de cette heure.
     @Published var momentRevue: (heure: Date, titre: String)?
+    /// « Revoir » une série validée : la revue montre seulement ces photos (ids), pour les trier.
+    @Published var photosRevue: (ids: [Int64], titre: String)?
+    /// Les dernières séries validées ou refusées dans « À valider » (les plus récentes d'abord), pour les revoir.
+    @Published var seriesValidees: [(ids: [Int64], titre: String, heure: Date)] = []
     /// L'état en cours (pour les clics sur les notifications du Mac).
     static weak var courant: Etat?
+
+    /// Rafraîchissement de la galerie du stand (serveur local). nil : pas d'adresse.
+    func configGalerieStand() -> ConfigGalerie? {
+        let r = reglages
+        guard !r.urlGalerieStand.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return ConfigGalerie(adresse: r.urlGalerieStand, identifiant: r.identifiantGalerieStand,
+                             motDePasse: motDePasseGalerie,
+                             // 0 = « en direct » (HUGO 26/11) : toutes les 30 s pendant une rafale, 10 s après la dernière photo
+                             minutes: r.minutesGalerieStand == 0 ? 0.5 : Double(r.minutesGalerieStand),
+                             calmeSecondes: r.minutesGalerieStand == 0 ? 10 : 30,
+                             empreinte: r.empreinteGalerieStand,
+                             sauverEmpreinte: { emp in
+                                 Task { @MainActor in Etat.courant?.reglages.empreinteGalerieStand = emp }
+                             })
+    }
 
     init() {
         let r = Stockage.lire(ReglagesConcours.self, nom: "reglages.json") ?? ReglagesConcours()
@@ -91,14 +127,13 @@ final class Etat: ObservableObject {
         memoire = Memoire(dossier: Etat.dossierMemoire(r))
         archives = Archives(dossier: Etat.dossierListings(r))
         concours = Stockage.lire(Concours.self, nom: "concours.json")
+        concoursRanges = ConcoursRange.tous()
         entrainement = Entrainement()
-        capture.zones = { [weak self] in self?.reglages.zonesIncrustation ?? [:] }
-        capture.concours = { [weak self] in self?.concours }
-        capture.epreuveForcee = { [weak self] in self?.reglages.epreuveForcee ?? "" }
         if !reglages.dossierReception.isEmpty {
             entrainement.dossierCible = URL(fileURLWithPath: reglages.dossierReception)
         }
         let m = moteur
+        bureau.concoursEnCours = { m.actif }
         serveur.resume = { m.resume }
         serveur.reglages = { [weak self] in self?.reglages ?? ReglagesConcours() }
         serveur.concours = { [weak self] in self?.concours }
@@ -113,6 +148,7 @@ final class Etat: ObservableObject {
         serveur.enregistrerCommande = { [weak self] k in self?.archives.enregistrer(k) }
         serveur.suivreEnDirect = { m.suivreEnDirect($0) }
         Etat.courant = self
+        StandsUniFi.partages.demarrer()        // l'UDM de la remorque où le Mac est branché
         Notifieur.partage.surveiller(m) { [weak self] in self?.reglages.silenceBoitierMinutes ?? 5 }
         serveur.demarrer()
         terrainHorsTri = fichierTerrain.map { Moteur.engagesTerrain(fichier: $0) } ?? []
@@ -121,13 +157,38 @@ final class Etat: ObservableObject {
         acces.code = { [weak self] in self?.reglages.codeAccesDistance ?? "" }
         acces.etat = { [weak self] in self?.etatDistance() }
         reglerAccesDistance()
+        brancherLoupedeck()
     }
 
-    /// Sources du chrono vues aujourd'hui (pour relier les pistes des réglages à celles du chrono).
-    func sourcesChrono(plus: String) -> [String] {
-        var l = Set(moteur.resume.suivis.keys)
+    /// Pistes vues aujourd'hui dans un chrono, telles qu'il les nomme (pour relier les pistes des réglages aux siennes).
+    func sourcesChrono(_ c: ReglagesConcours.ChronoConcours?, plus: String) -> [String] {
+        var l = Set<String>()
+        if let c, let e = moteur.resume.chrono?.liens.first(where: { $0.id == c.id.uuidString }) {
+            l.formUnion(e.sources)
+        } else if c == nil {
+            l.formUnion(moteur.resume.suivis.keys.map(ConfigLienChrono.brut))
+        }
         if !plus.isEmpty { l.insert(plus) }
         return l.sorted()
+    }
+
+    /// La capture Horse & Comp d'un chrono (créée à la première demande).
+    func capture(pour id: String) -> CaptureHorseComp {
+        if let c = captures[id] { return c }
+        let c = CaptureHorseComp(id: id)
+        c.zones = { [weak self] in self?.reglages.chrono(id: id)?.zones ?? [:] }
+        c.concours = { [weak self] in self?.concours }
+        c.epreuveForcee = { [weak self] in self?.reglages.chrono(id: id)?.epreuveForcee ?? "" }
+        captures[id] = c
+        return c
+    }
+
+    /// Les chronos en quelques mots (sous-titre, clôture, accès à distance).
+    var texteChronos: String {
+        let prets = reglages.chronos.filter(\.pret)
+        if prets.isEmpty { return reglages.fichierPassagesEntrainement.isEmpty ? "Sans chrono" : "Entraînement" }
+        if prets.count == 1 { return prets[0].genre == .horseComp ? "Capture Horse & Comp" : "HM Timing" }
+        return "\(prets.count) chronos"
     }
 
     /// Ouvre la synchro des boîtiers (photo du QR) avec ces choix pour le prochain boîtier.
@@ -138,8 +199,23 @@ final class Etat: ObservableObject {
 
     /// Ouvre la revue sur les photos prises autour d'une heure (incident).
     func voirMoment(_ heure: Date, titre: String) {
+        photosRevue = nil
         momentRevue = (heure, titre)
         ecran = .revue
+    }
+
+    /// Ouvre la revue sur ces photos seulement (série validée).
+    func voirPhotos(_ ids: [Int64], titre: String) {
+        momentRevue = nil
+        photosRevue = (ids, titre)
+        ecran = .revue
+    }
+
+    /// Note une série validée pour pouvoir la revoir ensuite (20 dernières).
+    func noterSerieValidee(_ ids: [Int64], titre: String) {
+        guard !ids.isEmpty else { return }
+        seriesValidees.insert((ids, titre, Date()), at: 0)
+        if seriesValidees.count > 20 { seriesValidees.removeLast(seriesValidees.count - 20) }
     }
 
     // MARK: - Panneaux
@@ -175,6 +251,9 @@ final class Etat: ObservableObject {
             erreurFFE = error.localizedDescription
         }
     }
+
+    /// Concours rangé (plus de fichier FFE) ou rouvert (son fichier FFE lu relu).
+    func remplacerConcours(_ c: Concours?) { concours = c }
 
     /// Recharge le même fichier (après une mise à jour du SIF par exemple).
     func rechargerFFE() {
@@ -225,20 +304,25 @@ final class Etat: ObservableObject {
                 throw NSError(domain: "TriPhoto", code: 2, userInfo: [NSLocalizedDescriptionKey:
                     "La réception, l'import Lightroom et le serveur local doivent être trois dossiers différents."])
             }
+            if let t = tampon?.standardizedFileURL, [reception, importLR, serveur].map(\.standardizedFileURL).contains(t) {
+                throw NSError(domain: "TriPhoto", code: 2, userInfo: [NSLocalizedDescriptionKey:
+                    "Le dossier tampon doit être un dossier à part (ni la réception, ni l'import Lightroom, ni le serveur local)."])
+            }
             var cube: FichierCube?
             if !r.cubeServeur.isEmpty { cube = try FichierCube(fichier: URL(fileURLWithPath: r.cubeServeur)) }
-            var chrono: ConfigChrono?
-            if r.chronometrage == .captureHorseComp {
-                chrono = ConfigChrono(adresse: "", codeRegie: "", codeTechnicien: "",
-                                      apresArrivee: Double(r.finDeTourSecondes), latence: Double(r.latenceSecondes),
-                                      attenteMaxMinutes: Double(r.attenteChronoMinutes), externe: true)
-            } else if r.chronometrage == .hmTiming && (!r.adresseHM.isEmpty || !r.fichierPassagesEntrainement.isEmpty) {
-                chrono = ConfigChrono(adresse: r.adresseHM, codeRegie: r.codeRegieHM, codeTechnicien: r.codeTechHM,
-                                      apresArrivee: Double(r.finDeTourSecondes), latence: Double(r.latenceSecondes),
-                                      attenteMaxMinutes: Double(r.attenteChronoMinutes),
-                                      fichierPassages: r.fichierPassagesEntrainement.isEmpty ? nil
-                                          : URL(fileURLWithPath: r.fichierPassagesEntrainement))
+            // Les chronos : chaque HM Timing réglé, chaque Horse & Comp ; le mode entraînement remplace les HM Timing.
+            var liens: [ConfigLienChrono] = []
+            if !r.fichierPassagesEntrainement.isEmpty {
+                liens.append(ConfigLienChrono(id: "entrainement", nom: "Entraînement",
+                                              fichierPassages: URL(fileURLWithPath: r.fichierPassagesEntrainement)))
+            } else {
+                liens += r.chronos.filter { $0.genre == .hmTiming && $0.pret }.map(r.lien)
             }
+            let horseComp = r.chronos.filter { $0.genre == .horseComp && $0.pret }
+            liens += horseComp.map(r.lien)
+            let chrono: ConfigChrono? = liens.isEmpty ? nil
+                : ConfigChrono(liens: liens, apresArrivee: Double(r.finDeTourSecondes), latence: Double(r.latenceSecondes),
+                               attenteMaxMinutes: Double(r.attenteChronoMinutes))
             try moteur.demarrer(ConfigMoteur(reception: reception, importLightroom: importLR, tampon: tampon,
                                              serveur: serveur, cote: r.coteServeur, qualite: r.qualiteServeur,
                                              cube: cube, concours: concours, tailleLot: r.tailleLot,
@@ -248,25 +332,26 @@ final class Etat: ObservableObject {
                                              travailLightroom: r.dossierTravailLightroom.isEmpty ? nil
                                                  : URL(fileURLWithPath: r.dossierTravailLightroom, isDirectory: true),
                                              chrono: chrono, attente00Minutes: Double(r.attente00Minutes),
-                                             galerie: r.urlGalerieStand.isEmpty ? nil : ConfigGalerie(
-                                                 adresse: r.urlGalerieStand, identifiant: r.identifiantGalerieStand,
-                                                 motDePasse: motDePasseGalerie, minutes: Double(r.minutesGalerieStand),
-                                                 empreinte: r.empreinteGalerieStand,
-                                                 sauverEmpreinte: { emp in
-                                                     Task { @MainActor in Etat.courant?.reglages.empreinteGalerieStand = emp }
-                                                 }),
+                                             galerie: configGalerieStand(),
                                              galerieEnLigne: configGalerieEnLigne(),
                                              fichierTerrain: fichierTerrain,
                                              memoire: r.detectionsActives ? memoire : nil,
-                                             remises: configRemises()))
-            if !fichierDebutExiste { creerFichierDebut(silencieux: true) }
+                                             remises: configRemises(),
+                                             sauvegarde: r.sauvegardeActive && !r.dossierSauvegarde.isEmpty
+                                                 ? URL(fileURLWithPath: r.dossierSauvegarde, isDirectory: true) : nil,
+                                             rushAuto: r.rushAutoPhotos, ouvriersMax: r.photosEnMemeTemps))
+            if !fichierDebutExiste { creerFichierDebut(silencieux: true) } else { ecrireListingTexte() }
             garderListing()
-            if chrono?.externe == true {
-                let m = moteur
-                capture.envoyer = { p, e in m.passagesExternes(p, erreur: e) }
-                if !capture.ouverte && !r.urlIncrustation.isEmpty { capture.ouvrir(r.urlIncrustation) }
-                m.passagesExternes(capture.passages)
+            let m = moteur
+            for c in horseComp {
+                let id = c.id.uuidString
+                let cap = capture(pour: id)
+                cap.envoyer = { p, e in m.passagesExternes(lien: id, p, erreur: e) }
+                if !cap.ouverte { cap.ouvrir(c.urlIncrustation) }
+                m.passagesExternes(lien: id, cap.passages)
             }
+            // captures de chronos retirés des réglages : fermées
+            for (id, cap) in captures where !horseComp.contains(where: { $0.id.uuidString == id }) && cap.ouverte { cap.fermer() }
             erreurDemarrage = nil
             ecran = .accueil
         } catch {
@@ -313,15 +398,22 @@ final class Etat: ObservableObject {
         }
         let cubeOK = !reglages.cubeServeur.isEmpty && fm.isReadableFile(atPath: reglages.cubeServeur)
         v.append(.init(id: "Fichier .cube", ok: cubeOK, detail: cubeOK ? (reglages.cubeServeur as NSString).lastPathComponent : "À choisir"))
-        switch reglages.chronometrage {
-        case .hmTiming:
-            let ok = !reglages.adresseHM.isEmpty || !reglages.fichierPassagesEntrainement.isEmpty
-            v.append(.init(id: "Chronométrage", ok: ok, detail: ok ? "HM Timing · \(reglages.adresseHM.isEmpty ? "fichier d'entraînement" : reglages.adresseHM)"
-                                                              : "Adresse de HM Timing à régler (sinon : codes du photographe gardés)"))
-        case .captureHorseComp:
-            let ok = !reglages.urlIncrustation.isEmpty && reglages.zonesIncrustation["dossard"] != nil
-            v.append(.init(id: "Chronométrage", ok: ok, detail: ok ? "Capture Horse & Comp · zones réglées"
-                                                              : "Capture Horse & Comp : adresse et zones à régler"))
+        if reglages.chronos.isEmpty {
+            v.append(.init(id: "Chronométrage", ok: false, detail: "Aucun chrono : les codes du photographe sont gardés"))
+        }
+        for c in reglages.chronos {
+            let id = reglages.chronos.count > 1 ? "Chrono « \(c.nom) »" : "Chronométrage"
+            switch c.genre {
+            case .hmTiming:
+                let entrainement = !reglages.fichierPassagesEntrainement.isEmpty
+                let ok = c.pret || entrainement
+                v.append(.init(id: id, ok: ok, detail: ok ? "HM Timing · \(entrainement ? "fichier d'entraînement" : c.adresse)"
+                                                  : "Adresse de HM Timing à régler (sinon : codes du photographe gardés)"))
+            case .horseComp:
+                let ok = c.pret && c.zones["dossard"] != nil
+                v.append(.init(id: id, ok: ok, detail: ok ? "Capture Horse & Comp · zones réglées"
+                                                  : "Capture Horse & Comp : adresse et zones à régler"))
+            }
         }
         return v
     }

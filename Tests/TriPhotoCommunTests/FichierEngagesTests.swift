@@ -43,6 +43,21 @@ final class FichierEngagesTests: XCTestCase {
         XCTAssertTrue(texte.allSatisfy(\.isASCII))
     }
 
+    func testListingTexteCommeLAncienTxt() throws {
+        let terrain = [EngageTerrain(epreuve: "1", dossard: "31", nom: "Martin", prenom: "zoé", cheval: "Tornade", source: .main)]
+        let texte = FichierEngages.listingTexte(try epreuves(), terrain: terrain)
+        XCTAssertFalse(texte.hasSuffix("\n"))
+        XCTAssertFalse(texte.contains("\r"))
+        let l = texte.components(separatedBy: "\n")
+        XCTAssertEqual(Array(l.prefix(9)), [
+            "DIVERS", "", "#80_00;divers", "",
+            "PREPARATOIRE 110 M VEN", "", "#01_00;inconnu Preparatoire 110 m VEN",
+            "#01_01;ETE Melinda HELLO BOY D'ESSAI", "#01_02;DURAND Loic LOREL"])
+        XCTAssertEqual(l[9], "#01_31;MARTIN Zoe TORNADE")
+        XCTAssertEqual(l[10], "#01_99;Remise des prix Preparatoire 110 m VEN")
+        XCTAssertTrue(l.contains("#17_10;UN Jean-Paul X"))
+    }
+
     func testClotureAvecEngagesTerrain() throws {
         let terrain = [EngageTerrain(epreuve: "1", dossard: "31", nom: "Martin", prenom: "zoé", cheval: "Tornade", source: .main),
                        EngageTerrain(epreuve: "01", dossard: "2", nom: "DOUBLE", prenom: "x", cheval: "y", source: .chrono),
@@ -63,6 +78,14 @@ final class FichierEngagesTests: XCTestCase {
         XCTAssertEqual(EngageTerrain.couper("Melinda DE LA TOUR").nom, "DE LA TOUR")
         XCTAssertEqual(EngageTerrain.couper("Melinda DE LA TOUR").prenom, "Melinda")
         XCTAssertEqual(EngageTerrain.couper("Jean Dupont").nom, "Dupont")
+    }
+
+    func testMotsClesPrenomNomPuisCheval() {
+        XCTAssertEqual(Engage(dossard: "12", cavalier: "Alice TEST", cheval: "CHEVAL UN").motsCles, ["Alice TEST", "CHEVAL UN"])
+        XCTAssertEqual(Engage(dossard: "12", cavalier: "TEST Alice", cheval: "CHEVAL UN").motsCles, ["Alice TEST", "CHEVAL UN"])
+        XCTAssertEqual(Engage(dossard: "12", cavalier: "ALICE TEST", cheval: "Tornade").motsCles, ["Alice TEST", "Tornade"])
+        XCTAssertEqual(Engage(dossard: "12", cavalier: "DE LA TOUR jean-marc", cheval: "").motsCles, ["Jean-Marc DE LA TOUR"])
+        XCTAssertEqual(Engage(dossard: "12", cavalier: " Zoe  MARTIN ", cheval: "TORNADE, HN").motsCles, ["Zoe MARTIN", "TORNADE HN"])
     }
 
     func testNomDuFichier() {

@@ -43,6 +43,7 @@ struct DirectView: View {
                     }
                     .font(.system(size: 13))
                     .padding(.horizontal, 4)
+                    BoutonEcranVerrouille()
                 }
             }
             boutonIncident

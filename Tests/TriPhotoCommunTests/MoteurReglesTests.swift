@@ -106,5 +106,12 @@ final class ReglesTests: XCTestCase {
         XCTAssertEqual(RegleRegulateur.ouvriers(chargeLightroom: 0.3, fileEnRetard: false), 2)
         XCTAssertEqual(RegleRegulateur.ouvriers(chargeLightroom: 0.8, fileEnRetard: false), 1)
         XCTAssertEqual(RegleRegulateur.ouvriers(chargeLightroom: 0.8, fileEnRetard: true), 3)
+        // Mac mini 10 cœurs, automatique : 8 files en rafale, 4 au calme
+        let p = RegleRegulateur.plafond(reglage: 0, coeurs: 10)
+        XCTAssertEqual(p, 8)
+        XCTAssertEqual(RegleRegulateur.ouvriers(chargeLightroom: 0.8, fileEnRetard: true, plafond: p), 8)
+        XCTAssertEqual(RegleRegulateur.ouvriers(chargeLightroom: 0.05, fileEnRetard: false, plafond: p), 4)
+        XCTAssertEqual(RegleRegulateur.plafond(reglage: 12, coeurs: 10), 12)
+        XCTAssertEqual(RegleRegulateur.plafond(reglage: 0, coeurs: 4), 3)
     }
 }

@@ -1,3 +1,7 @@
 .build/
 build/
 .swiftpm/
+iPhone/*.xcodeproj
+iPhone/Piste/Info.plist
+iPhone/Widget/Info.plist
+iPhone/Piste/Piste.entitlements

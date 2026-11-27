@@ -41,6 +41,7 @@ struct AccueilView: View {
                 .padding(24)
             }
             .frame(maxWidth: .infinity)
+            .repere("accueil.principal")
             if etat.panneauDroit {
                 Divider().overlay(Theme.bordure)
                 panneauDroit.frame(width: 300).background(Theme.panneau)
@@ -51,8 +52,10 @@ struct AccueilView: View {
 
     // MARK: - Chiffres
 
+    /// Les grands chiffres : sur une ligne dans une fenêtre large, sur plusieurs lignes dans une fenêtre étroite
+    /// (essai du 26/11 : dans une petite fenêtre, les textes étaient coupés).
     private var chiffres: some View {
-        HStack(spacing: 12) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
             Tuile(titre: "Photos reçues aujourd'hui", valeur: "\(r.recues)",
                   detail: "\(Int(r.parMinute.rounded())) par minute en ce moment")
             Tuile(titre: "File d'attente", valeur: "\(r.enFile)",
@@ -83,13 +86,31 @@ struct AccueilView: View {
 
     private var enPiste: some View {
         Carte(titre: "En piste", sousTitre: chronoTexte) {
+            if let ch = r.chrono, ch.liens.count > 1 {
+                // un voyant par chrono : vert = répond, orange = ne répond plus
+                HStack(spacing: 14) {
+                    ForEach(ch.liens) { l in
+                        HStack(spacing: 5) {
+                            Circle().fill(l.ok == true ? Theme.ok : l.ok == false ? Theme.orange : Theme.texteTresDiscret)
+                                .frame(width: 8, height: 8)
+                            Text(l.nom).font(.system(size: 12, weight: .semibold))
+                            if l.ok == false {
+                                Text(l.erreur).font(.system(size: 11)).foregroundStyle(Theme.orange).lineLimit(1)
+                            }
+                        }
+                        .help(l.ok == true ? "\(l.nom) répond · \(l.passages) passages" : l.erreur)
+                    }
+                    Spacer()
+                }
+            }
             if r.enPiste.isEmpty {
                 Text("Aucun passage pour l'instant.").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
             }
             ForEach(r.enPiste) { e in
                 HStack {
-                    Text(e.piste.isEmpty ? "Piste" : e.piste).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
-                        .frame(width: 110, alignment: .leading)
+                    Text(nomPiste(e.piste)).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+                        .lineLimit(1).frame(width: 150, alignment: .leading)
+                        .help(e.piste)
                     Text("Épreuve \(e.passage.epreuve) · n° \(e.passage.dossard)").font(.system(size: 13, weight: .semibold))
                     Text([e.passage.cavalier, e.passage.cheval].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.system(size: 12)).foregroundStyle(Theme.texteDiscret).lineLimit(1)
@@ -100,9 +121,21 @@ struct AccueilView: View {
         }
     }
 
+    /// Le nom de la piste dans les réglages (« Indoor »), plutôt que celui du chrono.
+    private func nomPiste(_ cle: String) -> String {
+        if cle.isEmpty { return "Piste" }
+        let sources = Array(r.suivis.keys)
+        let reg = etat.reglages
+        return reg.pistes.first { ServeurPiste.source(pour: $0.nom, reglages: reg, sources: sources) == cle }?.nom ?? cle
+    }
+
     private var chronoTexte: String {
         guard let c = r.chrono else { return "" }
-        let nom = etat.reglages.chronometrage.rawValue
+        if c.liens.count > 1 {
+            let ok = c.liens.filter { $0.ok == true }.count
+            return "\(c.liens.count) chronos · \(ok) répond\(ok > 1 ? "ent" : "") · \(c.passages) passages"
+        }
+        let nom = etat.texteChronos
         switch c.ok {
         case .none: return "\(nom) : en attente…"
         case .some(true): return "\(nom) · \(c.passages) passages\(c.erreur.isEmpty ? "" : " · " + c.erreur)"
@@ -120,14 +153,17 @@ struct AccueilView: View {
                 ForEach(r.photosParCode, id: \.code) { p in
                     let ecart = mediane > 0 && (Double(p.photos) > Double(mediane) * 2 || Double(p.photos) < Double(mediane) / 2)
                     VStack(spacing: 2) {
+                        // barres qui s'élargissent avec la fenêtre (plein écran : plus de graphique minuscule)
                         RoundedRectangle(cornerRadius: 2)
                             .fill(ecart ? Theme.orange : Theme.accent)
-                            .frame(width: 12, height: plusHaut > 0 ? CGFloat(p.photos) / CGFloat(plusHaut) * 70 + 2 : 2)
-                            .help("\(p.code) : \(p.photos) photos")
+                            .frame(minWidth: 4, maxWidth: 32)
+                            .frame(height: plusHaut > 0 ? CGFloat(p.photos) / CGFloat(plusHaut) * 120 + 2 : 2)
+                            .help("\(p.code) : \(Pluriel.photos(p.photos))")
                     }
                 }
             }
-            .frame(height: 76, alignment: .bottom)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 126, alignment: .bottom)
         }
     }
 
@@ -159,6 +195,7 @@ struct AccueilView: View {
     private var boitiers: some View {
         Carte(titre: "Boîtiers", sousTitre: "\(r.boitiers.count) boîtier\(r.boitiers.count > 1 ? "s" : "") aujourd'hui") {
             Button("Synchroniser les boîtiers (photo du QR)…") { etat.montrerSynchro = true }.buttonStyle(BoutonStyle())
+            Button("Ajouter un engagé terrain…") { etat.montrerTerrain = true }.buttonStyle(BoutonStyle())
             if r.boitiers.isEmpty {
                 Text("Aucune photo reçue pour l'instant.").font(.system(size: 13)).foregroundStyle(Theme.texteDiscret)
             }
@@ -174,7 +211,7 @@ struct AccueilView: View {
                         }
                     }
                     Spacer()
-                    Text("\(b.photos) photos").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+                    Text(Pluriel.photos(b.photos)).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
                     if let d = b.derniere {
                         let silence = Date().timeIntervalSince(d)
                         Pastille(texte: silence < 300 ? "dernière il y a \(Self.duree(silence))" : "silencieux depuis \(Self.duree(silence))",
@@ -285,10 +322,11 @@ struct Tuile: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(titre).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
             Text(valeur).font(.system(size: 28, weight: .semibold)).foregroundStyle(alerte ? Theme.attention : Theme.texte)
-            Text(detail).font(.system(size: 11)).foregroundStyle(Theme.texteDiscret).lineLimit(1)
+            Text(detail).font(.system(size: 11)).foregroundStyle(Theme.texteDiscret).lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
         .background(Theme.carte, in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(alerte ? Theme.attention.opacity(0.5) : Theme.bordure, lineWidth: 1))
     }

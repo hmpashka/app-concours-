@@ -19,8 +19,9 @@ extension Etat {
         [r.adresseFTPGalerie, r.protocoleGalerie.rawValue, "\(r.portGalerie)", r.identifiantGalerie, r.dossierGalerie,
          "\(r.accepterCertificatGalerie)", "\(r.galerieLaNuit)", "\(r.heureNuitGalerie)", "\(r.heureMatinGalerie)",
          "\(r.limiteKoGalerie)", r.auteurGalerie, "\(r.coteGalerie)", "\(r.qualiteGalerie)", "\(r.numeroIncruste)",
-         "\(r.cubeGalerieIdentique)", r.cubeGalerie, r.cubeServeur, r.adresseUniFi, "\(r.montantMbitLigne)",
-         "\(r.seuilUniFi)"].joined(separator: "|")
+         "\(r.cubeGalerieIdentique)", r.cubeGalerie, r.cubeServeur,
+         "\(r.seuilUniFi)", "\(r.galerieVersDossier)", r.dossierLocalGalerie,
+         r.nomDossierGalerie, r.nomConcours, "\(r.nombreJours)"].joined(separator: "|")
     }
 
     /// Premier jour du concours (fichier FFE), sinon aujourd'hui moins les jours du concours.
@@ -45,31 +46,78 @@ extension Etat {
 
     var fichierTerrain: URL? { Stockage.dossier.appendingPathComponent("engages-terrain-\(cleConcours).json") }
 
-    /// Réglages de la galerie en ligne pour le moteur ; nil si l'adresse n'est pas remplie.
+    /// La galerie est réglée : un dossier du Mac choisi, ou une adresse de serveur.
+    var galerieReglee: Bool {
+        reglages.galerieVersDossier ? !reglages.dossierLocalGalerie.isEmpty
+                                    : !reglages.adresseFTPGalerie.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Réglages de la galerie pour le moteur : vers le dossier du Mac choisi, ou par FTP. nil si rien n'est rempli.
     func configGalerieEnLigne() -> ConfigGalerieEnLigne? {
         let r = reglages
+        if r.galerieVersDossier {
+            guard !r.dossierLocalGalerie.isEmpty, var c = configGalerieFTP(obligatoire: false) else { return nil }
+            c.dossierLocal = r.dossierLocalGalerie
+            c.dossier = r.dossierGalerie        // le dossier du concours va dans le dossier du Mac, pas dans `dossier`
+            c.sousDossierLocal = dossierConcoursGalerie
+            c.fichierEtat = Stockage.dossier.appendingPathComponent("galerie-dossier-\(cleConcours)\(Etat.suffixeEtat(dossierConcoursGalerie)).json")
+            return c
+        }
+        return configGalerieFTP(obligatoire: true)
+    }
+
+    /// Dossier du concours dans la galerie (HUGO 26/11) : « CODE_NOM », le code = aa-mm-jj du dernier jour du
+    /// concours (comme les fichiers d'attribution et les dossiers du NAS), le nom = celui des réglages, sinon celui
+    /// du concours. « 26-11-29_LAMOTTE INDOOR ».
+    var dossierConcoursGalerie: String {
+        Etat.nomDossierGalerie(nom: reglages.nomDossierGalerie.isEmpty ? nomConcoursFichier : reglages.nomDossierGalerie,
+                               dernierJour: finConcours)
+    }
+
+    static func nomDossierGalerie(nom: String, dernierJour: Date) -> String {
+        (FichierEngages.nomFichier(concours: nom, dernierJour: dernierJour) as NSString).deletingPathExtension
+    }
+
+    /// Un fichier d'état par dossier de concours : le dossier change (nom modifié) → tout repart dans le nouveau
+    /// dossier, rien n'est supprimé dans l'ancien.
+    static func suffixeEtat(_ sous: String) -> String { sous.isEmpty ? "" : "--" + NomDossier.nettoyer(sous) }
+
+    /// « /www/album » + « 26-11-29_LAMOTTE » → « /www/album/26-11-29_LAMOTTE » (vide : le dossier du concours seul).
+    static func joindre(_ racine: String, _ sous: String) -> String {
+        let r = racine.trimmingCharacters(in: .whitespaces)
+        guard !sous.isEmpty else { return r }
+        if r.isEmpty { return sous }
+        return r.hasSuffix("/") ? r + sous : r + "/" + sous
+    }
+
+    /// Fichier qui garde ce que « Envoyer ce dossier en ligne » a déjà envoyé (par dossier choisi).
+    var fichierEnvoiDossier: URL {
+        let nom = NomDossier.nettoyer(URL(fileURLWithPath: reglages.dossierLocalGalerie).lastPathComponent)
+        return Stockage.dossier.appendingPathComponent("galerie-dossier-envoye-\(nom.isEmpty ? "dossier" : nom).json")
+    }
+
+    /// Réglages FTP / SFTP de la galerie (sans dossier du Mac). `obligatoire` : nil si l'adresse n'est pas remplie.
+    func configGalerieFTP(obligatoire: Bool = true) -> ConfigGalerieEnLigne? {
+        let r = reglages
         let hote = r.adresseFTPGalerie.trimmingCharacters(in: .whitespaces)
-        guard !hote.isEmpty else { return nil }
+        if obligatoire && hote.isEmpty { return nil }
         let chemin = r.cubeGalerieIdentique ? r.cubeServeur : r.cubeGalerie
         let cube = chemin.isEmpty ? nil : try? FichierCube(fichier: URL(fileURLWithPath: chemin))
         return ConfigGalerieEnLigne(protocole: r.protocoleGalerie, hote: Etat.hoteSeul(hote), port: r.portGalerie,
                                     identifiant: r.identifiantGalerie, motDePasse: motDePasseGalerieEnLigne,
-                                    dossier: r.dossierGalerie, accepterCertificat: r.accepterCertificatGalerie,
+                                    dossier: Etat.joindre(r.dossierGalerie, dossierConcoursGalerie), accepterCertificat: r.accepterCertificatGalerie,
                                     laNuit: r.galerieLaNuit, heureNuit: r.heureNuitGalerie, heureMatin: r.heureMatinGalerie,
                                     limiteKo: r.limiteKoGalerie, cote: r.coteGalerie, qualite: r.qualiteGalerie, cube: cube,
                                     cubeDuServeur: r.cubeGalerieIdentique, numero: r.numeroIncruste,
                                     auteurParDefaut: r.auteurGalerie, depuis: debutConcours,
-                                    fichierEtat: Stockage.dossier.appendingPathComponent("galerie-en-ligne-\(cleConcours).json"),
+                                    fichierEtat: Stockage.dossier.appendingPathComponent("galerie-en-ligne-\(cleConcours)\(Etat.suffixeEtat(dossierConcoursGalerie)).json"),
                                     unifi: configUniFi())
     }
 
-    /// Régulateur réseau : nil sans adresse ou sans clé API.
+    /// Régulateur réseau : les UDM connus de ce Mac (nil : aucun, pas de régulateur). Le moteur prend tout seul
+    /// celui du réseau où le Mac est branché.
     func configUniFi() -> ConfigUniFi? {
-        let r = reglages
-        guard !r.adresseUniFi.trimmingCharacters(in: .whitespaces).isEmpty, !cleUniFi.isEmpty else { return nil }
-        return ConfigUniFi(adresse: r.adresseUniFi, cle: cleUniFi, montantMbit: Double(r.montantMbitLigne),
-                           seuil: Double(r.seuilUniFi) / 100, empreinte: r.empreinteUniFi,
-                           sauverEmpreinte: { emp in Task { @MainActor in Etat.courant?.reglages.empreinteUniFi = emp } })
+        StandsUniFi.partages.configUniFi(seuil: reglages.seuilUniFi)
     }
 
     /// « ftp://ftp.site.fr/ » ou « sftp://site.fr » collés depuis FileZilla → « ftp.site.fr ».
@@ -96,6 +144,13 @@ extension Etat {
             if let i = terrainHorsTri.firstIndex(where: { $0.id == e.id }) { terrainHorsTri[i] = e } else { terrainHorsTri.append(e) }
             sauverTerrainHorsTri()
         }
+        mettreAJourFichierFinBientot()
+    }
+
+    /// Engagé terrain ajouté, corrigé ou retiré pendant le concours (HUGO 24/11) : le fichier de fin est réécrit tout
+    /// de suite, sans attendre la clôture (le moteur met une seconde à prendre le changement en compte).
+    private func mettreAJourFichierFinBientot() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.creerFichierFin(enDirect: true) }
     }
 
     func retirerEngageTerrain(_ e: EngageTerrain) {
@@ -105,6 +160,7 @@ extension Etat {
             terrainHorsTri.removeAll { $0.id == e.id }
             sauverTerrainHorsTri()
         }
+        mettreAJourFichierFinBientot()
     }
 
     private func sauverTerrainHorsTri() {
@@ -117,10 +173,14 @@ extension Etat {
 
     // MARK: - Fichiers d'attribution
 
-    /// Dossier des fichiers d'attribution : celui des réglages, sinon le dossier « Clôtures » de l'app.
+    /// Dossier des fichiers créés pour un concours (HUGO 24/11 : tout groupé, début et fin ensemble) :
+    /// un sous-dossier au nom du concours (« 26-11-29_LAMOTTE INDOOR ») dans celui des réglages, sinon dans le
+    /// dossier « Clôtures » de l'app. Fichier du début, fichier de fin, statistiques et collections Lightroom y vont.
     var dossierAttribution: URL {
-        if !reglages.dossierClotures.isEmpty { return URL(fileURLWithPath: reglages.dossierClotures, isDirectory: true) }
-        let d = Stockage.dossier.appendingPathComponent("Clôtures", isDirectory: true)
+        let racine = reglages.dossierClotures.isEmpty ? Stockage.dossier.appendingPathComponent("Clôtures", isDirectory: true)
+                                                      : URL(fileURLWithPath: reglages.dossierClotures, isDirectory: true)
+        let nom = (FichierEngages.nomFichier(concours: nomConcoursFichier, dernierJour: finConcours) as NSString).deletingPathExtension
+        let d = nom.isEmpty ? racine : racine.appendingPathComponent(nom, isDirectory: true)
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }
@@ -134,6 +194,24 @@ extension Etat {
     var fichierFin: URL {
         dossierAttribution.appendingPathComponent(FichierEngages.nomFichier(concours: nomConcoursFichier, dernierJour: finConcours,
                                                                             suffixe: " fin"))
+    }
+
+    /// Listing .txt « #EE_DD;NOM Prénom CHEVAL » à côté du fichier du début (même nom, .txt).
+    var fichierListingTexte: URL { fichierDebut.deletingPathExtension().appendingPathExtension("txt") }
+
+    /// (Ré)écrit le listing .txt avec les engagés terrain du moment : au début du concours et à chaque engagé terrain.
+    @discardableResult
+    func ecrireListingTexte() -> URL? {
+        guard let epreuves = try? epreuvesEngages() else { return nil }
+        let url = fichierListingTexte
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(FichierEngages.listingTexte(epreuves, terrain: engagesTerrain).utf8).write(to: url, options: .atomic)
+            return url
+        } catch {
+            messageAttribution = "Listing .txt : \(error.localizedDescription)"
+            return nil
+        }
     }
 
     var fichierDebutExiste: Bool { FileManager.default.fileExists(atPath: fichierDebut.path) }
@@ -153,7 +231,8 @@ extension Etat {
             let texte = FichierEngages.debut(try epreuvesEngages())
             let url = fichierDebut
             try ecrireEnGardantLAncien(texte, vers: url)
-            messageAttribution = "Fichier de début écrit : \(url.lastPathComponent)"
+            ecrireListingTexte()
+            messageAttribution = "Fichier de début écrit : \(url.lastPathComponent) (+ listing .txt)"
             return url
         } catch {
             if !silencieux { messageAttribution = "Fichier de début : \(error.localizedDescription)" }
@@ -163,11 +242,17 @@ extension Etat {
 
     /// Fichier d'attribution de fin (format HMV), avec les engagés terrain.
     @discardableResult
-    func creerFichierFin() -> URL? {
+    func creerFichierFin(enDirect: Bool = false) -> URL? {
         do {
             let texte = FichierEngages.cloture(try epreuvesEngages(), terrain: engagesTerrain)
             let url = fichierFin
-            try ecrireEnGardantLAncien(texte, vers: url)
+            if enDirect {       // mise à jour pendant le concours : remplacé sur place, sans remplir la Corbeille
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data(texte.utf8).write(to: url, options: .atomic)
+            } else {
+                try ecrireEnGardantLAncien(texte, vers: url)
+            }
+            ecrireListingTexte()
             messageAttribution = "Fichier de fin écrit : \(url.lastPathComponent) (\(engagesTerrain.count) engagés terrain)"
             garderListing()
             return url
@@ -244,7 +329,11 @@ extension Etat {
         let r = moteur.resume
         let chrono: String
         if let c = r.chrono {
-            chrono = c.ok == true ? "\(reglages.chronometrage.rawValue) OK" : "\(reglages.chronometrage.rawValue) : \(c.erreur)"
+            if c.liens.count > 1 {
+                chrono = c.liens.map { "\($0.nom) " + ($0.ok == true ? "OK" : "en panne") }.joined(separator: " · ")
+            } else {
+                chrono = c.ok == true ? "\(texteChronos) OK" : "\(texteChronos) : \(c.erreur)"
+            }
         } else {
             chrono = "Sans chrono"
         }

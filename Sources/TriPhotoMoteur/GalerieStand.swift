@@ -27,6 +27,25 @@ public struct ConfigGalerie: Sendable {
     }
 }
 
+/// Essai de la galerie du stand depuis les réglages.
+public enum EssaiGalerieStand {
+    public static func tester(_ c: ConfigGalerie, fini: @escaping @Sendable (Bool, String) -> Void) {
+        DispatchQueue.global(qos: .utility).async {
+            let g = GalerieStand(config: c, racine: URL(fileURLWithPath: "/"))
+            let (ok, m) = g.tester()
+            fini(ok, m)
+        }
+    }
+
+    public static func chercherNouveauxDossiers(_ c: ConfigGalerie, fini: @escaping @Sendable (Bool, String) -> Void) {
+        DispatchQueue.global(qos: .utility).async {
+            let g = GalerieStand(config: c, racine: URL(fileURLWithPath: "/"))
+            let (ok, m) = g.chercherNouveauxDossiers()
+            fini(ok, m)
+        }
+    }
+}
+
 public struct EtatGalerie: Sendable, Equatable {
     public var ok: Bool?
     public var message = ""
@@ -163,6 +182,56 @@ final class GalerieStand: NSObject, URLSessionDelegate, @unchecked Sendable {
         verrou.unlock()
     }
 
+    /// Seule la racine du serveur compte : « smb://190.160.40.5 » (partage collé par erreur), « 190.160.40.5 »,
+    /// « https://190.160.40.5/admin/app/dossier/list » (page copiée du navigateur) → « https://190.160.40.5 ».
+    static func adresseWeb(_ adresse: String) -> String {
+        var a = adresse.trimmingCharacters(in: .whitespacesAndNewlines)
+        let schema = a.lowercased().hasPrefix("http://") ? "http://" : "https://"
+        if let r = a.range(of: "://") { a = String(a[r.upperBound...]) }
+        a = String(a.split(separator: "/").first ?? Substring(a))
+        return schema + a
+    }
+
+    /// Bouton « Rafraîchir maintenant » sans tri en cours : connexion, puis « Chercher les nouveaux dossiers ».
+    func chercherNouveauxDossiers() -> (Bool, String) {
+        do {
+            if !(try connecte()) { try seConnecter() }
+            let (st, _, _) = try requete("/admin/app/dossier/scan", delai: 180)
+            if st >= 400 { return (false, "La galerie répond \(st) à « Chercher les nouveaux dossiers ».") }
+            return (true, "Galerie rafraîchie (nouveaux dossiers cherchés).")
+        } catch {
+            return tester()
+        }
+    }
+
+    /// Bouton « Tester la connexion » : le serveur répond-il, l'identifiant est-il accepté, la liste des dossiers
+    /// se lit-elle ? Ne rafraîchit rien.
+    func tester() -> (Bool, String) {
+        let web = GalerieStand.adresseWeb(config.adresse)
+        do {
+            if !(try connecte()) { try seConnecter() }
+            let (st, _, page) = try requete("/admin/app/dossier/list?per_page=250")
+            guard st == 200 else { return (false, "Connecté, mais la liste des dossiers répond \(st).") }
+            let n = GalerieStand.tous(#"/admin/app/dossier/(\d+)/"#, page).count
+            let detail = n > 0 ? " Dossiers vus dans la galerie." : ""
+            let note = web == config.adresse.trimmingCharacters(in: .whitespacesAndNewlines) ? "" : " (adresse utilisée : \(web))"
+            return (true, "Connexion réussie : identifiant et mot de passe acceptés.\(detail)\(note)")
+        } catch {
+            verrou.lock(); let cert = certificatRefuse; certificatRefuse = false; verrou.unlock()
+            if cert { return (false, "Le certificat du serveur a changé : connexion refusée (« Oublier le certificat » si c'est voulu).") }
+            let e = error as NSError
+            if e.domain == NSURLErrorDomain {
+                switch e.code {
+                case NSURLErrorCannotConnectToHost, NSURLErrorTimedOut, NSURLErrorCannotFindHost, NSURLErrorNotConnectedToInternet,
+                     NSURLErrorNetworkConnectionLost:
+                    return (false, "Le serveur ne répond pas à \(web) : est-il allumé, et ce Mac est-il sur le réseau du stand ?")
+                default: break
+                }
+            }
+            return (false, error.localizedDescription)
+        }
+    }
+
     private static func erreur(_ t: String) -> NSError {
         NSError(domain: "Galerie", code: 1, userInfo: [NSLocalizedDescriptionKey: t])
     }
@@ -205,8 +274,7 @@ final class GalerieStand: NSObject, URLSessionDelegate, @unchecked Sendable {
 
     /// Requête (GET, ou POST d'un formulaire). Rend le statut, l'adresse finale (après redirections) et la page.
     private func requete(_ chemin: String, formulaire: [String: String]? = nil, delai: TimeInterval = 30) throws -> (Int, String, String) {
-        var base = config.adresse.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !base.lowercased().hasPrefix("http") { base = "https://" + base }
+        var base = GalerieStand.adresseWeb(config.adresse)
         while base.hasSuffix("/") { base.removeLast() }
         let complet = chemin.hasPrefix("http") ? chemin : base + chemin
         guard let url = URL(string: complet) else { throw GalerieStand.erreur("adresse de la galerie invalide") }
@@ -214,9 +282,11 @@ final class GalerieStand: NSObject, URLSessionDelegate, @unchecked Sendable {
         if let formulaire {
             r.httpMethod = "POST"
             r.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            var c = URLComponents()
-            c.queryItems = formulaire.map { URLQueryItem(name: $0.key, value: $0.value) }
-            r.httpBody = (c.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
+            // Tout ce qui n'est pas lettre, chiffre ou « -._~ » est encodé (mot de passe avec & = + # …).
+            var permis = CharacterSet.alphanumerics.intersection(CharacterSet(charactersIn: Unicode.Scalar(0)..<Unicode.Scalar(128)))
+            permis.insert(charactersIn: "-._~")
+            func enc(_ t: String) -> String { t.addingPercentEncoding(withAllowedCharacters: permis) ?? t }
+            r.httpBody = formulaire.map { enc($0.key) + "=" + enc($0.value) }.joined(separator: "&").data(using: .utf8)
         }
         let fini = DispatchSemaphore(value: 0)
         var sortie: (Int, String, String)?

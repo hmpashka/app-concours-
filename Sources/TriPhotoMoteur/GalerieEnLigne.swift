@@ -53,11 +53,17 @@ public struct ConfigGalerieEnLigne: Sendable {
     public var fichierEtat: URL
     /// Régulateur réseau (console UniFi) : pause quand la ligne internet est chargée par les autres. nil : sans.
     public var unifi: ConfigUniFi?
+    /// Sans connexion au concours : les copies de la galerie vont dans ce dossier du Mac (ou d'un disque) au lieu
+    /// du FTP, tenu à jour de la même façon. nil : envoi par FTP / SFTP.
+    public var dossierLocal: String?
+    /// Dossier du concours DANS le dossier du Mac (« 26-11-29_LAMOTTE INDOOR »), créé s'il manque. Vide : à plat.
+    /// (Par FTP, le dossier du concours est déjà ajouté à `dossier`.)
+    public var sousDossierLocal: String
 
     public init(protocole: Protocole, hote: String, port: Int, identifiant: String, motDePasse: String, dossier: String,
                 accepterCertificat: Bool, laNuit: Bool, heureNuit: Int, heureMatin: Int, limiteKo: Int, cote: Int,
                 qualite: Int, cube: FichierCube?, cubeDuServeur: Bool, numero: Bool, auteurParDefaut: String,
-                depuis: Date, fichierEtat: URL, unifi: ConfigUniFi? = nil) {
+                depuis: Date, fichierEtat: URL, unifi: ConfigUniFi? = nil, dossierLocal: String? = nil, sousDossierLocal: String = "") {
         self.protocole = protocole
         self.hote = hote
         self.port = port
@@ -78,6 +84,16 @@ public struct ConfigGalerieEnLigne: Sendable {
         self.depuis = depuis
         self.fichierEtat = fichierEtat
         self.unifi = unifi
+        self.dossierLocal = dossierLocal
+        self.sousDossierLocal = sousDossierLocal
+    }
+
+    /// Copies écrites dans un dossier du Mac (pas d'internet, pas de nuit, pas de régulateur).
+    public var versDossier: Bool { dossierLocal != nil }
+    /// Assez réglé pour travailler : un dossier choisi, ou une adresse de serveur.
+    public var estRegle: Bool { versDossier ? !(dossierLocal ?? "").isEmpty : !hote.isEmpty }
+    var urlDossierLocal: URL {
+        URL(fileURLWithPath: ((dossierLocal ?? "") as NSString).expandingTildeInPath, isDirectory: true)
     }
 
     var portReel: Int { port > 0 ? port : protocole.portParDefaut }
@@ -101,6 +117,7 @@ public struct EtatGalerieEnLigne: Sendable, Equatable {
     public var derniereReussite: Date?
     public var parMinute = 0.0
     public var pauseReseau = false
+    public var pauseManuelle = false      // bouton Pause de HUGO
     public var reseau: EtatReseau?
     public init() {}
     public var aFaire: Int { aEnvoyer + aSupprimer }
@@ -147,7 +164,7 @@ public final class GalerieEnLigne: @unchecked Sendable {
 
     public init(config: ConfigGalerieEnLigne) {
         self.config = config
-        self.reseau = config.unifi.flatMap { $0.adresse.isEmpty || $0.cle.isEmpty ? nil : ReseauUniFi(config: $0) }
+        self.reseau = config.unifi.flatMap { $0.udms.isEmpty ? nil : ReseauUniFi(config: $0) }
         if let d = try? Data(contentsOf: config.fichierEtat),
            let e = try? JSONDecoder().decode([String: String].self, from: d) { envoyees = e }
         let t = DispatchSource.makeTimerSource(queue: file)
@@ -159,6 +176,17 @@ public final class GalerieEnLigne: @unchecked Sendable {
 
     deinit { minuterie?.cancel() }
 
+    /// Concours rangé : plus rien n'est envoyé ni écrit (le lot en cours finit d'abord). Son état reste dans son
+    /// fichier, rangé avec le concours, et repart de là si on rouvre le concours.
+    private var arretee = false
+    public func arreter() {
+        file.sync {
+            arretee = true
+            minuterie?.cancel()
+            minuterie = nil
+        }
+    }
+
     public var etat: EtatGalerieEnLigne {
         verrou.lock(); defer { verrou.unlock() }
         return _etat
@@ -169,7 +197,7 @@ public final class GalerieEnLigne: @unchecked Sendable {
         file.async {
             let autreConcours = c.fichierEtat != self.config.fichierEtat
             self.config = c
-            self.reseau = c.unifi.flatMap { $0.adresse.isEmpty || $0.cle.isEmpty ? nil : ReseauUniFi(config: $0) }
+            self.reseau = c.unifi.flatMap { $0.udms.isEmpty ? nil : ReseauUniFi(config: $0) }
             if autreConcours {
                 self.envoyees = (try? Data(contentsOf: c.fichierEtat))
                     .flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
@@ -208,12 +236,14 @@ public final class GalerieEnLigne: @unchecked Sendable {
                                                   numero: numero, copyright: copyright, auteur: auteur)
     }
 
-    /// Essai de la console UniFi (régulateur réseau) depuis les réglages.
-    public static func testerUniFi(_ c: ConfigUniFi, fini: @escaping @Sendable (Bool, String) -> Void) {
+    /// Essai d'une console UniFi (régulateur réseau) depuis les réglages : la clé est-elle bonne ?
+    /// Rend aussi l'empreinte du certificat vue (à garder avec cet UDM).
+    public static func testerUniFi(_ cible: CibleUniFi, fini: @escaping @Sendable (Bool, String, String) -> Void) {
         DispatchQueue.global(qos: .utility).async {
-            let r = ReseauUniFi(config: c)
+            let c = ConfigUniFi(udms: [], cles: [:], sauverEmpreinte: { _, _ in })
+            let r = ReseauUniFi(config: c, forcee: cible)
             let (ok, message) = r.tester()
-            fini(ok, message)
+            fini(ok, message, r.empreinteVue)
         }
     }
 
@@ -222,7 +252,9 @@ public final class GalerieEnLigne: @unchecked Sendable {
         file.async {
             do {
                 try Transfert(config: self.config).tester()
-                fini(true, "Connexion réussie : le dossier « \(self.config.dossier.isEmpty ? "/" : self.config.dossier) » est accessible.")
+                fini(true, self.config.versDossier
+                     ? "Dossier prêt : les copies de la galerie y seront écrites."
+                     : "Connexion réussie : le dossier « \(self.config.dossier.isEmpty ? "/" : self.config.dossier) » est accessible.")
             } catch {
                 fini(false, error.localizedDescription)
             }
@@ -251,7 +283,7 @@ public final class GalerieEnLigne: @unchecked Sendable {
         _etat.aEnvoyer = e.count
         _etat.aSupprimer = s.count
         _etat.envoiEnCours = enCours
-        _etat.attendLaNuit = config.laNuit && !forcer && !config.estLaNuit() && !(e.isEmpty && s.isEmpty)
+        _etat.attendLaNuit = !config.versDossier && config.laNuit && !forcer && !config.estLaNuit() && !(e.isEmpty && s.isEmpty)
         let depuis = Date().addingTimeInterval(-300)
         historique.removeAll { $0.0 < depuis }
         _etat.parMinute = Double(historique.reduce(0) { $0 + $1.1 }) / 5
@@ -274,14 +306,25 @@ public final class GalerieEnLigne: @unchecked Sendable {
         }
     }
 
+    /// Bouton Pause de HUGO : plus aucun envoi ni suppression en ligne jusqu'à « Reprendre ».
+    public func mettreEnPause(_ p: Bool) {
+        file.async {
+            self.verrou.lock(); self._etat.pauseManuelle = p; self.verrou.unlock()
+            if !p { self.reessayerApres = .distantPast }
+            self.majEtat()
+        }
+    }
+
     private func tour() {
-        guard listeRecue, !enCours, Date() >= reessayerApres, !config.hote.isEmpty else { majEtat(); return }
+        if arretee { return }
+        if etat.pauseManuelle { majEtat(); return }
+        guard listeRecue, !enCours, Date() >= reessayerApres, config.estRegle else { majEtat(); return }
         let (envoyer, supprimer) = aFaire()
         if envoyer.isEmpty && supprimer.isEmpty { forcer = false; majEtat(); return }
-        if config.laNuit && !forcer && !config.estLaNuit() { majEtat(); return }
+        if !config.versDossier && config.laNuit && !forcer && !config.estLaNuit() { majEtat(); return }
         // Régulateur réseau : la ligne internet est chargée par les autres (stand, iPhone…) : on attend.
         let propre = Date().timeIntervalSince(finDernierLot) < 30 ? debitPropre : 0
-        if let r = reseau, r.doitAttendre(propreMbit: propre) {
+        if !config.versDossier, let r = reseau, r.doitAttendre(propreMbit: propre) {
             verrou.lock()
             _etat.pauseReseau = true
             _etat.message = r.etat.message
@@ -341,7 +384,8 @@ public final class GalerieEnLigne: @unchecked Sendable {
             _etat.derniereReussite = Date()
             let reste = aFaire()
             _etat.message = reste.envoyer.isEmpty && reste.supprimer.isEmpty
-                ? "Galerie en ligne à jour (\(envoyees.count) photos)."
+                ? (config.versDossier ? "Dossier de la galerie à jour (\(envoyees.count) photos)."
+                                      : "Galerie en ligne à jour (\(envoyees.count) photos).")
                 : "Envoi en cours : encore \(reste.envoyer.count + reste.supprimer.count) photos."
             verrou.unlock()
             // Lot suivant tout de suite tant qu'il en reste.
@@ -353,12 +397,13 @@ public final class GalerieEnLigne: @unchecked Sendable {
             reessayerApres = Date().addingTimeInterval(min(600, 30 * Double(echecs)))
             verrou.lock()
             _etat.ok = false
-            _etat.message = "Galerie en ligne : \(error.localizedDescription) Nouvel essai dans \(Int(min(600, 30 * Double(echecs)) / 60) + 1) min."
+            _etat.message = (config.versDossier ? "Dossier de la galerie : " : "Galerie en ligne : ") + "\(error.localizedDescription) Nouvel essai dans \(Int(min(600, 30 * Double(echecs)) / 60) + 1) min."
             verrou.unlock()
         }
     }
 
     private func sauver() {
+        if arretee { return }
         let enc = JSONEncoder()
         enc.outputFormatting = [.sortedKeys]
         if let d = try? enc.encode(envoyees) { try? d.write(to: config.fichierEtat, options: .atomic) }
@@ -396,6 +441,7 @@ struct Transfert {
     }
 
     func tester() throws {
+        if config.versDossier { try testerDossier(); return }
         if config.protocole == .sftp {
             try sftp(creerDossier() + ["ls -1 \(guillemets(dossierSFTP.isEmpty ? "." : dossierSFTP))"])
         } else {
@@ -414,6 +460,7 @@ struct Transfert {
     }
 
     func envoyer(_ fichiers: [(URL, String)]) throws {
+        if config.versDossier { try copierDansDossier(fichiers); return }
         if config.protocole == .sftp {
             try sftp(creerDossier() + fichiers.map { "put \(guillemets($0.0.path)) \(guillemets(cheminSFTP($0.1)))" })
         } else {
@@ -427,6 +474,7 @@ struct Transfert {
     }
 
     func supprimer(_ noms: [String]) throws {
+        if config.versDossier { try retirerDuDossier(noms); return }
         if config.protocole == .sftp {
             try sftp(noms.map { "-rm \(guillemets(cheminSFTP($0)))" })
         } else {
@@ -434,6 +482,68 @@ struct Transfert {
             var l = noms.map { "quote = \(guillemets("*DELE " + cheminFTP($0)))" }
             l += ["url = \(guillemets(urlFTP(fichier: nil)))", "list-only", "output = \"/dev/null\""]
             try curl(l)
+        }
+    }
+
+    // MARK: Dossier du Mac
+
+    /// Le dossier doit exister : il n'est jamais recréé (disque débranché → rien n'est écrit sur le Mac par erreur).
+    /// Le dossier du concours, lui, est créé dans le dossier choisi s'il manque.
+    private func dossierPret() throws -> URL {
+        let d = config.urlDossierLocal
+        var estDossier: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: d.path, isDirectory: &estDossier), estDossier.boolValue else {
+            throw Erreur.echec("dossier « \(d.lastPathComponent) » introuvable (disque débranché ?).")
+        }
+        let sous = config.sousDossierLocal.trimmingCharacters(in: .whitespaces)
+        guard !sous.isEmpty else { return d }
+        let c = d.appendingPathComponent(sous, isDirectory: true)
+        do { try FileManager.default.createDirectory(at: c, withIntermediateDirectories: false) } catch {
+            guard FileManager.default.fileExists(atPath: c.path) else {
+                throw Erreur.echec("impossible de créer le dossier du concours « \(sous) » (droits ou disque plein ?).")
+            }
+        }
+        return c
+    }
+
+    private func testerDossier() throws {
+        let d = try dossierPret()
+        let essai = d.appendingPathComponent(".groom-pix-essai-\(UUID().uuidString)")
+        do { try Data().write(to: essai) } catch {
+            throw Erreur.echec("impossible d'écrire dans le dossier « \(d.lastPathComponent) » (droits ou disque plein ?).")
+        }
+        try? FileManager.default.removeItem(at: essai)
+    }
+
+    /// Une photo qui existe déjà est remplacée d'un seul coup (jamais de fichier à moitié écrit).
+    private func copierDansDossier(_ fichiers: [(URL, String)]) throws {
+        let fm = FileManager.default
+        let d = try dossierPret()
+        for (local, nom) in fichiers {
+            let dest = d.appendingPathComponent(nom)
+            let tmp = d.appendingPathComponent(".\(nom).\(UUID().uuidString).tmp")
+            do {
+                try fm.copyItem(at: local, to: tmp)
+                if fm.fileExists(atPath: dest.path) {
+                    _ = try fm.replaceItemAt(dest, withItemAt: tmp)
+                } else {
+                    try fm.moveItem(at: tmp, to: dest)
+                }
+            } catch {
+                try? fm.removeItem(at: tmp)
+                throw Erreur.echec("copie de « \(nom) » impossible (droits ou disque plein ?).")
+            }
+        }
+    }
+
+    /// Photo retirée : à la Corbeille (annulable), jamais effacée pour de bon.
+    private func retirerDuDossier(_ noms: [String]) throws {
+        let fm = FileManager.default
+        let d = try dossierPret()
+        for nom in noms {
+            let u = d.appendingPathComponent(nom)
+            guard fm.fileExists(atPath: u.path) else { continue }
+            if (try? fm.trashItem(at: u, resultingItemURL: nil)) == nil { try? fm.removeItem(at: u) }
         }
     }
 
@@ -679,5 +789,124 @@ extension GalerieEnLigne {
     /// Essaie la connexion (même test que « Tester la connexion » de la galerie).
     public static func testerConnexion(_ config: ConfigGalerieEnLigne) throws {
         try Transfert(config: config).tester()
+    }
+
+    /// De retour au bureau : envoie le dossier local de la galerie par FTP / SFTP (`config`), en n'envoyant que ce qui
+    /// a changé depuis le dernier envoi (nouvelles photos, photos remplacées) et en supprimant en ligne les photos
+    /// retirées du dossier. Seules les photos envoyées par ce bouton sont supprimées ; même garde-fou qu'au concours.
+    /// `etat` garde ce qui est déjà en ligne : un envoi coupé reprend où il s'était arrêté.
+    /// `progression(fait, total, message)` est appelé après chaque lot ; le dernier appel a `fini = true`.
+    public static func envoyerDossier(_ dossier: URL, config: ConfigGalerieEnLigne, etat: URL,
+                                      progression: @escaping @Sendable (_ fait: Int, _ total: Int, _ message: String,
+                                                                        _ fini: Bool, _ ok: Bool) -> Void) {
+        DispatchQueue.global(qos: .utility).async {
+            var c = config
+            c.dossierLocal = nil
+            let fm = FileManager.default
+            var envoyees = (try? Data(contentsOf: etat)).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+            func sauver() {
+                let enc = JSONEncoder()
+                enc.outputFormatting = [.sortedKeys]
+                if let d = try? enc.encode(envoyees) { try? d.write(to: etat, options: .atomic) }
+            }
+            let images: Set<String> = ["jpg", "jpeg", "png", "heic", "tif", "tiff"]
+            guard let liste = try? fm.contentsOfDirectory(at: dossier, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
+                                                          options: [.skipsHiddenFiles]) else {
+                progression(0, 0, "Dossier « \(dossier.lastPathComponent) » introuvable (disque débranché ?).", true, false)
+                return
+            }
+            var dansDossier: [String: (URL, String)] = [:]
+            for u in liste where images.contains(u.pathExtension.lowercased()) {
+                let v = try? u.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey])
+                guard v?.isRegularFile == true else { continue }
+                let sig = "\(v?.fileSize ?? 0)-\(Int(v?.contentModificationDate?.timeIntervalSince1970 ?? 0))"
+                dansDossier[u.lastPathComponent] = (u, sig)
+            }
+            let envoyer = dansDossier.keys.filter { envoyees[$0] != dansDossier[$0]?.1 }.sorted()
+            var supprimer = envoyees.keys.filter { dansDossier[$0] == nil }.sorted()
+            var bloque = 0
+            if supprimer.count > 50 && Double(supprimer.count) > Double(envoyees.count) * 0.3 {
+                bloque = supprimer.count
+                supprimer = []
+            }
+            let total = envoyer.count + supprimer.count
+            if total == 0 {
+                progression(0, 0, bloque > 0
+                            ? "\(bloque) photos seraient à supprimer d'un coup en ligne : rien n'est supprimé, par sécurité."
+                            : "Tout est déjà en ligne (\(envoyees.count) photos).", true, bloque == 0)
+                return
+            }
+            let t = Transfert(config: c)
+            var fait = 0
+            do {
+                for lot in stride(from: 0, to: supprimer.count, by: 200).map({ Array(supprimer[$0..<min($0 + 200, supprimer.count)]) }) {
+                    try t.supprimer(lot)
+                    for n in lot { envoyees[n] = nil }
+                    sauver()
+                    fait += lot.count
+                    progression(fait, total, "Envoi en cours : \(fait) / \(total)…", false, true)
+                }
+                for lot in stride(from: 0, to: envoyer.count, by: GalerieEnLigne.parLot).map({ Array(envoyer[$0..<min($0 + GalerieEnLigne.parLot, envoyer.count)]) }) {
+                    try t.envoyer(lot.compactMap { n in dansDossier[n].map { ($0.0, n) } })
+                    for n in lot { envoyees[n] = dansDossier[n]?.1 }
+                    sauver()
+                    fait += lot.count
+                    progression(fait, total, "Envoi en cours : \(fait) / \(total)…", false, true)
+                }
+                var m = "Galerie en ligne à jour : \(envoyer.count) photos envoyées, \(supprimer.count) supprimées."
+                if bloque > 0 { m += " \(bloque) suppressions non faites, par sécurité." }
+                progression(fait, total, m, true, true)
+            } catch {
+                progression(fait, total, "Arrêté après \(fait) / \(total) : \(error.localizedDescription) Recliquer reprend où ça s'est arrêté.", true, false)
+            }
+        }
+    }
+
+    /// « Envoyer ce dossier en ligne » quand le dossier du Mac range un dossier par concours (« 26-11-29_LAMOTTE ») :
+    /// chaque dossier de concours part dans le dossier du même nom en ligne (dans le dossier distant des réglages),
+    /// l'un après l'autre ; les photos laissées à plat (anciennes versions) partent à plat, comme avant.
+    /// `etat(nil)` : fichier d'état des photos à plat ; `etat("26-11-29_LAMOTTE")` : celui d'un dossier de concours.
+    public static func envoyerDossiers(_ racine: URL, config: ConfigGalerieEnLigne, etat: @escaping @Sendable (String?) -> URL,
+                                       progression: @escaping @Sendable (_ fait: Int, _ total: Int, _ message: String,
+                                                                         _ fini: Bool, _ ok: Bool) -> Void) {
+        DispatchQueue.global(qos: .utility).async {
+            let fm = FileManager.default
+            guard let liste = try? fm.contentsOfDirectory(at: racine, includingPropertiesForKeys: [.isDirectoryKey],
+                                                          options: [.skipsHiddenFiles]) else {
+                progression(0, 0, "Dossier « \(racine.lastPathComponent) » introuvable (disque débranché ?).", true, false)
+                return
+            }
+            let sous = liste.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+                .map(\.lastPathComponent).sorted()
+            let images: Set<String> = ["jpg", "jpeg", "png", "heic", "tif", "tiff"]
+            let aPlat = liste.contains { images.contains($0.pathExtension.lowercased()) } || fm.fileExists(atPath: etat(nil).path)
+            var travaux: [(URL, ConfigGalerieEnLigne, URL, String?)] = []
+            if aPlat || sous.isEmpty { travaux.append((racine, config, etat(nil), nil)) }
+            for n in sous {
+                var c = config
+                c.dossier = config.dossier.trimmingCharacters(in: .whitespaces).isEmpty ? n
+                    : (config.dossier.hasSuffix("/") ? config.dossier + n : config.dossier + "/" + n)
+                travaux.append((racine.appendingPathComponent(n, isDirectory: true), c, etat(n), n))
+            }
+            final class Bilan: @unchecked Sendable { var messages: [String] = []; var ok = true }
+            let bilan = Bilan()
+            for (i, (d, c, e, nom)) in travaux.enumerated() {
+                let fin = DispatchSemaphore(value: 0)
+                let titre = nom.map { "« \($0) » : " } ?? ""
+                let etape = travaux.count > 1 ? "(\(i + 1)/\(travaux.count)) " : ""
+                envoyerDossier(d, config: c, etat: e) { fait, total, message, fini, ok in
+                    if fini {
+                        bilan.messages.append(titre + message)
+                        if !ok { bilan.ok = false }
+                        fin.signal()
+                    } else {
+                        progression(fait, total, etape + titre + message, false, true)
+                    }
+                }
+                fin.wait()
+                if !bilan.ok { break }
+            }
+            progression(0, 0, bilan.messages.joined(separator: "\n"), true, bilan.ok)
+        }
     }
 }

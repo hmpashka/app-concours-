@@ -241,6 +241,7 @@ final class Licence: ObservableObject {
         dejaAffiche = true
         if case .bloque(_, true) = verdict, ecranBloque, !local.effaces {
             for c in ["galerie-stand", "galerie-en-ligne", "unifi", "protection-site"] { Trousseau.ecrire(c, "") }
+            StandsUniFi.effacerToutesLesCles()
             local.effaces = true
         } else if case .ok = verdict {
             local.effaces = false

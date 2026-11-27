@@ -112,20 +112,76 @@ final class Notifieur {
     private var avant = ResumeMoteur()
     private var silencieuxVus: Set<String> = []
     private var dernierSon = Date.distantPast
+    private var sonEnCours: NSSound?         // gardé tant qu'il joue (sinon il peut s'arrêter tout de suite)
+    static let categorieMessage = "message-piste"
 
     private var possible: Bool { Bundle.main.bundleIdentifier != nil }
+    /// Erreur rendue par macOS à la demande d'autorisation (montrée dans Réglages 9).
+    var erreurAutorisation: String?
 
     func demanderAutorisation() {
         guard possible else { return }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, err in
+            let texte = err.map { "macOS refuse : \($0.localizedDescription)" }
+            Task { @MainActor in Notifieur.partage.erreurAutorisation = texte }
+        }
+        // Répondre directement dans la bulle de notification d'un message (HUGO 24/11)
+        let repondre = UNTextInputNotificationAction(identifier: "repondre", title: "Répondre", options: [],
+                                                     textInputButtonTitle: "Envoyer", textInputPlaceholder: "Ta réponse…")
+        UNUserNotificationCenter.current().setNotificationCategories([
+            UNNotificationCategory(identifier: Notifieur.categorieMessage, actions: [repondre], intentIdentifiers: [], options: [])
+        ])
+    }
+
+    /// Ce qui empêche les bulles, en clair (nil : tout va bien).
+    func probleme(_ fin: @escaping @MainActor (String?) -> Void) {
+        guard possible else { fin("Les notifications ne marchent que depuis Groom Pix.app (pas depuis le Terminal)."); return }
+        UNUserNotificationCenter.current().getNotificationSettings { r in
+            let texte: String?
+            switch r.authorizationStatus {
+            case .denied:
+                texte = "Les notifications de Groom Pix sont refusées par le Mac. Ouvre Réglages Système › Notifications › Groom Pix et active « Autoriser les notifications », style « Bannières » ou « Alertes »."
+            case .notDetermined:
+                texte = "Le Mac n'a pas encore demandé l'autorisation. Clique « Essayer » : une fenêtre doit proposer « Autoriser »."
+            default:
+                texte = r.alertSetting == .disabled
+                    ? "Les bulles de Groom Pix sont masquées. Dans Réglages Système › Notifications › Groom Pix, choisis le style « Bannières » ou « Alertes »."
+                    : nil
+            }
+            Task { @MainActor in fin(Notifieur.partage.erreurAutorisation ?? texte) }
+        }
+    }
+
+    /// Bouton « Essayer » des réglages : un son et une bulle avec « Répondre », sans tenir compte des préférences.
+    func essayer() {
+        let son = Preferences.partagees.reglage(.message).son.isEmpty ? "Pop" : Preferences.partagees.reglage(.message).son
+        guard possible else { dernierSon = .distantPast; jouer(son); return }
+        demanderAutorisation()
+        let n = UNMutableNotificationContent()
+        n.title = "Essai · Groom Pix"
+        n.body = "Si tu vois cette bulle, les notifications marchent. Passe la souris dessus pour voir « Répondre »."
+        n.sound = nil
+        dernierSon = .distantPast
+        jouer(son)
+        n.categoryIdentifier = Notifieur.categorieMessage
+        n.userInfo = ["essai": "1", "ecran": Ecran.messages.rawValue]
+        // une seconde plus tard : laisse le temps à la fenêtre d'autorisation
+        let t = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "essai", content: n, trigger: t)) { err in
+            let texte = err.map { "macOS refuse la bulle : \($0.localizedDescription)" }
+            Task { @MainActor in Notifieur.partage.erreurAutorisation = texte }
+        }
     }
 
     func jouer(_ son: String) {
-        guard !son.isEmpty, Preferences.partagees.mode != .silencieux else { return }
+        let son = son.isEmpty ? "Pop" : son
+        guard Preferences.partagees.mode != .silencieux else { return }
         guard Date().timeIntervalSince(dernierSon) > 0.8 else { return }   // jamais une rafale de sons
         dernierSon = Date()
-        guard let s = NSSound(named: NSSound.Name(son)) else { return }
-        s.volume = Float(Preferences.partagees.volume)
+        let fichier = URL(fileURLWithPath: "/System/Library/Sounds/\(son).aiff")
+        guard let s = NSSound(contentsOf: fichier, byReference: true) ?? NSSound(named: NSSound.Name(son)) else { return }
+        s.volume = Float(max(Preferences.partagees.volume, 0.2))
+        sonEnCours = s
         s.play()
     }
 
@@ -134,9 +190,8 @@ final class Notifieur {
         let r = p.reglage(e)
         if p.mode == .rush && !r.enRush { return }
         guard r.affichage == .banniere || r.affichage == .alerte else { return }
-        jouer(r.son)
         if r.affichage == .alerte { NSApp.requestUserAttention(.criticalRequest) }
-        guard possible else { return }
+        guard possible else { jouer(r.son); return }
         // regroupement : à partir de 3 en une minute, une seule notification mise à jour
         let maintenant = Date()
         var l = (recents[e] ?? []).filter { maintenant.timeIntervalSince($0) < 60 }
@@ -152,12 +207,24 @@ final class Notifieur {
             n.title = titre
             n.body = texte
         }
-        n.sound = nil                                        // le son est joué par l'app
+        // Le son part AVEC la bulle (son du Mac choisi dans les réglages), comme les autres apps.
+        // Le son joué par l'app ne sert plus que si le Mac refuse les bulles.
+        // son du Mac (« Réglages Système › Notifications ») : le seul que macOS joue à coup sûr avec la bulle
+        // le son choisi pour CET événement est joué par l'app (macOS ne sait jouer avec la bulle que son propre son)
+        n.sound = nil
         n.threadIdentifier = e.rawValue
+        if (e == .message || e == .incident) && l.count < 3 { n.categoryIdentifier = Notifieur.categorieMessage }
         var info: [String: String] = infos
         info["ecran"] = e.ecran.rawValue
         n.userInfo = info
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: ident, content: n, trigger: nil))
+        let demande = UNNotificationRequest(identifier: ident, content: n, trigger: nil)
+        let son = r.son
+        UNUserNotificationCenter.current().getNotificationSettings { reg in
+            let bulles = reg.authorizationStatus == .authorized || reg.authorizationStatus == .provisional
+            _ = bulles
+            UNUserNotificationCenter.current().add(demande)
+            Task { @MainActor in Notifieur.partage.jouer(son) }
+        }
     }
 
     /// Surveille le moteur : nouvelles séries à valider, doublons, erreurs, boîtiers silencieux, remises copiées.

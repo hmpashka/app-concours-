@@ -23,6 +23,10 @@ public enum DepuisPiste: Codable, Sendable, Equatable {
     case chercherClient(texte: String)
     /// Commandes : une commande prise ou modifiée sur l'iPhone.
     case commande(Commande)
+    /// Jeton du service d'Apple (APNs) : le Mac prévient cet iPhone même app fermée.
+    /// `sorte` : « notifications » (bulles), « activite » (écran verrouillé en cours), « demarrage » (lancer l'écran verrouillé).
+    /// `production` : faux pour une app installée depuis le Mac (serveur d'essai d'Apple), vrai pour TestFlight / App Store.
+    case jeton(sorte: String, valeur: String, production: Bool)
 }
 
 // MARK: - Mac → iPhone
@@ -208,4 +212,55 @@ public struct Trames {
         if tampon.count > 1_000_000 { tampon.removeAll() }    // jamais de ligne aussi longue : flux abîmé
         return sortie
     }
+}
+
+// MARK: - Écran verrouillé de l'iPhone (Live Activity)
+
+/// Ce que montre le bloc Groom Pix sur l'écran verrouillé et dans la Dynamic Island.
+/// Envoyé par le Mac au service d'Apple : court (Apple refuse plus de 4 Ko).
+public struct EcranVerrouille: Codable, Sendable, Hashable {
+    public var piste: String
+    public var epreuve: String          // « 12 »
+    public var nomEpreuve: String
+    public var partis: Int
+    public var engages: Int
+    public var finEstimee: Double?
+    public var code: String             // code du couple en piste, « #12_45 »
+    public var cavalier: String
+    public var cheval: String
+    public var suivant: String          // « Cavalier · Cheval »
+    /// Code à mettre quand l'alerte « CHANGE TON CODE » est levée.
+    public var alerte: String?
+    public var aRenvoyer: Int
+    public var chronoOK: Bool
+
+    public init(piste: String, epreuve: String = "", nomEpreuve: String = "", partis: Int = 0, engages: Int = 0,
+                finEstimee: Double? = nil, code: String = "", cavalier: String = "", cheval: String = "",
+                suivant: String = "", alerte: String? = nil, aRenvoyer: Int = 0, chronoOK: Bool = false) {
+        self.piste = piste
+        self.epreuve = epreuve
+        self.nomEpreuve = nomEpreuve
+        self.partis = partis
+        self.engages = engages
+        self.finEstimee = finEstimee
+        self.code = code
+        self.cavalier = cavalier
+        self.cheval = cheval
+        self.suivant = suivant
+        self.alerte = alerte
+        self.aRenvoyer = aRenvoyer
+        self.chronoOK = chronoOK
+    }
+
+    public init(_ d: DirectPiste) {
+        self.init(piste: d.piste, epreuve: d.epreuve, nomEpreuve: String(d.nomEpreuve.prefix(60)),
+                  partis: d.partis, engages: d.engages, finEstimee: d.finEstimee,
+                  code: d.enPiste?.code ?? "", cavalier: String((d.enPiste?.cavalier ?? "").prefix(50)),
+                  cheval: String((d.enPiste?.cheval ?? "").prefix(50)),
+                  suivant: d.suivant.map { String("\($0.cavalier) · \($0.cheval)".prefix(80)) } ?? "",
+                  alerte: d.alerte?.attendu, aRenvoyer: d.aRenvoyer.count, chronoOK: d.chronoOK)
+    }
+
+    /// Avancement de l'épreuve, de 0 à 1.
+    public var avancement: Double { engages > 0 ? min(max(Double(partis) / Double(engages), 0), 1) : 0 }
 }

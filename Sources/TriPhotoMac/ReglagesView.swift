@@ -15,24 +15,29 @@ enum SectionReglages: String, CaseIterable, Identifiable {
     case commandes = "8. Commandes de pack photo"
     case apparence = "9. Apparence, son et notifications"
     case protection = "10. Licence et antivol"
+    case iphone = "11. Notifications iPhone"
     case raccourcis = "Raccourcis clavier"
     case modeles = "Modèles de concours"
     var id: String { rawValue }
 
-    static let debut: [SectionReglages] = [.concours, .dossiers, .copies, .lightroom, .envois, .cloture, .memoire, .commandes, .apparence, .protection]
+    static let debut: [SectionReglages] = [.concours, .dossiers, .copies, .lightroom, .envois, .cloture, .memoire, .commandes, .apparence, .protection, .iphone]
     static let preferences: [SectionReglages] = [.raccourcis, .modeles]
 }
 
 /// Écran Réglages (maquette 4a) : sections à gauche, réglages au centre, « Prêt à démarrer ? » à droite.
 struct ReglagesView: View {
     @EnvironmentObject var etat: Etat
+    @State private var testStand: (ok: Bool, texte: String)?
+    @State private var testStandEnCours = false
     @State private var section: SectionReglages = .concours
     @State private var montrerEpreuves = false
     @State private var testGalerie = ""
     @State private var testGalerieOK: Bool?
     @State private var testEnCours = false
-    @State private var testUniFi = ""
-    @State private var testUniFiOK: Bool?
+    @State private var testFTPEnCours = false
+    @State private var envoiDossier = ""
+    @State private var envoiDossierOK: Bool?
+    @State private var envoiDossierEnCours = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -40,6 +45,7 @@ struct ReglagesView: View {
                 panneauSections
                     .frame(width: 220)
                     .background(Theme.panneau)
+                    .repere("reglages.sections")
                 Divider().overlay(Theme.bordure)
             }
             centre
@@ -49,10 +55,16 @@ struct ReglagesView: View {
                 PretADemarrer()
                     .frame(width: 280)
                     .background(Theme.panneau)
+                    .repere("reglages.pret")
             }
         }
         .sheet(isPresented: $montrerEpreuves) { EpreuvesView(concours: etat.concours) }
-        .sheet(isPresented: $etat.montrerCapture) { CaptureView(capture: etat.capture).environmentObject(etat) }
+        .sheet(isPresented: $etat.montrerCapture) {
+            if let i = etat.reglages.chronos.firstIndex(where: { $0.id.uuidString == etat.captureChoisie }) {
+                CaptureView(capture: etat.capture(pour: etat.captureChoisie), chrono: $etat.reglages.chronos[i])
+                    .environmentObject(etat)
+            }
+        }
     }
 
     // MARK: - Panneau de gauche
@@ -97,7 +109,7 @@ struct ReglagesView: View {
             .contentShape(Rectangle())
             .background(section == s ? Theme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 4))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BoutonPlat())
     }
 
     // MARK: - Centre
@@ -128,12 +140,13 @@ struct ReglagesView: View {
                         carteCommandes.id(SectionReglages.commandes)
                         CarteApparence().id(SectionReglages.apparence)
                         CarteLicence().id(SectionReglages.protection)
+                        CarteNotificationsIphone().id(SectionReglages.iphone)
                     }
                     .padding(24)
                     .frame(maxWidth: 820, alignment: .leading)
                     .frame(maxWidth: .infinity)
                 }
-                .onChange(of: section) { s in withAnimation { lecteur.scrollTo(s, anchor: .top) } }
+                .onChange(of: section) { s in lecteur.scrollTo(s, anchor: .top) }   // sans animation : le clic suivant tombe juste
                 .onAppear { lecteur.scrollTo(section, anchor: .top) }
             }
         }
@@ -176,80 +189,111 @@ struct ReglagesView: View {
             }
             }
             Divider().overlay(Theme.bordure)
-            Ligne("Chronométrage") {
-                Picker("", selection: $etat.reglages.chronometrage) {
-                    ForEach(ReglagesConcours.Chronometrage.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 320)
+            ConcoursRangesView()
+            Divider().overlay(Theme.bordure)
+            // ① Les chronos du concours (maquette « Pistes et chronos » validée par HUGO le 25/11/2026)
+            Text("Les chronos du concours").font(.system(size: 13, weight: .semibold))
+            Text("Un chrono = un ordinateur HM Timing (une ou plusieurs pistes), ou une page d'incrustation Horse & Comp (une piste). Ajoute-en autant qu'il y en a sur le terrain.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            ForEach($etat.reglages.chronos) { $c in
+                LigneChrono(chrono: $c, moteur: etat.moteur)
             }
-            if etat.reglages.chronometrage == .hmTiming {
-                Ligne("Adresse de HM Timing") {
-                    TextField("192.168.1.20:8080", text: $etat.reglages.adresseHM).textFieldStyle(.roundedBorder).frame(width: 260)
+            HStack {
+                Button("＋ Ajouter un HM Timing") {
+                    etat.reglages.chronos.append(.init(genre: .hmTiming, nom: etat.reglages.nomLibre(.hmTiming)))
                 }
-                Ligne("Code de régie") {
-                    SecureField("", text: $etat.reglages.codeRegieHM).textFieldStyle(.roundedBorder).frame(width: 160)
+                .buttonStyle(BoutonStyle())
+                Button("＋ Ajouter un Horse & Comp") {
+                    etat.reglages.chronos.append(.init(genre: .horseComp, nom: etat.reglages.nomLibre(.horseComp)))
                 }
-                Ligne("Code technicien") {
-                    SecureField("", text: $etat.reglages.codeTechHM).textFieldStyle(.roundedBorder).frame(width: 160)
-                }
-                Ligne("Fin de tour tolérée") {
-                    Stepper("\(etat.reglages.finDeTourSecondes) s après l'arrivée", value: $etat.reglages.finDeTourSecondes, in: 0...60, step: 5)
-                }
-                Ligne("Latence au changement") {
-                    Stepper("\(etat.reglages.latenceSecondes) s", value: $etat.reglages.latenceSecondes, in: 0...30)
-                }
-                Ligne("Attente du chrono") {
-                    Stepper("\(etat.reglages.attenteChronoMinutes) min au plus, puis la photo part avec son code",
-                            value: $etat.reglages.attenteChronoMinutes, in: 1...15)
-                }
-                ChoixChemin(titre: "Passages pour le mode entraînement (facultatif)",
-                            aide: "Fichier JSON des passages d'un ancien concours : remplace HM Timing pour s'entraîner.",
-                            chemin: $etat.reglages.fichierPassagesEntrainement, fichier: true, types: [.json])
-                Text("Aucune correction n'est appliquée seule : chaque proposition du chrono va dans « À valider ».")
-                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
-            } else {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(etat.reglages.urlIncrustation.isEmpty ? "Page d'incrustation à régler" : etat.reglages.urlIncrustation)
-                            .font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
-                        Text("Groom Pix lit qui est en piste sur la page de Horses & Competitions, comme HM Timing.")
-                            .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
-                    }
-                    Spacer()
-                    Button("Régler la capture…") { etat.montrerCapture = true }.buttonStyle(BoutonStyle(principal: true))
-                }
-                Ligne("Fin de tour tolérée") {
-                    Stepper("\(etat.reglages.finDeTourSecondes) s après l'arrivée", value: $etat.reglages.finDeTourSecondes, in: 0...60, step: 5)
-                }
-                Ligne("Latence au changement") {
-                    Stepper("\(etat.reglages.latenceSecondes) s", value: $etat.reglages.latenceSecondes, in: 0...30)
-                }
+                .buttonStyle(BoutonStyle())
+            }
+            Ligne("Fin de tour tolérée") {
+                Stepper("\(etat.reglages.finDeTourSecondes) s après l'arrivée", value: $etat.reglages.finDeTourSecondes, in: 0...60, step: 5)
+            }
+            Ligne("Latence au changement") {
+                Stepper("\(etat.reglages.latenceSecondes) s", value: $etat.reglages.latenceSecondes, in: 0...30)
+            }
+            Ligne("Attente du chrono") {
+                Stepper("\(etat.reglages.attenteChronoMinutes) min au plus, puis la photo part avec son code",
+                        value: $etat.reglages.attenteChronoMinutes, in: 1...15)
             }
             Ligne("Photos en _00") {
                 Stepper("attendent \(etat.reglages.attente00Minutes) min une photo de code", value: $etat.reglages.attente00Minutes, in: 0...10)
             }
+            Ligne("Rush automatique") {
+                Stepper(etat.reglages.rushAutoPhotos == 0 ? "jamais tout seul (bouton « Rush » seulement)"
+                        : "dès \(etat.reglages.rushAutoPhotos) photos à valider, tout part avec le code du photographe",
+                        value: $etat.reglages.rushAutoPhotos, in: 0...200, step: 10)
+                    .help("Les propositions du chrono restent dans « À valider › À reprendre au calme ».")
+            }
+            Ligne("Photos traitées en même temps") {
+                Stepper(etat.reglages.photosEnMemeTemps == 0
+                        ? "automatique : jusqu'à \(RegleRegulateur.plafond(reglage: 0)) sur ce Mac pendant une rafale"
+                        : "jusqu'à \(etat.reglages.photosEnMemeTemps) pendant une rafale",
+                        value: $etat.reglages.photosEnMemeTemps, in: 0...16)
+                    .help("Pendant une rafale, toutes ces files travaillent ensemble, en priorité basse : Lightroom passe toujours avant. Au calme, l'app en garde moins pour laisser le Mac léger. Pris en compte au prochain démarrage du tri.")
+            }
+            ChoixChemin(titre: "Passages pour le mode entraînement (facultatif)",
+                        aide: "Fichier JSON des passages d'un ancien concours : remplace les HM Timing pour s'entraîner.",
+                        chemin: $etat.reglages.fichierPassagesEntrainement, fichier: true, types: [.json])
+            Text("Aucune correction n'est appliquée seule : chaque proposition du chrono va dans « À valider ».")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+
+            // ② Les pistes : chacune choisit son chrono, et sa piste dans ce chrono
             Divider().overlay(Theme.bordure)
-            Text("Pistes et photographes").font(.system(size: 13, weight: .semibold))
+            Text("Les pistes").font(.system(size: 13, weight: .semibold))
+            Text("Pour chaque piste, choisis son chrono. Si un HM Timing chronomètre plusieurs pistes, choisis aussi laquelle.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            HStack {
+                Text("Piste").frame(minWidth: 90, maxWidth: 160, alignment: .leading)
+                Text("Photographe").frame(minWidth: 90, maxWidth: 150, alignment: .leading)
+                Text("Chrono").frame(minWidth: 140, maxWidth: 210, alignment: .leading)
+                Text("Piste dans ce chrono").frame(minWidth: 130, maxWidth: 190, alignment: .leading)
+                Spacer()
+            }
+            .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.texteDiscret)
             ForEach($etat.reglages.pistes) { $piste in
                 HStack {
-                    TextField("Piste", text: $piste.nom).textFieldStyle(.roundedBorder).frame(width: 200)
-                    TextField("Photographe", text: $piste.photographe).textFieldStyle(.roundedBorder)
-                    Picker("", selection: $piste.sourceChrono) {
-                        Text("Chrono : trouvé tout seul").tag("")
-                        ForEach(etat.sourcesChrono(plus: piste.sourceChrono), id: \.self) { Text("Chrono : \($0)").tag($0) }
+                    TextField("Piste", text: $piste.nom).textFieldStyle(.roundedBorder).frame(minWidth: 90, maxWidth: 160)
+                    TextField("Photographe", text: $piste.photographe).textFieldStyle(.roundedBorder).frame(minWidth: 90, maxWidth: 150)
+                    Picker("", selection: $piste.chrono) {
+                        Text(etat.reglages.chronos.count == 1 ? etat.reglages.chronos[0].nom : "Trouvé tout seul").tag("")
+                        ForEach(etat.reglages.chronos) { c in Text("\(c.genre == .horseComp ? "H&C" : "HM") · \(c.nom)").tag(c.id.uuidString) }
+                        Text("Aucun chrono").tag(ReglagesConcours.Piste.aucun)
                     }
-                    .labelsHidden().frame(width: 200)
+                    .labelsHidden().frame(minWidth: 140, maxWidth: 210)
+                    .onChange(of: piste.chrono) { _ in piste.sourceChrono = "" }
+                    pisteDansChrono($piste).frame(minWidth: 130, maxWidth: 190, alignment: .leading)
+                    Spacer()
                     Button("Retirer") { etat.reglages.pistes.removeAll { $0.id == piste.id } }
-                        .buttonStyle(BoutonStyle())
+                        .buttonStyle(BoutonStyle()).fixedSize()
                         .disabled(etat.reglages.pistes.count <= 1)
                 }
             }
-            Text("Les iPhone de l'app Piste voient ces pistes. « Chrono » relie chaque piste à celle du chrono (utile s'il y en a plusieurs).")
+            Text("Les iPhone de l'app Piste voient ces pistes. Si un chrono tombe, seules ses pistes passent « sans vérification » ; les autres continuent.")
                 .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
-            Button("Ajouter une piste") {
+            Button("＋ Ajouter une piste") {
                 etat.reglages.pistes.append(.init(nom: "Piste \(etat.reglages.pistes.count + 1)", photographe: ""))
             }
             .buttonStyle(BoutonStyle())
+        }
+    }
+
+    /// « Piste dans ce chrono » : les pistes vues dans le HM Timing choisi ; une seule pour Horse & Comp.
+    @ViewBuilder
+    private func pisteDansChrono(_ piste: Binding<ReglagesConcours.Piste>) -> some View {
+        let p = piste.wrappedValue
+        if p.chrono == ReglagesConcours.Piste.aucun {
+            Text("photos gardées avec leur code").font(.system(size: 12)).foregroundStyle(Theme.texteTresDiscret)
+        } else if let c = etat.reglages.chronoDe(p), c.genre == .horseComp {
+            Text("une seule piste").font(.system(size: 12)).foregroundStyle(Theme.texteTresDiscret)
+        } else {
+            Picker("", selection: piste.sourceChrono) {
+                Text("Trouvée toute seule").tag("")
+                ForEach(etat.sourcesChrono(etat.reglages.chronoDe(p), plus: p.sourceChrono), id: \.self) { Text($0).tag($0) }
+            }
+            .labelsHidden()
         }
     }
 
@@ -402,18 +446,44 @@ struct ReglagesView: View {
                         .textFieldStyle(.roundedBorder)
                 }
                 Ligne("Rafraîchir la galerie") {
-                    Stepper("toutes les \(etat.reglages.minutesGalerieStand) min au plus, et à la fin de chaque rafale",
-                            value: $etat.reglages.minutesGalerieStand, in: 1...30)
+                    Stepper(etat.reglages.minutesGalerieStand == 0
+                            ? "en direct : toutes les 30 s pendant une rafale, et 10 s après la dernière photo"
+                            : "toutes les \(etat.reglages.minutesGalerieStand) min au plus, et à la fin de chaque rafale",
+                            value: $etat.reglages.minutesGalerieStand, in: 0...30)
+                        .help("Tout en bas (0) : en direct. Seuls les dossiers qui ont reçu des photos sont relus, jamais à chaque photo.")
                 }
                 HStack {
-                    Button("Rafraîchir maintenant") { etat.moteur.rafraichirGalerie() }
-                        .buttonStyle(BoutonStyle()).disabled(!etat.moteur.actif)
+                    Button(testStandEnCours ? "Essai en cours…" : "Tester la connexion") {
+                        guard let c = etat.configGalerieStand() else { return }
+                        testStandEnCours = true
+                        testStand = nil
+                        EssaiGalerieStand.tester(c) { ok, m in
+                            Task { @MainActor in testStandEnCours = false; testStand = (ok, m) }
+                        }
+                    }
+                    .buttonStyle(BoutonStyle()).disabled(testStandEnCours)
+                    Button("Rafraîchir maintenant") {
+                        if etat.moteur.actif {
+                            etat.moteur.rafraichirGalerie()
+                        } else if let c = etat.configGalerieStand() {
+                            // Sans tri en cours : on demande tout de suite à la galerie de chercher les nouveaux dossiers.
+                            testStandEnCours = true
+                            testStand = nil
+                            EssaiGalerieStand.chercherNouveauxDossiers(c) { ok, m in
+                                Task { @MainActor in testStandEnCours = false; testStand = (ok, m) }
+                            }
+                        }
+                    }
+                    .buttonStyle(BoutonStyle()).disabled(testStandEnCours)
                     if !etat.reglages.empreinteGalerieStand.isEmpty {
                         Button("Oublier le certificat du serveur") { etat.reglages.empreinteGalerieStand = "" }
                             .buttonStyle(BoutonStyle())
                             .help("À faire seulement si le serveur du stand a changé de certificat.")
                     }
-                    if let g = etat.moteur.resume.galerie, !g.message.isEmpty {
+                    if let t = testStand {
+                        Text(t.ok ? "✓ " + t.texte : t.texte).font(.system(size: 11))
+                            .foregroundStyle(t.ok ? Theme.ok : Theme.erreur)
+                    } else if let g = etat.moteur.resume.galerie, !g.message.isEmpty {
                         Text(g.message).font(.system(size: 11)).foregroundStyle(g.ok == false ? Theme.erreur : Theme.texteDiscret)
                     }
                 }
@@ -423,11 +493,20 @@ struct ReglagesView: View {
             Divider().overlay(Theme.bordure)
             galerieEnLigne
             Divider().overlay(Theme.bordure)
+            RegulateurUniFiView()
+            Divider().overlay(Theme.bordure)
             accesDistance
+            Divider().overlay(Theme.bordure)
+            Toggle("Loupedeck CT : piloter Groom Pix et afficher l'état du stand (ce Mac seulement)",
+                   isOn: Binding(get: { etat.loupedeckActif }, set: { etat.loupedeckActif = $0 }))
+            Text("Le module « Groom Pix » du logiciel Loupedeck lit l'état chaque seconde, sans réseau. Le couper ne change rien au tri.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
             Divider().overlay(Theme.bordure)
             Toggle("Sauvegarde des originaux sur un 2e disque (option)", isOn: $etat.reglages.sauvegardeActive)
             if etat.reglages.sauvegardeActive {
-                ChoixChemin(titre: "Disque de sauvegarde", aide: nil, chemin: $etat.reglages.dossierSauvegarde)
+                ChoixChemin(titre: "Disque de sauvegarde",
+                            aide: "Chaque original, tel qu'il arrive du boîtier, y est copié sous son nouveau nom, dans un dossier par jour.",
+                            chemin: $etat.reglages.dossierSauvegarde)
             }
         }
     }
@@ -458,10 +537,63 @@ struct ReglagesView: View {
         }
     }
 
-    /// Galerie en ligne : réglée comme un site dans FileZilla.
+    /// Galerie en ligne : réglée comme un site dans FileZilla, ou écrite dans un dossier du Mac (sans connexion).
     @ViewBuilder
     private var galerieEnLigne: some View {
+        let versDossier = etat.reglages.galerieVersDossier
         Text("Galerie en ligne").font(.system(size: 13, weight: .semibold))
+        Ligne("Envoi") {
+            Picker("", selection: $etat.reglages.galerieVersDossier) {
+                Text("Par internet (FTP)").tag(false)
+                Text("Dans un dossier du Mac").tag(true)
+            }
+            .pickerStyle(.segmented).labelsHidden().frame(width: 320)
+        }
+        Ligne("Dossier du concours") {
+            Text(FichierEngages.nomFichier(concours: "", dernierJour: etat.finConcours).prefix(9))
+                .font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.texteDiscret)
+            TextField(etat.nomConcoursFichier.isEmpty ? "nom au choix" : "vide : « \(etat.nomConcoursFichier) »",
+                      text: $etat.reglages.nomDossierGalerie)
+                .textFieldStyle(.roundedBorder).frame(width: 260)
+        }
+        Text("Les photos du concours vont dans le dossier « \(etat.dossierConcoursGalerie) » \(versDossier ? "(créé dans le dossier choisi ci-dessous)" : "(créé dans le dossier distant)"). Le début = la date du dernier jour du concours (aa-mm-jj), comme les fichiers d'attribution. Le nom des photos ne change pas. Si ce nom change en cours de concours, les photos repartent dans le nouveau dossier ; l'ancien n'est pas touché.")
+            .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+        if versDossier {
+            ChoixChemin(titre: "Dossier de la galerie",
+                        aide: "Pas encore choisi : rien n'est écrit. Un disque externe convient.",
+                        chemin: $etat.reglages.dossierLocalGalerie)
+            Text("Pas de connexion au concours : les copies de la galerie (même taille, même .cube, numéro incrusté) sont écrites dans ce dossier, à plat, et il est tenu à jour comme la galerie en ligne (ajouts, remplacements, photos retirées mises à la Corbeille). Au bureau, il suffit de l'envoyer en ligne.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            HStack {
+                Button(testEnCours ? "Essai en cours…" : "Tester le dossier") { testerGalerie() }
+                    .buttonStyle(BoutonStyle()).disabled(testEnCours || etat.reglages.dossierLocalGalerie.isEmpty)
+                Button("Mettre à jour maintenant") { etat.moteur.envoyerGalerieMaintenant() }
+                    .buttonStyle(BoutonStyle()).disabled(!etat.moteur.actif)
+                if !etat.reglages.dossierLocalGalerie.isEmpty {
+                    Button("Ouvrir") { etat.montrerDansLeFinder(URL(fileURLWithPath: etat.reglages.dossierLocalGalerie)) }
+                        .buttonStyle(BoutonStyle())
+                }
+                if !testGalerie.isEmpty {
+                    Text(testGalerie).font(.system(size: 11)).foregroundStyle(testGalerieOK == false ? Theme.erreur : Theme.ok)
+                } else if let g = etat.moteur.resume.galerieEnLigne {
+                    Text(g.aFaire == 0 ? "\(g.enLigne) photos dans le dossier, à jour." : g.message)
+                        .font(.system(size: 11)).foregroundStyle(g.ok == false ? Theme.erreur : Theme.texteDiscret)
+                }
+            }
+            Ligne("Auteur par défaut") {
+                TextField("Écrit dans la photo si le boîtier n'a pas de photographe (photo de synchro)", text: $etat.reglages.auteurGalerie)
+                    .textFieldStyle(.roundedBorder)
+            }
+            Text("Envoyer ce dossier en ligne (au bureau)").font(.system(size: 13, weight: .semibold)).padding(.top, 6)
+            Text("Avec la connexion ci-dessous : seules les photos nouvelles ou remplacées partent, celles retirées du dossier sont supprimées en ligne. Un envoi coupé reprend où il s'était arrêté.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+        }
+        connexionGalerie(versDossier: versDossier)
+    }
+
+    /// La connexion FTP / SFTP (comme dans FileZilla) : pour la galerie en ligne, ou pour envoyer le dossier au bureau.
+    @ViewBuilder
+    private func connexionGalerie(versDossier: Bool) -> some View {
         Ligne("Protocole") {
             Picker("", selection: $etat.reglages.protocoleGalerie) {
                 ForEach(ConfigGalerieEnLigne.Protocole.allCases) { Text($0.rawValue).tag($0) }
@@ -471,7 +603,7 @@ struct ReglagesView: View {
                 .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
         }
         Ligne("Hôte · port") {
-            TextField("ftp.mon-site.fr (vide : pas d'envoi)", text: $etat.reglages.adresseFTPGalerie)
+            TextField(versDossier ? "ftp.mon-site.fr" : "ftp.mon-site.fr (vide : pas d'envoi)", text: $etat.reglages.adresseFTPGalerie)
                 .textFieldStyle(.roundedBorder)
             TextField("\(etat.reglages.protocoleGalerie.portParDefaut)", value: $etat.reglages.portGalerie, format: .number.grouping(.never))
                 .textFieldStyle(.roundedBorder).frame(width: 70)
@@ -492,41 +624,96 @@ struct ReglagesView: View {
             if etat.reglages.protocoleGalerie == .ftpsExplicite || etat.reglages.protocoleGalerie == .ftpsImplicite {
                 Toggle("Accepter le certificat du serveur même s'il n'est pas reconnu", isOn: $etat.reglages.accepterCertificatGalerie)
             }
-            Ligne("Quand envoyer") {
-                Picker("", selection: $etat.reglages.galerieLaNuit) {
-                    Text("Au fil de l'eau").tag(false)
-                    Text("La nuit").tag(true)
-                }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 220)
-                if etat.reglages.galerieLaNuit {
-                    Stepper("à partir de \(etat.reglages.heureNuitGalerie) h", value: $etat.reglages.heureNuitGalerie, in: 0...23)
-                    Stepper("jusqu'à \(etat.reglages.heureMatinGalerie) h", value: $etat.reglages.heureMatinGalerie, in: 0...23)
+            if !versDossier {
+                Ligne("Quand envoyer") {
+                    Picker("", selection: $etat.reglages.galerieLaNuit) {
+                        Text("Au fil de l'eau").tag(false)
+                        Text("La nuit").tag(true)
+                    }
+                    .pickerStyle(.segmented).labelsHidden().frame(width: 220)
+                    if etat.reglages.galerieLaNuit {
+                        Stepper("à partir de \(etat.reglages.heureNuitGalerie) h", value: $etat.reglages.heureNuitGalerie, in: 0...23)
+                        Stepper("jusqu'à \(etat.reglages.heureMatinGalerie) h", value: $etat.reglages.heureMatinGalerie, in: 0...23)
+                    }
                 }
             }
             Ligne("Débit maximum") {
                 Stepper(etat.reglages.limiteKoGalerie == 0 ? "sans limite" : "\(etat.reglages.limiteKoGalerie) Ko/s",
                         value: $etat.reglages.limiteKoGalerie, in: 0...20_000, step: 250)
             }
-            Ligne("Auteur par défaut") {
-                TextField("Écrit dans la photo si le boîtier n'a pas de photographe (photo de synchro)", text: $etat.reglages.auteurGalerie)
-                    .textFieldStyle(.roundedBorder)
+            if versDossier {
+                HStack {
+                    Button(testFTPEnCours ? "Essai en cours…" : "Tester la connexion") { testerConnexionFTP() }
+                        .buttonStyle(BoutonStyle()).disabled(testFTPEnCours || envoiDossierEnCours)
+                    Button(envoiDossierEnCours ? "Envoi en cours…" : "Envoyer ce dossier en ligne") { envoyerDossierEnLigne() }
+                        .buttonStyle(BoutonStyle(principal: true))
+                        .disabled(envoiDossierEnCours || etat.reglages.dossierLocalGalerie.isEmpty)
+                    if !envoiDossier.isEmpty {
+                        Text(envoiDossier).font(.system(size: 11))
+                            .foregroundStyle(envoiDossierOK == false ? Theme.erreur : (envoiDossierOK == true ? Theme.ok : Theme.texteDiscret))
+                    }
+                }
+            } else {
+                Ligne("Auteur par défaut") {
+                    TextField("Écrit dans la photo si le boîtier n'a pas de photographe (photo de synchro)", text: $etat.reglages.auteurGalerie)
+                        .textFieldStyle(.roundedBorder)
+                }
+                HStack {
+                    Button(testEnCours ? "Essai en cours…" : "Tester la connexion") { testerGalerie() }
+                        .buttonStyle(BoutonStyle()).disabled(testEnCours)
+                    Button("Envoyer maintenant") { etat.moteur.envoyerGalerieMaintenant() }
+                        .buttonStyle(BoutonStyle()).disabled(!etat.moteur.actif)
+                        .help("Sans attendre la nuit.")
+                    if !testGalerie.isEmpty {
+                        Text(testGalerie).font(.system(size: 11)).foregroundStyle(testGalerieOK == false ? Theme.erreur : Theme.ok)
+                    } else if let g = etat.moteur.resume.galerieEnLigne {
+                        Text(g.aFaire == 0 ? "\(g.enLigne) photos en ligne, à jour." : (g.attendLaNuit ? "\(g.aFaire) photos attendent la nuit." : g.message))
+                            .font(.system(size: 11)).foregroundStyle(g.ok == false ? Theme.erreur : Theme.texteDiscret)
+                    }
+                }
+                Text("Une photo qui existe déjà en ligne est remplacée, une nouvelle est ajoutée, une photo supprimée dans Lightroom est supprimée en ligne. Seules les photos envoyées par l'app sont touchées.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
             }
-            HStack {
-                Button(testEnCours ? "Essai en cours…" : "Tester la connexion") { testerGalerie() }
-                    .buttonStyle(BoutonStyle()).disabled(testEnCours)
-                Button("Envoyer maintenant") { etat.moteur.envoyerGalerieMaintenant() }
-                    .buttonStyle(BoutonStyle()).disabled(!etat.moteur.actif)
-                    .help("Sans attendre la nuit.")
-                if !testGalerie.isEmpty {
-                    Text(testGalerie).font(.system(size: 11)).foregroundStyle(testGalerieOK == false ? Theme.erreur : Theme.ok)
-                } else if let g = etat.moteur.resume.galerieEnLigne {
-                    Text(g.aFaire == 0 ? "\(g.enLigne) photos en ligne, à jour." : (g.attendLaNuit ? "\(g.aFaire) photos attendent la nuit." : g.message))
-                        .font(.system(size: 11)).foregroundStyle(g.ok == false ? Theme.erreur : Theme.texteDiscret)
+        }
+    }
+
+    private func testerConnexionFTP() {
+        guard let g = etat.configGalerieFTP() else { return }
+        testFTPEnCours = true
+        envoiDossier = "Essai de la connexion…"
+        envoiDossierOK = nil
+        etat.moteur.testerGalerieEnLigne(g) { ok, message in
+            Task { @MainActor in
+                testFTPEnCours = false
+                envoiDossierOK = ok
+                envoiDossier = message
+            }
+        }
+    }
+
+    private func envoyerDossierEnLigne() {
+        guard let g = etat.configGalerieFTP() else { return }
+        envoiDossierEnCours = true
+        envoiDossierOK = nil
+        envoiDossier = "Comparaison du dossier avec ce qui est déjà en ligne…"
+        // Le dossier distant des réglages, sans le dossier du concours : chaque dossier de concours du Mac part
+        // dans le dossier du même nom en ligne.
+        var racine = g
+        racine.dossier = etat.reglages.dossierGalerie
+        let base = etat.fichierEnvoiDossier
+        GalerieEnLigne.envoyerDossiers(URL(fileURLWithPath: etat.reglages.dossierLocalGalerie, isDirectory: true),
+                                       config: racine, etat: { sous in
+            guard let sous else { return base }
+            let nom = (base.lastPathComponent as NSString).deletingPathExtension + "--" + NomDossier.nettoyer(sous) + ".json"
+            return base.deletingLastPathComponent().appendingPathComponent(nom)
+        }) { _, _, message, fini, ok in
+            Task { @MainActor in
+                envoiDossier = message
+                if fini {
+                    envoiDossierEnCours = false
+                    envoiDossierOK = ok
                 }
             }
-            Text("Une photo qui existe déjà en ligne est remplacée, une nouvelle est ajoutée, une photo supprimée dans Lightroom est supprimée en ligne. Seules les photos envoyées par l'app sont touchées.")
-                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
-            regulateurReseau
         }
     }
 
@@ -556,46 +743,6 @@ struct ReglagesView: View {
                         .foregroundStyle(etat.etatAccesDistance.hasPrefix("En marche") ? Theme.ok : Theme.erreur)
                 }
             }
-        }
-    }
-
-    /// Régulateur réseau : la console UniFi (UDM Pro) dit si la ligne internet est chargée.
-    @ViewBuilder
-    private var regulateurReseau: some View {
-        Text("Régulateur réseau (UniFi)").font(.system(size: 13, weight: .semibold)).padding(.top, 6)
-        Ligne("Console UniFi") {
-            TextField("192.168.1.1 (vide : pas de régulateur)", text: $etat.reglages.adresseUniFi).textFieldStyle(.roundedBorder)
-        }
-        if !etat.reglages.adresseUniFi.isEmpty {
-            Ligne("Clé API") {
-                SecureField("UniFi Network › Paramètres › Plan de contrôle › Intégrations (gardée dans le trousseau)",
-                            text: Binding(get: { etat.cleUniFi }, set: { etat.cleUniFi = $0 }))
-                    .textFieldStyle(.roundedBorder)
-            }
-            Ligne("Débit montant de la ligne") {
-                Stepper("\(etat.reglages.montantMbitLigne) Mbit/s", value: $etat.reglages.montantMbitLigne, in: 1...1000)
-            }
-            Ligne("Pause de la galerie") {
-                Stepper("quand les autres utilisent plus de \(etat.reglages.seuilUniFi) % de la ligne",
-                        value: $etat.reglages.seuilUniFi, in: 30...95, step: 5)
-            }
-            HStack {
-                Button("Tester la console") {
-                    guard let c = etat.configUniFi() else { return }
-                    testUniFi = "Essai en cours…"
-                    testUniFiOK = nil
-                    GalerieEnLigne.testerUniFi(c) { ok, m in Task { @MainActor in testUniFiOK = ok; testUniFi = m } }
-                }
-                .buttonStyle(BoutonStyle()).disabled(etat.cleUniFi.isEmpty)
-                if !etat.reglages.empreinteUniFi.isEmpty {
-                    Button("Oublier le certificat de la console") { etat.reglages.empreinteUniFi = "" }.buttonStyle(BoutonStyle())
-                }
-                if !testUniFi.isEmpty {
-                    Text(testUniFi).font(.system(size: 11)).foregroundStyle(testUniFiOK == false ? Theme.erreur : Theme.ok)
-                }
-            }
-            Text("Les photos des boîtiers et le serveur local passent toujours avant : seule la galerie en ligne attend, et reprend toute seule quand la ligne se libère.")
-                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
         }
     }
 
@@ -798,6 +945,103 @@ struct ModelesView: View {
             }
             if !message.isEmpty {
                 Text(message).font(.system(size: 12)).foregroundStyle(Theme.ok)
+            }
+        }
+    }
+}
+
+/// Un chrono dans les réglages : HM Timing (nom, adresse, codes) ou Horse & Comp (nom, page, zones), avec son voyant.
+struct LigneChrono: View {
+    @EnvironmentObject var etat: Etat
+    @ObservedObject private var moteur: Moteur
+    @Binding var chrono: ReglagesConcours.ChronoConcours
+    @State private var test: (ok: Bool, texte: String)?
+    @State private var enTest = false
+
+    init(chrono: Binding<ReglagesConcours.ChronoConcours>, moteur: Moteur) {
+        _chrono = chrono
+        _moteur = ObservedObject(wrappedValue: moteur)
+    }
+
+    var body: some View {
+        // deux lignes : les champs, puis le voyant et les boutons (rien n'est écrasé dans une fenêtre moyenne)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(chrono.genre == .hmTiming ? "HM TIMING" : "HORSE & COMP")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Theme.surAccent)
+                    .lineLimit(1).fixedSize()
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(chrono.genre == .hmTiming ? Theme.accent : Theme.orange, in: RoundedRectangle(cornerRadius: 4))
+                TextField("Nom du chrono", text: $chrono.nom).textFieldStyle(.roundedBorder).frame(minWidth: 120, maxWidth: 200)
+                if chrono.genre == .hmTiming {
+                    TextField("Adresse (192.168.1.20:8080)", text: $chrono.adresse).textFieldStyle(.roundedBorder)
+                        .frame(minWidth: 150, maxWidth: 240)
+                    SecureField("Code régie", text: $chrono.codeRegie).textFieldStyle(.roundedBorder).frame(minWidth: 80, maxWidth: 110)
+                    SecureField("Code tech", text: $chrono.codeTech).textFieldStyle(.roundedBorder).frame(minWidth: 80, maxWidth: 110)
+                } else {
+                    Text(chrono.urlIncrustation.isEmpty ? "Page d'incrustation à régler" : chrono.urlIncrustation)
+                        .font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
+                        .frame(minWidth: 120, maxWidth: 300, alignment: .leading)
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 10) {
+                voyant
+                Spacer(minLength: 8)
+                if chrono.genre == .hmTiming {
+                    Button(enTest ? "Test en cours…" : "Tester") { tester() }
+                        .buttonStyle(BoutonStyle()).fixedSize()
+                        .disabled(enTest || !chrono.pret)
+                } else {
+                    Button(chrono.zones["dossard"] == nil ? "Régler la page et les zones…" : "Page et zones…") {
+                        etat.captureChoisie = chrono.id.uuidString
+                        etat.montrerCapture = true
+                    }
+                    .buttonStyle(BoutonStyle(principal: chrono.zones["dossard"] == nil)).fixedSize()
+                }
+                Button("Retirer") { etat.reglages.chronos.removeAll { $0.id == chrono.id } }
+                    .buttonStyle(BoutonStyle()).fixedSize()
+                    .help("Les pistes de ce chrono passent « trouvé tout seul ».")
+            }
+        }
+        .padding(10)
+        .background(Theme.carte, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.bordure))
+    }
+
+    /// Vert : répond ; orange : ne répond pas ; gris : pas encore interrogé (tri arrêté).
+    private var voyant: some View {
+        let e = moteur.resume.chrono?.liens.first { $0.id == chrono.id.uuidString }
+        let v: (Color, String) = {
+            if let e {
+                switch e.ok {
+                case .some(true): return (Theme.ok, "répond" + (e.sources.isEmpty ? "" : " · " + e.sources.joined(separator: ", ")))
+                case .some(false): return (Theme.orange, e.erreur.isEmpty ? "ne répond pas" : e.erreur)
+                case .none: return (Theme.texteTresDiscret, "en attente…")
+                }
+            }
+            if let t = test { return (t.ok ? Theme.ok : Theme.orange, t.texte) }
+            if chrono.genre == .horseComp {
+                let cap = etat.captures[chrono.id.uuidString]
+                return (cap?.ouverte == true ? Theme.ok : Theme.texteTresDiscret, cap?.etatPage ?? (chrono.zones["dossard"] == nil ? "zones à dessiner" : "page fermée"))
+            }
+            return (Theme.texteTresDiscret, chrono.pret ? "pas encore testé" : "adresse à régler")
+        }()
+        return HStack(spacing: 5) {
+            Circle().fill(v.0).frame(width: 8, height: 8)
+            Text(v.1).font(.system(size: 12)).foregroundStyle(v.0)
+                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func tester() {
+        enTest = true
+        test = nil
+        TestChrono.tester(etat.reglages.lien(chrono)) { ok, texte in
+            Task { @MainActor in
+                test = (ok, texte)
+                enTest = false
             }
         }
     }

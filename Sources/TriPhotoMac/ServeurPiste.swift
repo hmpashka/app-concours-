@@ -125,6 +125,7 @@ final class ServeurPiste: ObservableObject {
             connectes[i].derniersMessages = nil
             connectes[i].dernieresCommandes = nil
             connectes[i].canal.envoyer(.theme(ChoixTheme.courant.code))
+            APNs.partage.misAJour(nom: nom, appareil: appareil, piste: piste)
             if !nom.isEmpty && !personnes.contains(nom) {
                 personnes.append(nom)
                 Stockage.ecrire(personnes, nom: "personnes-piste.json")
@@ -144,6 +145,11 @@ final class ServeurPiste: ObservableObject {
             alerteVue?(boitier)
         case .chercherClient(let texte):
             connectes[i].canal.envoyer(.clients(texte: texte, chercherClients(texte)))
+        case .jeton(let sorte, let valeur, let production):
+            let c = connectes[i]
+            APNs.partage.enregistrer(sorte: sorte, valeur: valeur, production: production,
+                                     nom: c.nom, appareil: c.appareil, piste: c.piste)
+            actualiser()
         case .commande(var k):
             if k.par.isEmpty { k.par = connectes[i].nom.isEmpty ? "iPhone" : connectes[i].nom }
             enregistrerCommande?(k)
@@ -162,17 +168,31 @@ final class ServeurPiste: ObservableObject {
         ajouter(MessagePiste(qui: "Stand", piste: "", texte: t, heure: Date().timeIntervalSince1970, pour: pour))
     }
 
+    /// Concours rangé : messages oubliés (le fichier du jour est parti avec le concours). Concours rouvert : relus.
+    func relireMessages() {
+        messages = Stockage.lire([MessagePiste].self, nom: fichierMessages) ?? []
+    }
+
     private func ajouter(_ m: MessagePiste) {
         // nouvelle journée : on repart d'un fichier neuf (l'ancien reste sur le Mac)
         if let d = messages.last, ServeurPiste.jour(Date(timeIntervalSince1970: d.heure)) != ServeurPiste.jour() { messages = [] }
         messages.append(m)
         if messages.count > 2000 { messages.removeFirst(messages.count - 2000) }
         Stockage.ecrire(messages, nom: fichierMessages)
+        // iPhone pas connecté (app fermée, iPhone verrouillé) : bulle par le service d'Apple
+        let presents = Set(connectes.map(\.appareil))
+        APNs.partage.bulle(titre: m.incident ? "Incident · \(m.qui)" : m.qui + (m.pour.isEmpty ? " · à tous" : ""),
+                           texte: m.texte,
+                           pour: { p in !presents.contains(p.appareil) && p.nom != m.qui && m.pourPersonne(p.nom) },
+                           urgent: m.incident)
         if m.qui != "Stand" {
             let conv = ServeurPiste.conversation(de: m)
             if !surMessages() || NSApp.isActive == false {
                 nonLus[conv, default: 0] += 1
                 notifier(m)
+            } else {
+                // déjà sur l'onglet Messages : pas de bulle, mais le son quand même
+                Notifieur.partage.jouer(Preferences.partagees.reglage(m.incident ? .incident : .message).son)
             }
         }
         actualiser()
@@ -215,7 +235,7 @@ final class ServeurPiste: ObservableObject {
         // affichage et son selon Réglages › Son et notifications
         Notifieur.partage.signaler(m.incident ? .incident : .message,
                                    titre: m.incident ? "Incident · \(m.qui)" : m.qui + (m.piste.isEmpty ? "" : " · \(m.piste)"),
-                                   texte: m.texte, id: m.id, infos: ["message": m.id])
+                                   texte: m.texte, id: m.id, infos: ["message": m.id, "qui": m.qui, "pour": m.pour])
     }
 
     // MARK: - Envoi aux iPhone (toutes les 2 s, seulement ce qui a changé)
@@ -249,19 +269,61 @@ final class ServeurPiste: ObservableObject {
                 connectes[i].derniersMessages = ms
             }
         }
+        // écrans verrouillés : chaque piste suivie, iPhone connecté ou non
+        let apns = APNs.partage
+        guard apns.pret else { return }
+        let presents = Set(connectes.map(\.appareil))
+        for piste in Set(apns.iphones.filter { !$0.activite.isEmpty }.map(\.piste)) where !piste.isEmpty {
+            let d = fabriquerDirect(piste: piste, r, reg)
+            apns.ecranVerrouille(piste: piste, etat: EcranVerrouille(d))
+            // CHANGE TON CODE : bulle urgente sur les iPhone de la piste qui ne sont pas devant l'app
+            if let a = d.alerte, alertesPoussees[piste] != a {
+                alertesPoussees[piste] = a
+                apns.bulle(titre: "CHANGE TON CODE", texte: "Boîtier \(a.boitier) : mets \(a.attendu) (encore \(a.ancien))",
+                           pour: { $0.piste == piste && !presents.contains($0.appareil) && $0.activite.isEmpty }, urgent: true)
+            } else if d.alerte == nil {
+                alertesPoussees[piste] = nil
+            }
+        }
     }
 
+    private var alertesPoussees: [String: AlerteCodePiste] = [:]
+
     /// Piste du chrono qui correspond à une piste des réglages.
+    /// Le chrono de cette piste répond-il ? (plusieurs chronos : seulement le sien)
+    static func chronoOK(source: String?, piste: String, reglages: ReglagesConcours, resume r: ResumeMoteur) -> Bool {
+        guard let ch = r.chrono else { return false }
+        if ch.liens.count > 1, let p = reglages.pistes.first(where: { $0.nom == piste }), let c = reglages.chronoDe(p),
+           let e = ch.liens.first(where: { $0.id == c.id.uuidString }) {
+            return e.ok == true
+        }
+        return ch.ok == true
+    }
+
     static func source(pour piste: String, reglages: ReglagesConcours, sources: [String]) -> String? {
         guard let i = reglages.pistes.firstIndex(where: { $0.nom == piste }) else { return nil }
         let p = reglages.pistes[i]
-        if !p.sourceChrono.isEmpty { return p.sourceChrono }
-        if let s = sources.first(where: { $0.caseInsensitiveCompare(piste) == .orderedSame }) { return s }
+        if p.chrono == ReglagesConcours.Piste.aucun { return nil }
+        // plusieurs chronos : la piste ne cherche que dans le sien (Horse & Comp : une seule piste, au nom du chrono)
+        var candidates = sources
+        var memeChrono = reglages.pistes
+        if let c = reglages.chronoDe(p) {
+            let lien = reglages.lien(c)
+            if c.genre == .horseComp { return lien.cle("") }
+            if !p.sourceChrono.isEmpty { return lien.cle(p.sourceChrono) }
+            if lien.prefixer { candidates = sources.filter { $0.hasPrefix(c.nom + ConfigLienChrono.separateur) } }
+            memeChrono = reglages.pistes.filter { reglages.chronoDe($0)?.id == c.id }
+        } else if !p.sourceChrono.isEmpty {
+            return p.sourceChrono
+        }
+        let brut = { (s: String) in ConfigLienChrono.brut(s) }
+        if let s = candidates.first(where: { brut($0).caseInsensitiveCompare(piste) == .orderedSame }) { return s }
         let chiffres = piste.filter(\.isNumber)
-        if !chiffres.isEmpty, let s = sources.first(where: { $0.filter(\.isNumber) == chiffres }) { return s }
-        let triees = sources.sorted()
-        if reglages.pistes.count == 1 { return triees.first }
-        return triees.indices.contains(i) ? triees[i] : nil
+        if !chiffres.isEmpty, let s = candidates.first(where: { brut($0).filter(\.isNumber) == chiffres }) { return s }
+        let triees = candidates.sorted()
+        let j = memeChrono.firstIndex(where: { $0.id == p.id }) ?? i
+        if memeChrono.count == 1 { return triees.first }
+        return triees.indices.contains(j) ? triees[j] : nil
     }
 
     private func fabriquerAccueil(_ r: ResumeMoteur, _ reg: ReglagesConcours) -> AccueilPiste {
@@ -293,7 +355,7 @@ final class ServeurPiste: ObservableObject {
     private func fabriquerDirect(piste: String, _ r: ResumeMoteur, _ reg: ReglagesConcours) -> DirectPiste {
         var d = DirectPiste(piste: piste)
         let source = ServeurPiste.source(pour: piste, reglages: reg, sources: Array(r.suivis.keys))
-        d.chronoOK = r.chrono?.ok == true
+        d.chronoOK = ServeurPiste.chronoOK(source: source, piste: piste, reglages: reg, resume: r)
         // boîtiers de la piste : choisis à la photo de synchro, sinon appris sur les photos au bon code
         var boitiers = Set(r.boitierPiste.filter { source != nil && $0.value == source }.map(\.key))
         for s in r.boitiersSynchro {

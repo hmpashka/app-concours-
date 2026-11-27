@@ -17,24 +17,31 @@ struct MemoireView: View {
     @State private var creer = false
     @State private var message = ""
     @State private var travail = false
+    @State private var enGrand: DepartVisionneuse?
+    @State private var gros = 0                           // exemples trop gros (photos entières au lieu de vignettes)
 
     private var memoire: Memoire { etat.memoire }
 
     var body: some View {
         HStack(spacing: 0) {
             if etat.panneauGauche {
-                panneauCategories.frame(width: 250).background(Theme.panneau)
+                panneauCategories.frame(width: 250).background(Theme.panneau).repere("memoire.categories")
                 Divider().overlay(Theme.bordure)
             }
-            centre.frame(maxWidth: .infinity, maxHeight: .infinity)
+            centre.frame(maxWidth: .infinity, maxHeight: .infinity).repere("memoire.centre")
             if etat.panneauDroit {
                 Divider().overlay(Theme.bordure)
-                panneauDroit.frame(width: 290).background(Theme.panneau)
+                panneauDroit.frame(width: 290).background(Theme.panneau).repere("memoire.droite")
             }
         }
         .onAppear { memoire.creer(); charger() }
-        .onChange(of: choisie) { _ in selection = []; chargerExemples() }
+        .onChange(of: choisie) { _ in selection = []; chargerExemples(); Visite.partagee.signaler("memoire.categorie") }
         .onChange(of: etat.reglages.dossierMemoire) { _ in charger() }
+        .sheet(item: $enGrand) { d in
+            Visionneuse(elements: exemples.map { ElementVisionneuse(id: $0.id, chemins: [$0.url.path], titre: Memoire.nom(de: $0.categorie), detail: $0.nom) },
+                        depart: d.id, choisie: { selection.contains($0) },
+                        basculer: { if selection.contains($0) { selection.remove($0) } else { selection.insert($0) } })
+        }
     }
 
     // MARK: - Données
@@ -43,8 +50,10 @@ struct MemoireView: View {
         let m = memoire
         DispatchQueue.global(qos: .userInitiated).async {
             let c = m.categories()
+            let g = m.tropGros()
             DispatchQueue.main.async {
                 categories = c
+                gros = g
                 if !c.contains(where: { $0.cle == choisie }) { choisie = c.first?.cle ?? "bonne" }
                 chargerExemples()
             }
@@ -80,7 +89,7 @@ struct MemoireView: View {
                             .background(choisie == c.cle ? Theme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 5))
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(BoutonPlat())
                     }
                 }
             }
@@ -103,8 +112,30 @@ struct MemoireView: View {
             }
             Button("Montrer dans le Finder") { NSWorkspace.shared.activateFileViewerSelecting([memoire.dossier]) }
                 .buttonStyle(BoutonStyle())
+            if gros > 0 {
+                // essai du 26/11 : des photos entières (4 à 7 Mo) dans la mémoire, lentes à télécharger sur chaque Mac
+                Text("\(gros) exemple\(gros > 1 ? "s sont des photos entières" : " est une photo entière") au lieu de vignettes : la mémoire est lente à s'afficher et à se partager.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.attention)
+                Button(travail ? "Allègement…" : "Alléger la mémoire") { alleger() }
+                    .buttonStyle(BoutonStyle(principal: true)).disabled(travail)
+                    .help("Chaque photo entière est remplacée par sa vignette de 360 px. La photo entière part à la Corbeille.")
+            }
         }
         .padding(14)
+    }
+
+    private func alleger() {
+        let m = memoire
+        travail = true
+        DispatchQueue.global(qos: .utility).async {
+            let r = m.alleger()
+            DispatchQueue.main.async {
+                travail = false
+                message = "\(r.allegees) photo\(r.allegees > 1 ? "s" : "") remplacée\(r.allegees > 1 ? "s" : "") par leur vignette (photos entières à la Corbeille)."
+                    + (r.enAttente > 0 ? " \(r.enAttente) encore illisible\(r.enAttente > 1 ? "s" : "") : à refaire plus tard." : "")
+                charger()
+            }
+        }
     }
 
     private func creerCategorie() {
@@ -122,6 +153,9 @@ struct MemoireView: View {
                 Text(Memoire.nom(de: choisie)).font(.system(size: 16, weight: .semibold))
                 Text("\(exemples.count) exemples").font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
                 Spacer()
+                SelecteurVue(galerie: choixVue($enGrand) {
+                    (exemples.first { selection.contains($0.id) } ?? exemples.first)?.id
+                })
                 if !selection.isEmpty {
                     Menu("Déplacer vers") {
                         ForEach(categories.filter { $0.cle != choisie }) { c in Button(c.nom) { deplacer(vers: c.cle) } }
@@ -171,7 +205,8 @@ struct MemoireView: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(choisi ? Theme.accent : Color.clear, lineWidth: 2))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BoutonPlat())
+        .simultaneousGesture(TapGesture(count: 2).onEnded { enGrand = DepartVisionneuse(id: e.id) })
     }
 
     // MARK: - Actions

@@ -30,13 +30,21 @@ public struct ConfigMoteur {
     public var memoire: Memoire?
     /// Remises des prix (_99) : les meilleures photos copiées dans un dossier Google Drive. nil : pas de copie.
     public var remises: ConfigRemises?
+    /// Sauvegarde des originaux sur un 2e disque (option) : dossier racine, un sous-dossier par jour. nil : pas de sauvegarde.
+    public var sauvegarde: URL?
+    /// Rush : dès que tant de photos attendent dans « À valider », tout part avec le code du photographe et reste
+    /// « à reprendre au calme ». 0 : jamais automatique (bouton seulement).
+    public var rushAuto: Int
+    /// Photos traitées en même temps au plus (HUGO 26/11 : « 10, 20 en parallèle »). 0 : automatique, selon les
+    /// cœurs du Mac (Mac mini 10 cœurs : jusqu'à 8). Le tri reste en priorité basse : Lightroom passe toujours avant.
+    public var ouvriersMax: Int
 
     public init(reception: URL, importLightroom: URL, tampon: URL?, serveur: URL, cote: Int, qualite: Int,
                 cube: FichierCube?, concours: Concours?, tailleLot: Int, silenceMinutes: Int,
                 retarderSiOccupe: Bool, journal: URL, travailLightroom: URL? = nil, chrono: ConfigChrono? = nil,
                 attente00Minutes: Double = 2, galerie: ConfigGalerie? = nil,
                 galerieEnLigne: ConfigGalerieEnLigne? = nil, fichierTerrain: URL? = nil,
-                memoire: Memoire? = nil, remises: ConfigRemises? = nil) {
+                memoire: Memoire? = nil, remises: ConfigRemises? = nil, sauvegarde: URL? = nil, rushAuto: Int = 0, ouvriersMax: Int = 0) {
         self.reception = reception
         self.importLightroom = importLightroom
         self.tampon = tampon
@@ -57,6 +65,9 @@ public struct ConfigMoteur {
         self.fichierTerrain = fichierTerrain
         self.memoire = memoire
         self.remises = remises
+        self.sauvegarde = sauvegarde
+        self.rushAuto = rushAuto
+        self.ouvriersMax = ouvriersMax
     }
 }
 
@@ -93,11 +104,15 @@ public struct ResumeMoteur {
     public var chargeLightroom = 0.0
     public var ouvriers = 3
     public var message = ""
+    /// Bouton Pause : plus rien ne part (serveur, Lightroom, galerie) ; les photos attendent dans la réception.
+    public var enPause = false
 
     // Étape 2
     public var series: [SerieAValider] = []
     /// Photos mises de côté en attente de validation (les photos de code comptent pour une).
-    public var aValider: Int { series.reduce(0) { $0 + ($1.genre == .photoCode ? 1 : $1.photos.count) } }
+    public var aValider: Int { series.reduce(0) { $0 + ($1.genre == .photoCode ? 1 : $1.genre == .rush ? 0 : $1.photos.count) } }
+    /// Photos envoyées en rush avec le code du photographe, dont la proposition du chrono reste à reprendre au calme.
+    public var aReprendre: Int { series.reduce(0) { $0 + ($1.genre == .rush ? $1.photos.count : 0) } }
     public var enAttenteChrono = 0
     public var chrono: EtatChrono?
     public var enPiste: [EnPiste] = []
@@ -119,6 +134,8 @@ public struct ResumeMoteur {
     public var bienArrivees: [FichePhoto] = []
     /// Heure du chrono maintenant (horloge du Mac + écart).
     public var heureChrono: Double = 0
+    /// Change dès qu'une photo est ajoutée ou modifiée dans le journal (Revue en direct).
+    public var versionJournal = 0
     /// Début du nom des photos d'un boîtier (« DERB ») → boîtier : retrouve le boîtier d'une photo illisible.
     public var prefixeBoitier: [String: String] = [:]
 
@@ -152,6 +169,8 @@ public struct EtatChrono: Sendable {
     public var erreur: String
     public var vu: Date?
     public var passages: Int
+    /// Un état par chrono (plusieurs HM Timing, plusieurs captures Horse & Comp).
+    public var liens: [EtatLienChrono] = []
 }
 
 /// Ce qui est en piste en ce moment, piste par piste (d'après le chrono).
@@ -165,7 +184,7 @@ public struct EnPiste: Identifiable, Sendable {
 /// Une série « À valider » : photos qui se suivent, même boîtier, même code, même proposition.
 /// Ou une photo de code, avec les photos d'avant parmi lesquelles choisir.
 public struct SerieAValider: Identifiable, Sendable {
-    public enum Genre: Sendable { case chrono, photoCode }
+    public enum Genre: Sendable { case chrono, photoCode, rush }
     public var id: String
     public var genre: Genre
     public var boitier: String
@@ -210,6 +229,8 @@ public final class Moteur: ObservableObject {
     private var charge = 0.0
     private var debutJournee = Calendar.current.startOfDay(for: Date())
     private var message = ""
+    private var alerteSauvegarde = ""
+    private var pause = false
     private var chrono: Chrono?
     private var enAttenteChrono: [String: Date] = [:]           // photos gardées en réception (chrono, _00)
     private var pisteDuBoitier: [String: String] = [:]          // apprise sur les photos conformes
@@ -259,10 +280,14 @@ public final class Moteur: ObservableObject {
     public static let dossierAValider = "_À valider"
     public static let dossierPhotosCode = "_Photos de code"
     public static let dossierSynchro = "_Synchro"
+    /// Dossier de la réception où un concours rangé laisse ses photos pas finies (« Restes – Grand Prix ») :
+    /// jamais trié par le concours suivant.
+    public static let prefixeRestes = "Restes – "
     static let doublonAccepte = "Doublon accepté par HUGO"
     static let codeGarde = "Code du photographe gardé par HUGO"
     static let pasPhotoCode = "Pas une photo de code (HUGO)"
     static let sansChrono = "Partie sans vérification du chrono"
+    static let aReprendre = "Envoyée en rush, à reprendre"
     public static let bienArrivee = "Renvoyée : bien arrivée"
 
     // MARK: - Démarrer / arrêter
@@ -288,6 +313,9 @@ public final class Moteur: ObservableObject {
             self.chargerRemises()
             self.chargerSynchro()
             self.enAttenteChrono = [:]
+            self.pause = false
+            self.enLigne?.mettreEnPause(false)
+            self.minuterie?.cancel()       // « Démarrer » cliqué deux fois : jamais deux minuteries en même temps
             let t = DispatchSource.makeTimerSource(queue: file)
             t.schedule(deadline: .now(), repeating: 1.0, leeway: .milliseconds(200))
             t.setEventHandler { [weak self] in self?.tour() }
@@ -307,6 +335,75 @@ public final class Moteur: ObservableObject {
         DispatchQueue.main.async { self.actif = false }
     }
 
+    /// Photos JPEG d'un dossier (sous-dossiers compris), comme le tri les voit. `toutCompter` : aussi celles des
+    /// sous-dossiers de travail (_À valider, _Doublons…), mais jamais les « Restes – » d'un concours rangé.
+    public static func nombreDePhotos(dans dossier: URL, toutCompter: Bool = false) -> Int {
+        if !toutCompter { return lister(dossier).count }
+        let fm = FileManager.default
+        guard let e = fm.enumerator(at: dossier, includingPropertiesForKeys: nil,
+                                    options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return 0 }
+        var n = 0
+        for case let url as URL in e {
+            if url.lastPathComponent.hasPrefix(prefixeRestes) { e.skipDescendants(); continue }
+            let ext = url.pathExtension.lowercased()
+            if ext == "jpg" || ext == "jpeg" { n += 1 }
+        }
+        return n
+    }
+
+    /// Nouveau concours (HUGO 26/11) : arrête le tri ET oublie tout ce qui tient au concours en cours (journal
+    /// fermé, galerie en ligne arrêtée, chrono, engagés terrain, synchro…), pour que ses fichiers puissent être
+    /// rangés. Les photos déjà en traitement finissent d'abord. À appeler hors du fil principal (attend).
+    public func fermerConcours() {
+        file.sync {
+            minuterie?.cancel()
+            minuterie = nil
+            config = nil
+        }
+        ouvriers.waitUntilAllOperationsAreFinished()
+        detections.cancelAllOperations()
+        detections.waitUntilAllOperationsAreFinished()
+        let galerieEnLigne = file.sync { enLigne }
+        galerieEnLigne?.arreter()
+        file.sync {
+            journal = nil
+            enLigne = nil
+            galerie = nil
+            suivi = nil
+            chrono = nil
+            reconnaissance = nil
+            tailles = [:]
+            enCours = []
+            reessayerApres = [:]
+            vuesEnAttente = [:]
+            enAttenteChrono = [:]
+            pisteDuBoitier = [:]
+            derniereSerie = [:]
+            cache00 = []
+            cacheCourbe = ("", [])
+            cacheCompte = [:]
+            cacheBienArrivees = []
+            nomsARenvoyer = [:]
+            alertesVues = [:]
+            prefixeBoitier = [:]
+            demandeSynchro = nil
+            dernierSynchro = nil
+            boitiersSynchro = [:]
+            terrain = []
+            remisesFaites = [:]
+            etatRemises = EtatRemises()
+            etatDetections = EtatDetections()
+            forcerTampon = false
+            pause = false
+            message = ""
+            alerteSauvegarde = ""
+        }
+        DispatchQueue.main.async {
+            self.actif = false
+            self.resume = ResumeMoteur()
+        }
+    }
+
     // MARK: - Un tour (chaque seconde)
 
     private func tour() {
@@ -316,7 +413,9 @@ public final class Moteur: ObservableObject {
         // Régulateur : Lightroom travaille-t-il ?
         charge = regulateur.chargeLightroom()
         let retard = vuesEnAttente.values.min().map { maintenant.timeIntervalSince($0) } ?? 0
-        ouvriers.maxConcurrentOperationCount = RegleRegulateur.ouvriers(chargeLightroom: charge, fileEnRetard: retard > 30)
+        // Photos en attente depuis plus de 5 s (rafale) : on ouvre toutes les files d'un coup.
+        ouvriers.maxConcurrentOperationCount = RegleRegulateur.ouvriers(chargeLightroom: charge, fileEnRetard: retard > 5,
+                                                                        plafond: RegleRegulateur.plafond(reglage: c.ouvriersMax))
 
         // Nouvelles photos complètes dans le dossier de réception.
         let presentes = Moteur.lister(c.reception)
@@ -328,12 +427,16 @@ public final class Moteur: ObservableObject {
         for k in enAttenteChrono.keys where !chemins.contains(k) && !enCours.contains(k) { enAttenteChrono[k] = nil }
         for (url, taille) in presentes {
             let chemin = url.path
+            if pause { if vuesEnAttente[chemin] == nil && enAttenteChrono[chemin] == nil { vuesEnAttente[chemin] = maintenant }; continue }
             if enCours.contains(chemin) { continue }
             if let r = reessayerApres[chemin], r > maintenant { continue }
             if vuesEnAttente[chemin] == nil && enAttenteChrono[chemin] == nil { vuesEnAttente[chemin] = maintenant }
             // Prête quand sa taille n'a pas bougé depuis le tour précédent (le boîtier a fini de l'écrire).
             defer { tailles[chemin] = taille }
-            guard taille > 0, tailles[chemin] == taille else { continue }
+            // Un fichier vide (transfert raté) est mis « à renvoyer » au bout d'une minute : il ne bloque jamais la
+            // file d'attente ni la clôture.
+            let vide = taille == 0 && maintenant.timeIntervalSince(vuesEnAttente[chemin] ?? enAttenteChrono[chemin] ?? maintenant) > 60
+            guard tailles[chemin] == taille, taille > 0 || vide else { continue }
             enCours.insert(chemin)
             ouvriers.addOperation { [weak self] in self?.traiter(url, config: c) }
         }
@@ -346,7 +449,7 @@ public final class Moteur: ObservableObject {
         }
 
         // Dossier tampon : faut-il envoyer le lot à Lightroom ?
-        if let tampon = c.tampon { verifierTampon(tampon: tampon, config: c, journal: j, maintenant: maintenant) }
+        if !pause, let tampon = c.tampon { verifierTampon(tampon: tampon, config: c, journal: j, maintenant: maintenant) }
 
         // Dossier de travail de Lightroom : suppressions et codes changés (toutes les 15 s).
         if let s = suivi, maintenant.timeIntervalSince(dernierSuivi) >= 15 {
@@ -354,7 +457,7 @@ public final class Moteur: ObservableObject {
             s.examiner { [weak self] constat in self?.file.async { self?.appliquer(constat) } }
         }
 
-        galerie?.peutEtre()
+        if !pause { galerie?.peutEtre() }
 
         // Engagés terrain vus par le chrono (toutes les 10 s), galerie en ligne (liste complète toutes les minutes).
         if chrono != nil, maintenant.timeIntervalSince(dernierTerrain) >= 10 {
@@ -366,7 +469,7 @@ public final class Moteur: ObservableObject {
             e.synchroniser(photosEnLigne(journal: j, config: g))
         }
         detecterSiCalme(journal: j, config: c, maintenant: maintenant)
-        copierRemisesSiBesoin(journal: j, config: c, maintenant: maintenant)
+        if !pause { copierRemisesSiBesoin(journal: j, config: c, maintenant: maintenant) }
         publier(journal: j, maintenant: maintenant)
     }
 
@@ -377,7 +480,8 @@ public final class Moteur: ObservableObject {
                                     options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
         var l: [(URL, UInt64)] = []
         for case let url as URL in e {
-            if [dossierARenvoyer, dossierDoublons, dossierAValider, dossierPhotosCode, dossierSynchro].contains(url.lastPathComponent) {
+            if [dossierARenvoyer, dossierDoublons, dossierAValider, dossierPhotosCode, dossierSynchro].contains(url.lastPathComponent)
+                || url.lastPathComponent.hasPrefix(prefixeRestes) {
                 e.skipDescendants()
                 continue
             }
@@ -401,6 +505,17 @@ public final class Moteur: ObservableObject {
         do {
             // 1. Contrôle : photo mal transférée → mise de côté, à redemander au boîtier (nom d'origine).
             guard let infos = TraitementPhoto.infos(url), !TraitementPhoto.estAbimee(url) else {
+                // Transfert lent (wifi du boîtier qui hésite) : le fichier a encore bougé il y a peu, il est peut-être
+                // en train d'arriver. On le reprend un peu plus tard au lieu de le déclarer abîmé trop tôt.
+                let modif = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                if Date().timeIntervalSince(modif) < 20 {
+                    file.sync {
+                        enCours.remove(chemin)
+                        tailles[chemin] = nil
+                        reessayerApres[chemin] = Date().addingTimeInterval(5)
+                    }
+                    return
+                }
                 let cote = c.reception.appendingPathComponent(Moteur.dossierARenvoyer, isDirectory: true)
                 try FileManager.default.createDirectory(at: cote, withIntermediateDirectories: true)
                 let dest = cote.appendingPathComponent(Renommage.libre(fiche.origine) {
@@ -492,9 +607,10 @@ public final class Moteur: ObservableObject {
                 let sans = codePhotographe == nil || codePhotographe?.special == .inconnu
                 var garderEnReception = false
                 if let ch = file.sync(execute: { chrono }), let prise = fiche.prise {
-                    if ch.ok == true {
-                        let b0 = fiche.boitier
-                        let piste = file.sync { pisteDuBoitier[b0] }
+                    let b0 = fiche.boitier
+                    let piste = file.sync { pisteDuBoitier[b0] }
+                    // plusieurs chronos : seul l'état du chrono de cette piste compte (un chrono qui tombe ne bloque pas les autres)
+                    if ch.okPour(piste: piste) == true {
                         let d = Attribution.decider(code: codePhotographe, t: ch.heureChrono(prise, boitier: b0), passages: ch.passages,
                                                     apres: ch.config.apresArrivee, latence: ch.config.latence, piste: piste)
                         switch d {
@@ -563,9 +679,25 @@ public final class Moteur: ObservableObject {
                 let nom = Renommage.nom(origine: fiche.origine, priseEXIF: infos.priseEXIF,
                                         secours: (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate)
                 let id = fiche.id
+                // Reprise après un plantage (ou une erreur) entre le dépôt pour Lightroom et le retrait de la
+                // réception : le fichier déjà déposé sous ce nom est le NÔTRE, pas un doublon.
+                let dejaANous = fiche.nom == nom && !fiche.copie.isEmpty && (fiche.etat == .copiee || fiche.etat == .erreur)
                 let pris = file.sync { journal?.nomDejaUtilise(nom, sauf: id) ?? false }
-                    || FileManager.default.fileExists(atPath: destination.appendingPathComponent(nom).path)
-                    || FileManager.default.fileExists(atPath: c.importLightroom.appendingPathComponent(nom).path)
+                    || (!dejaANous && FileManager.default.fileExists(atPath: destination.appendingPathComponent(nom).path))
+                    || (!dejaANous && FileManager.default.fileExists(atPath: c.importLightroom.appendingPathComponent(nom).path))
+                if dejaANous, !FileManager.default.fileExists(atPath: destination.appendingPathComponent(nom).path),
+                   let dansLR = Moteur.trouverOriginal(FichePhoto(origine: fiche.origine, nom: nom, boitier: "", prise: nil, code: "",
+                                                                  etat: .envoyee, chemin: "", copie: "", erreur: "", recue: Date(), maj: Date()),
+                                                       travail: c.travailLightroom) {
+                    // Lightroom l'a déjà importée : on ne la redépose pas (pas de double dans le catalogue).
+                    // L'exemplaire resté en réception va à la Corbeille (récupérable).
+                    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                    fiche.chemin = dansLR.path
+                    fiche.etat = .envoyee
+                    fiche.erreur = ""
+                    terminer(fiche, chemin: chemin)
+                    return
+                }
                 if pris {
                     let cote = c.reception.appendingPathComponent(Moteur.dossierDoublons, isDirectory: true)
                     try FileManager.default.createDirectory(at: cote, withIntermediateDirectories: true)
@@ -606,6 +738,9 @@ public final class Moteur: ObservableObject {
             // L'original n'est retiré de la réception qu'une fois sa copie complète vérifiée à destination.
             let tailleFinale = (try? FileManager.default.attributesOfItem(atPath: final.path)[.size] as? UInt64) ?? 0
             guard tailleFinale > 0 else { throw TraitementPhoto.Erreur.ecriture(final.path) }
+            // Sauvegarde (option) : l'original tel qu'il est arrivé du boîtier, sous son nouveau nom, sur le 2e disque.
+            // Un disque absent ou plein ne bloque jamais le tri : alerte sur l'accueil.
+            if let s = c.sauvegarde { sauvegarder(url, nom: fiche.nom, dans: s) }
             try FileManager.default.removeItem(at: url)
             fiche.chemin = final.path
             fiche.etat = c.tampon == nil ? .envoyee : .tampon
@@ -623,6 +758,26 @@ public final class Moteur: ObservableObject {
                 enCours.remove(chemin)
                 tailles[chemin] = nil
             }
+        }
+    }
+
+    /// Copie de l'original sur le disque de sauvegarde, dans un dossier par jour (« 2026-11-29 »).
+    private func sauvegarder(_ source: URL, nom: String, dans racine: URL) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: racine.path) else {
+            file.sync { alerteSauvegarde = "Disque de sauvegarde absent (\(racine.path)) : les originaux ne sont pas sauvegardés." }
+            return
+        }
+        let j = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        let dossier = racine.appendingPathComponent(String(format: "%04d-%02d-%02d", j.year ?? 0, j.month ?? 0, j.day ?? 0),
+                                                    isDirectory: true)
+        do {
+            try fm.createDirectory(at: dossier, withIntermediateDirectories: true)
+            let cible = dossier.appendingPathComponent(nom)
+            if !fm.fileExists(atPath: cible.path) { try fm.copyItem(at: source, to: cible) }
+            file.sync { alerteSauvegarde = "" }
+        } catch {
+            file.sync { alerteSauvegarde = "Sauvegarde impossible sur le 2e disque : \(error.localizedDescription)" }
         }
     }
 
@@ -676,12 +831,13 @@ public final class Moteur: ObservableObject {
     }
 
     /// Mots-clés IPTC : cavalier, cheval, épreuve, et CHUTE si HUGO l'a marquée.
+    /// Mots-clés écrits dans l'original : cavalier et cheval seulement, comme « modif mots cles v3.py » (HUGO 24/11 :
+    /// pas le nom de l'épreuve), plus CHUTE si besoin.
     static func motsCles(_ f: FichePhoto, code: CodePassage?, config c: ConfigMoteur) -> [String] {
         var m: [String] = []
         if let code, let couple = c.concours?.couple(pour: code) {
-            m += [couple.cavalier, couple.cheval].filter { !$0.isEmpty }
+            m += couple.motsCles
         }
-        if let code, let ep = c.concours?.epreuve(numero: code.epreuve) { m.append("Épreuve \(ep.nomDossier)") }
         if f.chute { m.append("CHUTE") }
         return m
     }
@@ -727,7 +883,8 @@ public final class Moteur: ObservableObject {
         var r = ResumeMoteur()
         let compte = j.compter(depuis: debutJournee)
         r.recues = compte.values.reduce(0, +)
-        r.parMinute = Double(j.terminees(depuis: maintenant.addingTimeInterval(-300))) / 5
+        // « en ce moment » : les 2 dernières minutes (sur 5 minutes, le chiffre restait affiché longtemps après la rafale)
+        r.parMinute = Double(j.terminees(depuis: maintenant.addingTimeInterval(-120))) / 2
         r.enFile = vuesEnAttente.count
         r.retardSecondes = vuesEnAttente.values.min().map { maintenant.timeIntervalSince($0) } ?? 0
         // à renvoyer : tant que le fichier abîmé est encore dans « _À renvoyer » (HUGO le supprime une fois renvoyé)
@@ -754,6 +911,8 @@ public final class Moteur: ObservableObject {
         r.chargeLightroom = charge
         r.ouvriers = ouvriers.maxConcurrentOperationCount
         r.message = message
+        r.versionJournal = j.version
+        r.enPause = pause
 
         // Étape 2 : séries à valider, photos de code, chrono, _00, courbe.
         r.enAttenteChrono = enAttenteChrono.count
@@ -805,8 +964,35 @@ public final class Moteur: ObservableObject {
                                              preselection: coches)
         }
         r.series = ordre.compactMap { series[$0] }
+        // Rush automatique : trop de photos attendent, tout part avec le code du photographe (à reprendre au calme).
+        let enAttenteChronoSeries = r.series.reduce(0) { $0 + ($1.genre == .chrono ? $1.photos.count : 0) }
+        if let c = config, c.rushAuto > 0, enAttenteChronoSeries >= c.rushAuto {
+            rushSurFile(qui: "rush automatique")
+            r.series.removeAll { $0.genre == .chrono }
+        }
+        // Envoyées en rush : la proposition du chrono reste à reprendre, série par série, quand c'est calme.
+        var rushs: [SerieAValider] = []
+        var prec: FichePhoto?
+        for f in j.fiches(drapeau: Moteur.aReprendre).sorted(by: { ($0.boitier, $0.prise ?? $0.recue) < ($1.boitier, $1.prise ?? $1.recue) }) {
+            let meme = prec.map { p in
+                p.boitier == f.boitier && p.code == f.code && p.proposition == f.proposition
+                    && (f.prise ?? f.recue).timeIntervalSince(p.prise ?? p.recue) < 60
+            } ?? false
+            if meme, !rushs.isEmpty {
+                rushs[rushs.count - 1].photos.append(f)
+                rushs[rushs.count - 1].preselection.insert(f.id)
+                let confiance = rushs[rushs.count - 1].confiance
+                rushs[rushs.count - 1].confiance = min(confiance, f.confiance)
+            } else {
+                rushs.append(SerieAValider(id: "rush-\(f.id)", genre: .rush, boitier: f.boitier, photos: [f], photoCode: nil,
+                                           code: f.code, proposition: f.proposition, raison: f.raison,
+                                           confiance: f.confiance, preselection: [f.id]))
+            }
+            prec = f
+        }
+        r.series += rushs
         if let ch = chrono {
-            r.chrono = EtatChrono(ok: ch.ok, erreur: ch.erreur, vu: ch.vu, passages: ch.passages.count)
+            r.chrono = EtatChrono(ok: ch.ok, erreur: ch.erreur, vu: ch.vu, passages: ch.passages.count, liens: ch.etats)
             let ps = ch.passages
             var parPiste: [String: Passage] = [:]
             for p in ps where (parPiste[p.source]?.debut ?? -1) < p.debut { parPiste[p.source] = p }
@@ -817,7 +1003,7 @@ public final class Moteur: ObservableObject {
         }
         if maintenant.timeIntervalSince(dernierCalcul) >= 10 {
             dernierCalcul = maintenant
-            cache00 = j.fiches00(depuis: debutJournee)
+            cache00 = j.fiches00(depuis: debutJournee).filter { !$0.a(Moteur.garde00) }
             let derniere = j.dernieres(30).compactMap { CodePassage.lire($0.codeRetenu) }.first { $0.special == nil }
             if let e = derniere?.epreuve { cacheCourbe = (e, j.photosParCode(epreuve: e, depuis: debutJournee).map { CodeCompte(code: $0.code, photos: $0.photos) }) }
         }
@@ -841,6 +1027,7 @@ public final class Moteur: ObservableObject {
                 r.alertes.append("\(b.nom) : pas de photo de synchro (heure du boîtier non vérifiée).")
             }
         }
+        if !alerteSauvegarde.isEmpty { r.alertes.append(alerteSauvegarde) }
         if let g = r.galerie, g.ok == false { r.alertes.append(g.message) }
         if let g = r.galerieEnLigne, g.ok == false { r.alertes.append(g.message) }
         DispatchQueue.main.async { self.resume = r }
@@ -1067,20 +1254,18 @@ public final class Moteur: ObservableObject {
             }
             do {
                 guard let infos = TraitementPhoto.infos(nouvelle) else { throw TraitementPhoto.Erreur.illisible(nouvelle.lastPathComponent) }
-                let code = CodePassage.lire(infos.copyright)
-                if !premiere.copie.isEmpty {
+                // La photo garde le code de la première : celui validé par HUGO s'il y en a un, sinon celui du boîtier.
+                let code = CodePassage.lire(premiere.codeFinal) ?? CodePassage.lire(premiere.code) ?? CodePassage.lire(infos.copyright)
+                if !premiere.copie.isEmpty, fm.fileExists(atPath: c.serveur.path) {
                     try TraitementPhoto.fabriquerCopie(de: nouvelle, vers: URL(fileURLWithPath: premiere.copie), cote: c.cote,
                                                        qualite: c.qualite, cube: c.cube,
                                                        copyright: code?.texte ?? infos.copyright, priseEXIF: infos.priseEXIF)
                 }
-                var motsCles: [String] = []
-                if let code, let couple = c.concours?.couple(pour: code) {
-                    motsCles += [couple.cavalier, couple.cheval].filter { !$0.isEmpty }
-                }
-                if let code, let ep = c.concours?.epreuve(numero: code.epreuve) { motsCles.append("Épreuve \(ep.nomDossier)") }
                 // la nouvelle version est d'abord écrite à côté, puis l'ancienne part à la corbeille
                 let provisoire = cible.deletingLastPathComponent().appendingPathComponent(".remplacement-\(cible.lastPathComponent)")
-                try TraitementPhoto.copierAvecIPTC(de: nouvelle, vers: provisoire, motsCles: motsCles, codeOrigine: code?.texte ?? "")
+                try TraitementPhoto.copierAvecIPTC(de: nouvelle, vers: provisoire, motsCles: Moteur.motsCles(premiere, code: code, config: c),
+                                                   codeOrigine: premiere.code.isEmpty ? (CodePassage.lire(infos.copyright)?.texte ?? "") : premiere.code,
+                                                   copyright: premiere.codeFinal.isEmpty ? nil : premiere.codeFinal)
                 try fm.trashItem(at: cible, resultingItemURL: nil)
                 try fm.moveItem(at: provisoire, to: cible)
                 try fm.removeItem(at: nouvelle)
@@ -1100,11 +1285,11 @@ public final class Moteur: ObservableObject {
 
     // MARK: - Capture Horse & Comp
 
-    /// Les passages lus sur la page d'incrustation de Horses & Competitions (capture), envoyés par l'app.
-    public func passagesExternes(_ passages: [Passage], erreur: String = "") {
+    /// Les passages lus sur une page d'incrustation de Horses & Competitions (capture), envoyés par l'app.
+    /// `lien` : l'identifiant du chrono Horse & Comp dans les réglages (vide : le seul chrono Horse & Comp).
+    public func passagesExternes(lien: String = "", _ passages: [Passage], erreur: String = "") {
         file.async { [weak self] in
-            guard let ch = self?.chrono, ch.config.externe else { return }
-            ch.recevoir(passages, erreur: erreur)
+            self?.chrono?.recevoir(lien: lien, passages, erreur: erreur)
         }
     }
 
@@ -1126,6 +1311,7 @@ public final class Moteur: ObservableObject {
         for id in ids {
             guard var f = j.fiche(id: id) else { continue }
             if enCours.contains(f.chemin) { plusTard.append(id); continue }    // en plein traitement : juste après
+            if f.a(Moteur.aReprendre) { f.retirer(Moteur.aReprendre); j.mettreAJour(f) }   // repris au calme
             switch f.etat {
             case .aValider, .recue, .erreur:
                 f.codeFinal = code.texte
@@ -1156,7 +1342,14 @@ public final class Moteur: ObservableObject {
         file.async { [weak self] in
             guard let self, let c = self.config, let j = self.journal else { return }
             for id in ids {
-                guard var f = j.fiche(id: id), f.etat == .aValider else { continue }
+                guard var f = j.fiche(id: id) else { continue }
+                if f.etat != .aValider, f.a(Moteur.aReprendre) {        // envoyée en rush : le code du photographe reste
+                    f.retirer(Moteur.aReprendre)
+                    f.noter("HUGO", "repris au calme : \(f.code.isEmpty ? "sans code" : f.code) gardé")
+                    j.mettreAJour(f)
+                    continue
+                }
+                guard f.etat == .aValider else { continue }
                 f.marquer(Moteur.codeGarde)
                 f.noter("HUGO", "proposition \(f.proposition) refusée, \(f.code.isEmpty ? "sans code" : f.code) gardé")
                 f.serie = ""
@@ -1165,6 +1358,128 @@ public final class Moteur: ObservableObject {
                 j.mettreAJour(f)
             }
         }
+    }
+
+    /// Bouton Pause / Reprendre. En pause, le tri ne prend plus de nouvelle photo : rien ne part vers le serveur,
+    /// Lightroom ni la galerie en ligne, les photos attendent dans la réception (la file d'attente le montre).
+    /// Les photos déjà en cours finissent proprement. « Reprendre » : tout repart, dans l'ordre.
+    public func mettreEnPause(_ p: Bool) {
+        file.async { [weak self] in
+            guard let self else { return }
+            self.pause = p
+            self.enLigne?.mettreEnPause(p)
+            self.message = p ? "En pause : plus rien ne part. Les photos attendent dans la réception." : "Reprise : les photos repartent."
+            if let j = self.journal { self.publier(journal: j, maintenant: Date()) }
+        }
+    }
+
+    // MARK: - Supprimer depuis l'app
+
+    static let supprimeeApp = "Supprimée depuis l'app"
+
+    /// Supprimer des photos depuis l'app : la copie est retirée du serveur local (la galerie en ligne suit), et
+    /// l'original part à la Corbeille du Mac. Lightroom ne peut pas être piloté de l'extérieur : il montre la photo
+    /// « manquante » ; clic droit sur le dossier › Synchroniser le dossier la retire du catalogue.
+    /// Tout est annulable : `annulerSuppression` remet l'original à sa place et refait la copie.
+    public func supprimer(_ ids: [Int64]) {
+        file.async { [weak self] in
+            guard let self, let c = self.config, let j = self.journal else { return }
+            var n = 0
+            for id in ids {
+                guard var f = j.fiche(id: id), [.copiee, .tampon, .envoyee].contains(f.etat) else { continue }
+                if !f.copie.isEmpty {
+                    try? FileManager.default.removeItem(atPath: f.copie)
+                    self.galerie?.copieFaite(dans: URL(fileURLWithPath: f.copie).deletingLastPathComponent(), nouveau: false)
+                }
+                var place = ""
+                if let original = Moteur.trouverOriginal(f, travail: c.travailLightroom) {
+                    var corbeille: NSURL?
+                    if (try? FileManager.default.trashItem(at: original, resultingItemURL: &corbeille)) != nil {
+                        place = original.path
+                        f.chemin = (corbeille as URL?)?.path ?? f.chemin
+                    }
+                }
+                f.raison = place                 // où remettre l'original si HUGO annule
+                f.etat = .retiree
+                f.marquer(Moteur.supprimeeApp)
+                f.noter("HUGO", place.isEmpty ? "supprimée depuis l'app : copie retirée du serveur (original introuvable)"
+                                              : "supprimée depuis l'app : copie retirée du serveur, original à la Corbeille")
+                j.mettreAJour(f)
+                n += 1
+            }
+            if n > 0 {
+                self.message = "\(n) photo\(n > 1 ? "s" : "") supprimée\(n > 1 ? "s" : "") : retirée\(n > 1 ? "s" : "") du serveur, original à la Corbeille. Dans Lightroom : clic droit sur le dossier › Synchroniser le dossier."
+                self.dernierEnLigne = .distantPast       // la galerie en ligne suit tout de suite
+            }
+        }
+    }
+
+    /// Annule une suppression faite depuis l'app : l'original revient à sa place, la copie du serveur est refaite.
+    public func annulerSuppression(_ ids: [Int64]) {
+        file.async { [weak self] in
+            guard let self, let c = self.config, let j = self.journal else { return }
+            for id in ids {
+                guard var f = j.fiche(id: id), f.etat == .retiree, f.a(Moteur.supprimeeApp) else { continue }
+                let fm = FileManager.default
+                if !f.raison.isEmpty, fm.fileExists(atPath: f.chemin), !fm.fileExists(atPath: f.raison) {
+                    try? fm.createDirectory(at: URL(fileURLWithPath: f.raison).deletingLastPathComponent(), withIntermediateDirectories: true)
+                    if (try? fm.moveItem(atPath: f.chemin, toPath: f.raison)) != nil { f.chemin = f.raison }
+                }
+                guard fm.fileExists(atPath: f.chemin) else {
+                    self.message = "Annulation impossible : \(f.nom) n'est plus dans la Corbeille."
+                    continue
+                }
+                let original = URL(fileURLWithPath: f.chemin)
+                let code = CodePassage.lire(f.codeRetenu)
+                let copie = Moteur.dossierServeur(pour: code, config: c).appendingPathComponent(f.nom)
+                if fm.fileExists(atPath: c.serveur.path), let infos = TraitementPhoto.infos(original) {
+                    let neuf = !fm.fileExists(atPath: copie.deletingLastPathComponent().path)
+                    try? TraitementPhoto.fabriquerCopie(de: original, vers: copie, cote: c.cote, qualite: c.qualite, cube: c.cube,
+                                                        copyright: code?.texte ?? infos.copyright, priseEXIF: infos.priseEXIF)
+                    self.galerie?.copieFaite(dans: copie.deletingLastPathComponent(), nouveau: neuf)
+                    f.copie = copie.path
+                }
+                f.retirer(Moteur.supprimeeApp)
+                f.raison = ""
+                // Remise dans le dossier tampon : elle y attend son lot (sinon elle n'irait jamais à Lightroom).
+                let dansTampon = c.tampon.map { f.chemin.hasPrefix($0.standardizedFileURL.path + "/") } ?? false
+                f.etat = dansTampon ? .tampon : .envoyee
+                f.noter("HUGO", "suppression annulée : original remis, copie du serveur refaite")
+                j.mettreAJour(f)
+            }
+            self.dernierEnLigne = .distantPast
+        }
+    }
+
+    /// Les fiches de ces photos (revue d'une série validée), dans l'ordre de prise de vue.
+    public func fiches(ids: [Int64]) -> [FichePhoto] {
+        file.sync { ids.compactMap { journal?.fiche(id: $0) } }
+            .filter { [.copiee, .tampon, .envoyee, .recue].contains($0.etat) }
+            .sorted { ($0.prise ?? $0.recue) < ($1.prise ?? $1.recue) }
+    }
+
+    /// Rush : toutes les photos « À valider » partent tout de suite avec le code du photographe. La proposition du
+    /// chrono est gardée : elles restent dans « À valider », rubrique « À reprendre au calme », pour corriger plus tard
+    /// (la copie du serveur et les métadonnées de l'original sont alors refaites, comme dans la revue).
+    public func rushToutEnvoyer() {
+        file.async { [weak self] in self?.rushSurFile(qui: "HUGO (rush)") }
+    }
+
+    private func rushSurFile(qui: String) {
+        guard let c = config, let j = journal else { return }
+        var n = 0
+        for var f in j.fiches(etat: .aValider, limite: 5000) {
+            f.marquer(Moteur.codeGarde)
+            if !f.proposition.isEmpty { f.marquer(Moteur.aReprendre) }
+            f.noter(qui, "envoyée avec \(f.code.isEmpty ? "sans code" : f.code), proposition \(f.proposition) à reprendre")
+            f.serie = ""
+            remettreEnReception(&f, config: c)
+            f.etat = .recue
+            j.mettreAJour(f)
+            reessayerApres[f.chemin] = nil
+            n += 1
+        }
+        if n > 0 { message = "Rush : \(n) photo\(n > 1 ? "s" : "") envoyée\(n > 1 ? "s" : "") avec le code du photographe, à reprendre au calme." }
     }
 
     /// Photo de code utilisée : son code est appliqué aux photos choisies, et elle sort de « À valider ».
@@ -1209,6 +1524,24 @@ public final class Moteur: ObservableObject {
             guard let j = self?.journal, var f = j.fiche(id: id) else { return }
             f.classe = f.classe == classe ? "" : classe
             j.mettreAJour(f)
+        }
+    }
+
+    static let garde00 = "garde00"
+
+    /// « OK, on garde comme ça » (HUGO 26/11) : ces photos restent en _00 (ou sans code) et quittent la liste des _00.
+    /// Rien n'est déplacé ni effacé. `garder00(ids, false)` les remet dans la liste.
+    public func garder00(_ ids: [Int64], _ garder: Bool = true) {
+        file.async { [weak self] in
+            guard let self, let j = self.journal else { return }
+            for id in ids {
+                guard var f = j.fiche(id: id) else { continue }
+                if garder { f.marquer(Moteur.garde00); f.noter("HUGO", "gardée en \(f.codeRetenu.isEmpty ? "sans code" : f.codeRetenu)") }
+                else { f.retirer(Moteur.garde00) }
+                j.mettreAJour(f)
+            }
+            self.cache00 = j.fiches00(depuis: self.debutJournee).filter { !$0.a(Moteur.garde00) }
+            self.publier(journal: j, maintenant: Date())
         }
     }
 
@@ -1259,6 +1592,11 @@ public final class Moteur: ObservableObject {
         guard var f = file.sync(execute: { journal?.fiche(id: id) }) else { return }
         guard let original = Moteur.trouverOriginal(f, travail: travail) else {
             file.sync { message = "Recodage impossible : l'original de \(f.nom) est introuvable." }
+            return
+        }
+        guard FileManager.default.fileExists(atPath: c.serveur.path) else {
+            // serveur débranché : surtout ne pas recréer son dossier en local (il cacherait le vrai au retour)
+            file.sync { message = "Recodage de \(f.nom) impossible : serveur local introuvable (\(c.serveur.path))." }
             return
         }
         do {
