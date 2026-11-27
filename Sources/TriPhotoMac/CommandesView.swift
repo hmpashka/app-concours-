@@ -326,7 +326,11 @@ struct CommandesView: View {
         let l = commandesPretes
         for k in l { archives.enregistrer(k) }
         message = l.count > 1 ? "\(l.count) commandes enregistrées." : "Commande de \(l.first?.client ?? "") enregistrée."
-        // prêt pour le client suivant
+        viderSaisie()   // prêt pour le client suivant
+    }
+
+    /// Repart d'une commande vide (après un enregistrement ou sur « Nouvelle commande »).
+    private func viderSaisie() {
         cavaliers = []; chevaux = []; concoursChoisi = [:]; remiseMain = [:]; prixMain = [:]
         infos = Commande(concours: "", nomConcours: "", nom: "", prenom: "", lignes: [], prix: 0)
         recherche = ""; trouves = []
@@ -358,7 +362,7 @@ struct CommandesView: View {
 
     private var gauche: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button { ouverte = nil; etape = 1 } label: {
+            Button { ouverte = nil; viderSaisie() } label: {
                 Label("Nouvelle commande", systemImage: "plus").font(.system(size: 13, weight: .semibold))
                     .frame(maxWidth: .infinity).padding(.vertical, 8)
                     .background(Theme.accent.opacity(ouverte == nil ? 1 : 0.6), in: RoundedRectangle(cornerRadius: 6))
