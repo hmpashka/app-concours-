@@ -25,7 +25,7 @@ final class SuiviEcran: ObservableObject {
 
     func demarrer(nom: String, piste: String, direct: DirectPiste?) async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
-            message = "Active « Activités en direct » dans Réglages › Groom Pix Piste."
+            message = "Active « Activités en direct » dans Réglages › Groom Pix."
             return
         }
         await arreter()

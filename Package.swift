@@ -8,7 +8,7 @@
 // - essai-extreme : essais extrêmes du moteur (rafale, photos abîmées, serveur débranché, plantage…).
 // - essai-bureau   : essai de l'onglet « Au bureau » (index des archives) sur un vrai dossier, sans rien y écrire.
 // - essai-piste    : fait comme un iPhone de l'app Piste, pour essayer le lien avec le Mac sans iPhone.
-// - iPhone/ : l'app iPhone Groom Pix Piste + son widget d'écran verrouillé (projet Xcode fait par XcodeGen, voir iPhone/project.yml).
+// - iPhone/ : l'app iPhone Groom Pix + son widget d'écran verrouillé (projet Xcode fait par XcodeGen, voir iPhone/project.yml).
 //
 // Construire l'app : ./scripts/construire-app.sh   (fabrique « Tri-photo.app » dans le dossier « build »)
 // Lancer les tests : swift test

@@ -168,11 +168,17 @@ final class Liaison: ObservableObject {
 
     /// Jetons du service d'Apple (bulles, écran verrouillé) à donner au Mac.
     private var jetons: [String: String] = [:]
-    #if DEBUG
-    static let production = false        // app installée depuis le Mac : serveur d'essai d'Apple
-    #else
-    static let production = true         // TestFlight / App Store
-    #endif
+    /// Serveur d'Apple à utiliser pour cet iPhone, deviné tout seul :
+    /// app installée depuis le Mac (Xcode) → serveur d'essai ; app reçue par TestFlight ou l'App Store → serveur normal.
+    /// Une app TestFlight / App Store n'a pas de fichier « embedded.mobileprovision » ; une app du Mac en a un
+    /// qui dit « aps-environment = development ».
+    static let production: Bool = {
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let donnees = try? Data(contentsOf: url) else { return true }
+        let texte = String(decoding: donnees, as: UTF8.self)
+        guard let r = texte.range(of: "<key>aps-environment</key>") else { return false }
+        return texte[r.upperBound...].prefix(80).contains("production")
+    }()
 
     func envoyerJeton(_ sorte: String, _ valeur: String) {
         if sorte == "fin" { jetons["activite"] = nil } else { jetons[sorte] = valeur }
