@@ -19,6 +19,8 @@ struct MemoireView: View {
     @State private var travail = false
     @State private var enGrand: DepartVisionneuse?
     @State private var gros = 0                           // exemples trop gros (photos entières au lieu de vignettes)
+    @State private var reglage = ReglageCategorie()       // action sur le concours, détection, jauge (HUGO 28/11)
+    @State private var nouvelleSupprime = false
 
     private var memoire: Memoire { etat.memoire }
 
@@ -34,8 +36,8 @@ struct MemoireView: View {
                 panneauDroit.frame(width: 290).background(Theme.panneau).repere("memoire.droite")
             }
         }
-        .onAppear { memoire.creer(); charger() }
-        .onChange(of: choisie) { _ in selection = []; chargerExemples(); Visite.partagee.signaler("memoire.categorie") }
+        .onAppear { memoire.creer(); charger(); lireReglage() }
+        .onChange(of: choisie) { _ in selection = []; chargerExemples(); lireReglage(); Visite.partagee.signaler("memoire.categorie") }
         .onChange(of: etat.reglages.dossierMemoire) { _ in charger() }
         .sheet(item: $enGrand) { d in
             Visionneuse(elements: exemples.map { ElementVisionneuse(id: $0.id, chemins: [$0.url.path], titre: Memoire.nom(de: $0.categorie), detail: $0.nom) },
@@ -95,6 +97,11 @@ struct MemoireView: View {
             }
             if creer {
                 TextField("Nom de la catégorie", text: $nouvelle).textFieldStyle(.roundedBorder).onSubmit(creerCategorie)
+                Picker("Sur le concours", selection: $nouvelleSupprime) {
+                    Text("Garder la photo").tag(false)
+                    Text("Supprimer du concours").tag(true)
+                }
+                .font(.system(size: 12))
                 HStack {
                     Button("Créer", action: creerCategorie).buttonStyle(BoutonStyle(principal: true))
                         .disabled(nouvelle.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -139,9 +146,15 @@ struct MemoireView: View {
     }
 
     private func creerCategorie() {
-        if let c = memoire.creerCategorie(nouvelle) { choisie = c }
+        if let c = memoire.creerCategorie(nouvelle) {
+            let s = nouvelleSupprime
+            memoire.changerReglage(c) { $0.supprimer = s }
+            choisie = c
+            lireReglage()
+        }
         creer = false
         nouvelle = ""
+        nouvelleSupprime = false
         charger()
     }
 
@@ -275,9 +288,65 @@ struct MemoireView: View {
 
     // MARK: - Panneau de droite
 
+    private func lireReglage() {
+        let m = memoire, cle = choisie
+        DispatchQueue.global(qos: .userInitiated).async {
+            let r = m.reglage(cle)
+            DispatchQueue.main.async { if cle == choisie { reglage = r } }
+        }
+    }
+
+    private func changer(_ f: @escaping (inout ReglageCategorie) -> Void) {
+        f(&reglage)
+        memoire.changerReglage(choisie, f)
+    }
+
+    /// Ce que fait la catégorie choisie : action sur le concours, détection, jauge, et les chiffres pour la choisir.
+    private var carteReglage: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Catégorie « \(Memoire.nom(de: choisie)) »").font(.system(size: 14, weight: .semibold))
+            Picker("Sur le concours", selection: Binding(get: { reglage.supprimer }, set: { v in changer { $0.supprimer = v } })) {
+                Text("Garder la photo").tag(false)
+                Text("Supprimer du concours").tag(true)
+            }
+            .font(.system(size: 12))
+            Text(reglage.supprimer
+                 ? "Une photo rangée ici (Revue, ou « Bonne détection » dans À valider) entre dans la mémoire puis quitte le concours : serveur, galerie en ligne, original à la Corbeille. ⌘Z la remet."
+                 : "Une photo rangée ici entre dans la mémoire et reste dans le concours.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            Toggle("Sert à la détection", isOn: Binding(get: { reglage.detection }, set: { v in changer { $0.detection = v } }))
+                .font(.system(size: 12))
+            Text("Non : les exemples sont gardés dans la mémoire mais ne servent pas à reconnaître les photos.")
+                .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            if reglage.supprimer {
+                Toggle("Action toute seule au-dessus de la jauge",
+                       isOn: Binding(get: { reglage.jauge > 0 }, set: { v in changer { $0.jauge = v ? max($0.jauge, 95) : 0 } }))
+                    .font(.system(size: 12))
+                if reglage.jauge > 0 {
+                    HStack {
+                        Slider(value: Binding(get: { Double(reglage.jauge) }, set: { v in changer { $0.jauge = Int(v) } }),
+                               in: 60...100, step: 5)
+                        Text("\(reglage.jauge) %").font(.system(size: 12, design: .monospaced)).frame(width: 44)
+                    }
+                    Text("Détectée à \(reglage.jauge) % ou plus : supprimée sans passer par À valider (elle reste visible dans « Supprimées toutes seules » pour la remettre).")
+                        .font(.system(size: 11)).foregroundStyle(Theme.attention)
+                } else {
+                    Text("Coupé : chaque détection attend ta décision dans À valider.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+                }
+            }
+            let t = reglage.validees + reglage.fausses
+            Text(t == 0 ? "Pas encore de détection décidée."
+                 : "Détections décidées : \(reglage.validees) justes, \(reglage.fausses) fausses (\(reglage.justes ?? 0) % justes).")
+                .font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
+        }
+    }
+
     private var panneauDroit: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
+                carteReglage
+                Divider().overlay(Theme.bordure)
                 Text("Détections").font(.system(size: 14, weight: .semibold))
                 let d = moteur.resume.detections
                 if !moteur.actif {
@@ -296,9 +365,10 @@ struct MemoireView: View {
                 Text("Comment ça marche").font(.system(size: 13, weight: .semibold))
                 Text("""
                 Chaque photo est comparée aux exemples de la mémoire : les 7 plus ressemblants votent. \
-                La mémoire ne fait que proposer : la Revue montre « Mémoire : floue (82 %) », rien n'est changé tout seul.
+                La mémoire propose : la Revue montre « Mémoire : floue (82 %) ». Une photo soupçonnée d'une catégorie \
+                qui supprime attend ta décision dans À valider (sauf si sa jauge est réglée).
 
-                Catégories de scène (une seule par photo) : bonne, floue, sol, photo de code. \
+                Catégories de scène (une seule par photo) : bonne, floue, sol, ratée, photo de code. \
                 En plus : chute, meilleures, réseaux sociaux, et celles que tu crées.
 
                 Une erreur de la mémoire se corrige en retirant ou en déplaçant l'exemple qui la trompe.

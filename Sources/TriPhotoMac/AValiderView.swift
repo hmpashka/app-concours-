@@ -47,6 +47,7 @@ struct AValiderView: View {
                                 .font(.system(size: 13)).foregroundStyle(Theme.texteDiscret)
                         }
                     }
+                    ADeciderView(moteur: moteur)
                     carte00
                     carteValidees
                 }

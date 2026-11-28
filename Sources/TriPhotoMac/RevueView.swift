@@ -40,6 +40,7 @@ struct RevueView: View {
 
     private enum Retour {                                 // un geste peut toucher plusieurs photos (galerie)
         case suppression([FichePhoto])
+        case classee([(FichePhoto, String)])             // rangée dans une catégorie qui supprime (fiche d'avant, catégorie)
         case retrait([FichePhoto], String)               // retirées des bonnes : drapeau posé
     }
 
@@ -89,7 +90,8 @@ struct RevueView: View {
         var touche: Character
     }
     private let classes = [Classe(cle: "bonne", nom: "Bonne", touche: "b"), Classe(cle: "floue", nom: "Floue", touche: "f"),
-                           Classe(cle: "sol", nom: "Sol", touche: "s"), Classe(cle: "code", nom: "Code", touche: "c")]
+                           Classe(cle: "sol", nom: "Sol", touche: "s"), Classe(cle: "ratee", nom: "Ratée", touche: "t"),
+                           Classe(cle: "code", nom: "Code", touche: "c")]
 
     private var courante: FichePhoto? { photos.indices.contains(index) ? photos[index] : nil }
 
@@ -288,13 +290,13 @@ struct RevueView: View {
     /// La mémoire voit-elle autre chose que le classement actuel (flou, sol, code, chute pas marquée) ?
     static func memoireDoute(_ f: FichePhoto) -> Bool {
         let l = f.detection.split(separator: "|").map(String.init)
-        if let s = l.first, ["floue", "sol", "code"].contains(s), f.classe.isEmpty { return true }
+        if let s = l.first, ["floue", "sol", "ratee", "code"].contains(s), f.classe.isEmpty { return true }
         return l.contains("chute") && !f.chute
     }
 
     /// Note « réseaux sociaux » : ressemblance aux meilleures de la mémoire, marques de HUGO, netteté.
     static func noteBelle(_ f: FichePhoto, netteteMax: Double) -> Double {
-        let mauvaises: Set<String> = ["floue", "sol", "code"]
+        let mauvaises: Set<String> = ["floue", "sol", "ratee", "code"]
         if f.a("pasBelle") { return -1 }
         if mauvaises.contains(f.classe) || mauvaises.contains(String(f.detection.split(separator: "|").first ?? "")) { return -1 }
         var n = 0.6 * max(f.belle, 0) + 0.4 * (netteteMax > 0 ? min(f.nettete / netteteMax, 1) : 0)
@@ -321,7 +323,7 @@ struct RevueView: View {
     /// (même ordre que `aTraiter`).
     static func categorie(_ f: FichePhoto) -> String {
         if !f.classe.isEmpty { return f.classe }
-        if let d = f.detection.split(separator: "|").first.map(String.init), ["sol", "floue", "code"].contains(d) { return d }
+        if let d = f.detection.split(separator: "|").first.map(String.init), ["sol", "floue", "ratee", "code"].contains(d) { return d }
         return f.scene
     }
     static func estSol(_ f: FichePhoto) -> Bool { categorie(f) == "sol" }
@@ -337,7 +339,7 @@ struct RevueView: View {
             for i in t.indices.dropFirst() where estSol(t[i]) {
                 let avant = t[i - 1]
                 guard t[i].prise!.timeIntervalSince(avant.prise!) <= 120,
-                      !["sol", "code", "bonne"].contains(categorie(avant)) else { continue }
+                      !["sol", "code", "bonne", "ratee"].contains(categorie(avant)) else { continue }
                 r[avant.id] = t[i].id
             }
         }
@@ -369,7 +371,7 @@ struct RevueView: View {
     /// mémoire, sinon l'analyse rapide (comme la v00 : scène vide, ou nettement moins nette que sa rafale).
     /// Une photo classée « bonne » par HUGO n'est jamais à traiter.
     static func aTraiter(_ l: [FichePhoto]) -> [Int64: String] {
-        let mauvaises: Set<String> = ["sol", "floue", "code"]
+        let mauvaises: Set<String> = ["sol", "floue", "ratee", "code"]
         var r: [Int64: String] = [:]
         var floues: Set<Int64> = []
         for (_, liste) in Dictionary(grouping: l.filter { $0.prise != nil && $0.nettete > 0 }, by: \.boitier) {
@@ -598,7 +600,7 @@ struct RevueView: View {
                     }
                 } else if courante != nil {
                     Text("Photo \(index + 1) sur \(photos.count)").font(.system(size: 13, weight: .semibold)).fixedSize()
-                    aide(["← → avancer · B F S C classer · X chute · M meilleure · R réseaux · G galerie · P plein écran · Échap galerie",
+                    aide(["← → avancer · B F S T C classer · X chute · M meilleure · R réseaux · G galerie · P plein écran · Échap galerie",
                           "← → avancer · lettre : classer · G galerie · P plein écran",
                           "← → · G · P"])
                 }
@@ -928,6 +930,12 @@ struct RevueView: View {
         let l = cibles
         guard !l.isEmpty else { return }
         let retirer = l.allSatisfy { photos[$0].classe == cle }
+        // Catégorie qui « supprime du concours » (Floue, Sol, Ratée… réglage de l'onglet Mémoire, HUGO 28/11) :
+        // la photo entre dans la mémoire puis quitte le concours. ⌘Z remet tout.
+        if !retirer, suppressionPermise, etat.memoire.reglage(cle).supprimer {
+            rangerEtSupprimer(l.map { (photos[$0], cle) })
+            return
+        }
         let devient = retirer ? "" : cle
         corrections.insert(resume(l, "→ \(retirer ? "sans classe" : cle)"), at: 0)
         for i in l {
@@ -1035,15 +1043,30 @@ struct RevueView: View {
         supprimerPaires([(duo.ratee, duo.sol)])
     }
 
+    /// La ratée va dans « Ratée », la photo du sol dans « Sol » (mémoire), puis les deux quittent le concours.
     private func supprimerPaires(_ l: [(FichePhoto, FichePhoto)]) {
-        guard suppressionPermise, !l.isEmpty, !Visite.partagee.bloque("rien n'est supprimé") else { return }
-        let fiches = l.flatMap { [$0.0, $0.1] }
-        let ids = Set(fiches.map(\.id))
+        guard suppressionPermise, !l.isEmpty else { return }
+        rangerEtSupprimer(l.flatMap { [($0.0, "ratee"), ($0.1, "sol")] },
+                          texte: l.count == 1 ? "\(l[0].0.origine) (ratée) et \(l[0].1.origine) (sol) : dans la mémoire, supprimées"
+                                              : "\(l.count) photos ratées et leur photo du sol : dans la mémoire, supprimées")
+    }
+
+    /// Range chaque photo dans sa catégorie (classement + vignette dans la mémoire), puis, une fois les vignettes
+    /// faites, supprime les photos du concours (serveur, galerie en ligne, original à la Corbeille).
+    private func rangerEtSupprimer(_ l: [(FichePhoto, String)], texte: String? = nil) {
+        guard !l.isEmpty, !Visite.partagee.bloque("rien n'est supprimé") else { return }
+        let ids = Set(l.map { $0.0.id })
         let premier = photos.firstIndex { ids.contains($0.id) } ?? index
-        moteur.supprimer(fiches.map(\.id))
-        retours.append(.suppression(fiches))
-        corrections.insert(l.count == 1 ? "\(l[0].0.origine) (ratée) et \(l[0].1.origine) (sol) : supprimées"
-                           : "\(l.count) photos ratées et leur photo du sol : supprimées", at: 0)
+        for (f, cat) in l where f.classe != cat {
+            moteur.classer(f.id, cat)
+            if !f.classe.isEmpty { etat.noterDansLaMemoire(f, categorie: f.classe, ajouter: false) }
+        }
+        let m = moteur
+        etat.noterDansLaMemoire(l) { m.supprimer(l.map { $0.0.id }) }
+        retours.append(.classee(l))
+        let cats = Set(l.map { $0.1 }).map { Memoire.nom(de: $0) }.sorted().joined(separator: ", ")
+        corrections.insert(texte ?? (l.count == 1 ? "\(l[0].0.origine) → \(cats) : supprimée du concours"
+                                                   : "\(l.count) photos → \(cats) : supprimées du concours"), at: 0)
         photos.removeAll { ids.contains($0.id) }
         for id in ids { paires[id] = nil }
         choix = []
@@ -1061,6 +1084,16 @@ struct RevueView: View {
         guard let r = retours.popLast() else { return }
         let fiches: [FichePhoto]
         switch r {
+        case .classee(let l):
+            fiches = l.map { $0.0 }
+            moteur.annulerSuppression(fiches.map(\.id))
+            for (f, cat) in l {
+                etat.noterDansLaMemoire(f, categorie: cat, ajouter: false)
+                if f.classe != cat { moteur.classer(f.id, f.classe.isEmpty ? cat : f.classe) }
+                if !f.classe.isEmpty && f.classe != cat { etat.noterDansLaMemoire(f, categorie: f.classe, ajouter: true) }
+            }
+            corrections.insert(l.count == 1 ? "\(l[0].0.origine) : remise (et retirée de la mémoire)"
+                               : "\(l.count) photos remises (et retirées de la mémoire)", at: 0)
         case .suppression(let l):
             fiches = l
             moteur.annulerSuppression(l.map(\.id))

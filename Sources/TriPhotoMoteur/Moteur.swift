@@ -1431,7 +1431,7 @@ public final class Moteur: ObservableObject {
                 }
                 let original = URL(fileURLWithPath: f.chemin)
                 let code = CodePassage.lire(f.codeRetenu)
-                let copie = Moteur.dossierServeur(pour: code, config: c).appendingPathComponent(f.nom)
+                let copie = Moteur.dossierCopie(f, code: code, config: c).appendingPathComponent(f.nom)
                 if fm.fileExists(atPath: c.serveur.path), let infos = TraitementPhoto.infos(original) {
                     let neuf = !fm.fileExists(atPath: copie.deletingLastPathComponent().path)
                     try? TraitementPhoto.fabriquerCopie(de: original, vers: copie, cote: c.cote, qualite: c.qualite, cube: c.cube,
@@ -1603,7 +1603,7 @@ public final class Moteur: ObservableObject {
             let ancienne = f.copie
             f.codeFinal = code.texte
             if let couple = c.concours?.couple(pour: code) { f.cavalier = couple.cavalier; f.cheval = couple.cheval } else { f.cavalier = ""; f.cheval = "" }
-            let nouvelle = Moteur.dossierServeur(pour: code, config: c).appendingPathComponent(f.nom)
+            let nouvelle = Moteur.dossierCopie(f, code: code, config: c).appendingPathComponent(f.nom)
             let dossierNeuf = !FileManager.default.fileExists(atPath: nouvelle.deletingLastPathComponent().path)
             if let infos = TraitementPhoto.infos(original) {
                 try TraitementPhoto.fabriquerCopie(de: original, vers: nouvelle, cote: c.cote, qualite: c.qualite, cube: c.cube,
@@ -1693,6 +1693,7 @@ extension Moteur {
     /// Les photos à mettre en ligne : celles qui ont une copie sur le serveur local, depuis le début du concours.
     private func photosEnLigne(journal j: Journal, config g: ConfigGalerieEnLigne) -> [PhotoEnLigne] {
         j.fichesEnLigne(depuis: g.depuis).compactMap { f in
+            guard !f.a(Moteur.aDecider) else { return nil }        // en attente de décision : jamais en ligne
             let nom = URL(fileURLWithPath: f.copie).lastPathComponent
             guard !nom.isEmpty else { return nil }
             let photographe = boitiersSynchro[f.boitier]?.photographe ?? ""
@@ -1891,11 +1892,11 @@ extension Moteur {
         }
         guard let r = reconnaissance else { return }
         let travail = c.travailLightroom
-        detections.addOperation { [weak self] in self?.detecter(lot, reconnaissance: r, travail: travail) }
+        detections.addOperation { [weak self] in self?.detecter(lot, reconnaissance: r, travail: travail, memoire: m) }
     }
 
     /// Tourne sur la file des détections (priorité la plus basse). Ne fait que noter des propositions.
-    private func detecter(_ lot: [FichePhoto], reconnaissance r: Reconnaissance, travail: URL?) {
+    private func detecter(_ lot: [FichePhoto], reconnaissance r: Reconnaissance, travail: URL?, memoire m: Memoire) {
         let avant = r.prete
         r.actualiser()
         let prete = r.prete
@@ -1922,6 +1923,7 @@ extension Moteur {
             }
             let id = f.id, t = texte, conf = res.confiance, belle = res.belle, vis = visage
             file.sync { journal?.noterDetection(id: id, detection: t, confiance: conf, belle: belle, visage: vis) }
+            if prete { signalerDetection(id: id, reconnu: res, memoire: m) }
             vues += 1
         }
         let n = vues
@@ -2040,4 +2042,166 @@ extension Moteur {
 
     /// Photos de remise des prix du concours, pour la clôture.
     public func etatRemisesMaintenant() -> EtatRemises { file.sync { etatRemises } }
+}
+
+// MARK: - Photos à décider (HUGO 28/11)
+
+/// Une photo que la mémoire soupçonne (catégorie dont l'action est « supprimer du concours ») attend la décision de
+/// HUGO : sa copie quitte le dossier de l'épreuve pour « _À décider » sur le serveur (jamais rafraîchi dans la
+/// galerie, jamais mise en ligne). L'original ne bouge pas. Une photo du sol entraîne la photo d'avant du même
+/// boîtier (« ratée »). Au-dessus de la jauge de la catégorie, l'action se fait toute seule (coupée par défaut).
+extension Moteur {
+    public static let aDecider = "aDecider"
+    public static let avantSol = "avantSol"
+    public static let decisionPrise = "decisionPrise"     // HUGO a tranché : plus jamais remise en attente
+    public static let autoSupprimee = "autoSupprimee"     // supprimée par la jauge, à revoir dans « À valider »
+    public static let dossierADecider = "_À décider"
+
+    /// Dossier d'attente d'une photo : « _À décider/<épreuve> » à la racine du serveur.
+    static func dossierAttente(pour code: CodePassage?, config c: ConfigMoteur) -> URL {
+        let normal = dossierServeur(pour: code, config: c).standardizedFileURL.pathComponents
+        let racine = c.serveur.standardizedFileURL.pathComponents
+        var d = c.serveur.appendingPathComponent(dossierADecider, isDirectory: true)
+        for p in normal.dropFirst(racine.count) { d.appendPathComponent(p, isDirectory: true) }
+        return d
+    }
+
+    /// Où doit être la copie de cette photo (attente ou épreuve).
+    static func dossierCopie(_ f: FichePhoto, code: CodePassage?, config c: ConfigMoteur) -> URL {
+        f.a(aDecider) ? dossierAttente(pour: code, config: c) : dossierServeur(pour: code, config: c)
+    }
+
+    /// Les photos qui attendent une décision, dans l'ordre de prise de vue.
+    public func photosADecider() -> [FichePhoto] {
+        file.sync { journal?.fiches(drapeau: Moteur.aDecider) ?? [] }
+            .sorted { ($0.prise ?? $0.recue, $0.id) < ($1.prise ?? $1.recue, $1.id) }
+    }
+
+    /// Les photos supprimées toutes seules par une jauge (pour pouvoir les remettre).
+    public func photosAutoSupprimees() -> [FichePhoto] {
+        file.sync { journal?.fichesRetirees(drapeau: Moteur.autoSupprimee) ?? [] }
+    }
+
+    /// Appelé sur `file` après une détection de la mémoire.
+    fileprivate func apresDetection(id: Int64, reconnu r: Reconnu, memoire m: Memoire) {
+        guard let c = config, let j = journal, var f = j.fiche(id: id) else { return }
+        guard f.classe.isEmpty, !f.a(Moteur.aDecider), !f.a(Moteur.decisionPrise),
+              [.copiee, .tampon, .envoyee].contains(f.etat), !f.copie.isEmpty,
+              CodePassage.lire(f.codeRetenu)?.special != .remiseDesPrix else { return }
+        // la catégorie soupçonnée qui fait quitter le concours (la scène d'abord, puis celles « en plus »)
+        let cles = (r.scene.isEmpty ? [] : [r.scene]) + r.enPlus
+        guard let cle = cles.first(where: { m.reglage($0).supprimer }) else { return }
+        let reg = m.reglage(cle)
+        let confiance = cle == r.scene ? r.confiance : 70
+        // la photo d'avant, quand c'est une photo du sol
+        var avant: FichePhoto?
+        if cle == "sol", let p = f.prise,
+           let a = j.precedentes(boitier: f.boitier, avant: p, n: 1).last,
+           let pa = a.prise, p.timeIntervalSince(pa) <= 120, !["bonne", "code", "sol"].contains(a.classe),
+           !a.a(Moteur.aDecider), !a.a(Moteur.decisionPrise), [.copiee, .tampon, .envoyee].contains(a.etat) {
+            avant = a
+        }
+        if reg.jauge > 0 && confiance >= reg.jauge {
+            f.marquer(Moteur.autoSupprimee); f.noter("Mémoire", "\(Memoire.nom(de: cle)) à \(confiance) % : supprimée toute seule (jauge \(reg.jauge) %)")
+            j.mettreAJour(f)
+            var ids = [f.id]
+            if var a = avant {
+                a.marquer(Moteur.autoSupprimee); a.marquer(Moteur.avantSol)
+                a.noter("Mémoire", "photo du sol juste après : supprimée toute seule (jauge \(reg.jauge) %)")
+                j.mettreAJour(a)
+                ids.append(a.id)
+            }
+            supprimer(ids)
+            return
+        }
+        mettreEnAttente(&f, config: c, journal: j, pourquoi: "\(Memoire.nom(de: cle)) ? (\(confiance) %)")
+        if var a = avant {
+            a.marquer(Moteur.avantSol)
+            mettreEnAttente(&a, config: c, journal: j, pourquoi: "photo du sol juste après : ratée ?")
+        }
+    }
+
+    /// Sur `file` : la copie passe dans « _À décider » (la galerie de l'épreuve est rafraîchie pour qu'elle en sorte).
+    private func mettreEnAttente(_ f: inout FichePhoto, config c: ConfigMoteur, journal j: Journal, pourquoi: String) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: c.serveur.path) else { return }     // serveur débranché : on ne touche à rien
+        let code = CodePassage.lire(f.codeRetenu)
+        let dossier = Moteur.dossierAttente(pour: code, config: c)
+        let ancienne = f.copie
+        if !ancienne.isEmpty, fm.fileExists(atPath: ancienne) {
+            let cible = dossier.appendingPathComponent(URL(fileURLWithPath: ancienne).lastPathComponent)
+            do {
+                try fm.createDirectory(at: dossier, withIntermediateDirectories: true)
+                if fm.fileExists(atPath: cible.path) { try fm.removeItem(at: cible) }
+                try fm.moveItem(atPath: ancienne, toPath: cible.path)
+            } catch {
+                message = "\(f.nom) : mise de côté impossible (\(error.localizedDescription))"
+                return
+            }
+            galerie?.copieFaite(dans: URL(fileURLWithPath: ancienne).deletingLastPathComponent(), nouveau: false)
+            f.copie = cible.path
+        }
+        f.marquer(Moteur.aDecider)
+        f.noter("Mémoire", "\(pourquoi) : mise de côté dans « \(Moteur.dossierADecider) » en attendant ta décision")
+        j.mettreAJour(f)
+        dernierEnLigne = .distantPast
+    }
+
+    /// Décision « on garde » (fausse détection, ou catégorie qui garde) : la copie retourne dans son épreuve.
+    public func garderApresDecision(_ ids: [Int64]) {
+        file.async { [weak self] in
+            guard let self, let c = self.config, let j = self.journal else { return }
+            let fm = FileManager.default
+            for id in ids {
+                guard var f = j.fiche(id: id), f.a(Moteur.aDecider) else { continue }
+                f.retirer(Moteur.aDecider)
+                f.marquer(Moteur.decisionPrise)
+                if !f.copie.isEmpty, fm.fileExists(atPath: f.copie), fm.fileExists(atPath: c.serveur.path) {
+                    let dossier = Moteur.dossierServeur(pour: CodePassage.lire(f.codeRetenu), config: c)
+                    let neuf = !fm.fileExists(atPath: dossier.path)
+                    let cible = dossier.appendingPathComponent(URL(fileURLWithPath: f.copie).lastPathComponent)
+                    try? fm.createDirectory(at: dossier, withIntermediateDirectories: true)
+                    if !fm.fileExists(atPath: cible.path), (try? fm.moveItem(atPath: f.copie, toPath: cible.path)) != nil {
+                        f.copie = cible.path
+                        self.galerie?.copieFaite(dans: dossier, nouveau: neuf)
+                    }
+                }
+                f.noter("HUGO", "gardée : remise dans son épreuve")
+                j.mettreAJour(f)
+            }
+            self.dernierEnLigne = .distantPast
+        }
+    }
+
+    /// Annule « on garde » : la photo retourne dans « _À décider ».
+    public func remettreADecider(_ ids: [Int64]) {
+        file.async { [weak self] in
+            guard let self, let c = self.config, let j = self.journal else { return }
+            for id in ids {
+                guard var f = j.fiche(id: id), !f.a(Moteur.aDecider) else { continue }
+                f.retirer(Moteur.decisionPrise)
+                self.mettreEnAttente(&f, config: c, journal: j, pourquoi: "décision annulée")
+            }
+        }
+    }
+
+    /// Avant une suppression décidée dans « À valider » : la photo n'attend plus (une annulation la remet dans
+    /// son épreuve, pas en attente).
+    public func deciderSuppression(_ ids: [Int64]) {
+        file.async { [weak self] in
+            guard let self, let j = self.journal else { return }
+            for id in ids {
+                guard var f = j.fiche(id: id) else { continue }
+                f.retirer(Moteur.aDecider)
+                f.marquer(Moteur.decisionPrise)
+                j.mettreAJour(f)
+            }
+        }
+        supprimer(ids)
+    }
+
+    /// Lancé par la file des détections : reporte le résultat sur `file`.
+    func signalerDetection(id: Int64, reconnu r: Reconnu, memoire m: Memoire) {
+        file.async { [weak self] in self?.apresDetection(id: id, reconnu: r, memoire: m) }
+    }
 }

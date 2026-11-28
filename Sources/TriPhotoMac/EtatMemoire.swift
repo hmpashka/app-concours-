@@ -69,9 +69,12 @@ extension Etat {
 
     /// Un classement de la revue enrichit la mémoire (ou retire l'exemple si HUGO enlève le classement).
     /// La vignette est faite depuis l'original sur ce Mac (pas de réseau), sinon depuis la copie du serveur.
-    func noterDansLaMemoire(_ f: FichePhoto, categorie: String, ajouter: Bool) {
+    /// `puis` est appelé (sur le fil principal) une fois la vignette faite : on ne supprime la photo qu'après,
+    /// sinon l'original pourrait partir à la Corbeille avant que la mémoire l'ait vue.
+    func noterDansLaMemoire(_ f: FichePhoto, categorie: String, ajouter: Bool, puis: (() -> Void)? = nil) {
         let m = memoire
         DispatchQueue.global(qos: .utility).async {
+            defer { if let puis { DispatchQueue.main.async(execute: puis) } }
             guard ajouter else { return m.retirer(photo: f.nom, categorie: categorie) }
             let source = [f.chemin, f.copie].first { !$0.isEmpty && FileManager.default.fileExists(atPath: $0) }
             guard let source else { return }
@@ -79,6 +82,17 @@ extension Etat {
             _ = try? m.ajouter(photo: URL(fileURLWithPath: source), categorie: categorie,
                                nom: Memoire.nomExemple(photo: f.nom, date: f.prise ?? f.recue))
         }
+    }
+
+    /// Plusieurs photos rangées d'un coup dans la mémoire, puis `puis` une seule fois quand toutes les vignettes sont faites.
+    func noterDansLaMemoire(_ l: [(FichePhoto, String)], puis: @escaping () -> Void) {
+        guard !l.isEmpty else { return puis() }
+        let groupe = DispatchGroup()
+        for (f, cat) in l {
+            groupe.enter()
+            noterDansLaMemoire(f, categorie: cat, ajouter: true) { groupe.leave() }
+        }
+        groupe.notify(queue: .main, execute: puis)
     }
 
     /// Collections dynamiques Lightroom, une par épreuve, à côté des fichiers d'attribution.

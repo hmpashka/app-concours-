@@ -34,7 +34,8 @@ public struct ExempleMemoire: Identifiable, Hashable, Sendable {
 public final class Memoire: @unchecked Sendable {
     public static let minimumExemples = 20
     public static let base: [(String, String, CategorieMemoire.Genre)] = [
-        ("bonne", "Bonne", .scene), ("floue", "Floue", .scene), ("sol", "Sol", .scene), ("code", "Photo de code", .scene),
+        ("bonne", "Bonne", .scene), ("floue", "Floue", .scene), ("sol", "Sol", .scene), ("ratee", "Ratée", .scene),
+        ("code", "Photo de code", .scene),
         ("chute", "Chute", .enPlus), ("meilleure", "Meilleures", .enPlus), ("reseaux", "Réseaux sociaux", .enPlus),
     ]
     public static let cote = 360
@@ -48,6 +49,8 @@ public final class Memoire: @unchecked Sendable {
     public let dossier: URL
     private let verrou = NSLock()
     private var _version = 0
+    private var _reglages: [String: ReglageCategorie] = [:]
+    private var reglagesLus = Date.distantPast
 
     public init(dossier: URL) {
         self.dossier = dossier
@@ -56,6 +59,8 @@ public final class Memoire: @unchecked Sendable {
     /// Change à chaque ajout ou retrait fait sur ce Mac (les ajouts des autres stands sont vus à la relecture).
     public var version: Int { verrou.lock(); defer { verrou.unlock() }; return _version }
     private func changee() { verrou.lock(); _version += 1; verrou.unlock() }
+    fileprivate func changeeReglage() { changee() }
+    fileprivate let verrouReglages = NSLock()
 
     public func creer() {
         let fm = FileManager.default
@@ -281,6 +286,85 @@ public struct Reconnu: Sendable, Equatable {
     }
 }
 
+/// Ce que fait une catégorie sur le concours (HUGO 28/11), partagé entre les stands avec la mémoire.
+/// - `supprimer` : une photo rangée dans cette catégorie quitte le concours (serveur, galerie, original à la Corbeille),
+///   sa vignette reste dans la mémoire pour apprendre. Sinon elle reste dans le concours.
+/// - `detection` : les exemples servent à reconnaître les photos (sinon ils sont gardés sans servir).
+/// - `jauge` : au-dessus de ce pourcentage de confiance, l'action se fait toute seule ; 0 = coupé (jamais tout seul).
+/// - `validees` / `fausses` : détections confirmées ou refusées par HUGO, pour choisir la jauge.
+public struct ReglageCategorie: Codable, Sendable, Equatable {
+    public var supprimer: Bool
+    public var detection: Bool
+    public var jauge: Int
+    public var validees: Int
+    public var fausses: Int
+
+    public init(supprimer: Bool = false, detection: Bool = true, jauge: Int = 0, validees: Int = 0, fausses: Int = 0) {
+        self.supprimer = supprimer; self.detection = detection; self.jauge = jauge
+        self.validees = validees; self.fausses = fausses
+    }
+
+    /// Floue, Sol et Ratée quittent le concours ; Ratée ne sert pas aux détections au départ.
+    public static func parDefaut(_ cle: String) -> ReglageCategorie {
+        switch cle {
+        case "floue", "sol": return ReglageCategorie(supprimer: true)
+        case "ratee": return ReglageCategorie(supprimer: true, detection: false)
+        default: return ReglageCategorie()
+        }
+    }
+
+    /// Part des détections justes, nil tant qu'il n'y en a aucune.
+    public var justes: Int? {
+        let t = validees + fausses
+        return t == 0 ? nil : Int((Double(validees) * 100 / Double(t)).rounded())
+    }
+}
+
+extension Memoire {
+    /// Fichier caché à la racine de la mémoire : jamais pris pour une catégorie (pas un dossier).
+    var fichierReglages: URL { dossier.appendingPathComponent(".reglages-categories.json") }
+
+    private func lireReglages() -> [String: ReglageCategorie] {
+        // relu toutes les 30 s au plus (un autre stand a pu le changer par iCloud)
+        if Date().timeIntervalSince(reglagesLus) < 30 { return _reglages }
+        reglagesLus = Date()
+        if let d = try? Data(contentsOf: fichierReglages),
+           let r = try? JSONDecoder().decode([String: ReglageCategorie].self, from: d) {
+            _reglages = r
+        }
+        return _reglages
+    }
+
+    /// Le réglage d'une catégorie (celui par défaut tant que HUGO ne l'a pas changé).
+    public func reglage(_ cle: String) -> ReglageCategorie {
+        verrouReglages.lock(); defer { verrouReglages.unlock() }
+        return lireReglages()[cle] ?? ReglageCategorie.parDefaut(cle)
+    }
+
+    public func changerReglage(_ cle: String, _ changer: (inout ReglageCategorie) -> Void) {
+        verrouReglages.lock()
+        reglagesLus = .distantPast
+        var tout = lireReglages()
+        var r = tout[cle] ?? ReglageCategorie.parDefaut(cle)
+        changer(&r)
+        tout[cle] = r
+        _reglages = tout
+        reglagesLus = Date()
+        if let d = try? JSONEncoder().encode(tout) { try? d.write(to: fichierReglages, options: .atomic) }
+        verrouReglages.unlock()
+        changeeReglage()
+    }
+
+    /// HUGO a confirmé (ou refusé) une détection de cette catégorie : compté pour la jauge.
+    public func compterDecision(_ cle: String, juste: Bool, annuler: Bool = false) {
+        guard !cle.isEmpty else { return }
+        changerReglage(cle) { r in
+            let pas = annuler ? -1 : 1
+            if juste { r.validees = max(0, r.validees + pas) } else { r.fausses = max(0, r.fausses + pas) }
+        }
+    }
+}
+
 /// Reconnaissance par ressemblance : chaque photo est résumée par une « empreinte » (Vision, Apple), comparée à
 /// celles des exemples de la mémoire. Les 7 exemples les plus proches votent. Rien n'est appris en dehors des
 /// exemples : retirer un exemple suffit à corriger. Empreintes des exemples gardées sur ce Mac (pas dans iCloud).
@@ -315,7 +399,7 @@ final class Reconnaissance {
         var l: [(cle: String, v: [Float])] = []
         var c: [String: Int] = [:]
         var sig: [String] = []
-        for cat in memoire.categories() {
+        for cat in memoire.categories() where memoire.reglage(cat.cle).detection {
             let ex = memoire.exemples(cat.cle).filter { !$0.dansLeNuage }
             c[cat.cle] = ex.count
             for e in ex {

@@ -96,6 +96,8 @@ final class GalerieStand: NSObject, URLSessionDelegate, @unchecked Sendable {
     /// Une copie vient d'être faite (ou retirée) dans ce dossier du serveur local.
     func copieFaite(dans dossier: URL, nouveau: Bool) {
         let nom = nomGalerie(dossier)
+        // photos en attente de décision : ce dossier n'est jamais rafraîchi (HUGO 28/11)
+        guard nom != Moteur.dossierADecider, !nom.hasPrefix(Moteur.dossierADecider + "/") else { return }
         verrou.lock(); defer { verrou.unlock() }
         let t = Date()
         if enAttente == 0 { premiere = t }

@@ -346,6 +346,15 @@ final class Journal {
         return liste(st).filter { $0.a(drapeau) }
     }
 
+    /// Photos retirées qui portent ce drapeau (supprimées toutes seules par une jauge), les plus récentes d'abord.
+    func fichesRetirees(drapeau: String, limite: Int = 500) -> [FichePhoto] {
+        let st = preparer("SELECT \(Journal.colonnes) FROM photos WHERE instr(drapeaux, ?) > 0 AND etat='retiree' ORDER BY maj DESC LIMIT ?")
+        defer { sqlite3_finalize(st) }
+        lier(st, 1, drapeau)
+        sqlite3_bind_int(st, 2, Int32(limite))
+        return liste(st).filter { $0.a(drapeau) }
+    }
+
     /// Photos qui ont une copie sur le serveur local (donc à mettre en ligne), reçues depuis le début du concours.
     func fichesEnLigne(depuis: Date) -> [FichePhoto] {
         let st = preparer("SELECT \(Journal.colonnes) FROM photos WHERE etat IN ('copiee','tampon','envoyee') AND copie<>'' AND recue>=? ORDER BY id")
