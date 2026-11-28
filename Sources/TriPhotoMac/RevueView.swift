@@ -35,6 +35,8 @@ struct RevueView: View {
     @State private var colonnes = 5                       // colonnes de la galerie (pour ↑ ↓)
     @AppStorage("revue.tailleVignette") private var taille: Double = 160
     @State private var majPrevue = false                  // Revue en direct : un rechargement attend déjà
+    @State private var paires: [Int64: Int64] = [:]       // photo ratée → photo du sol prise juste après (même boîtier)
+    @State private var confirmerToutesRatees = false      // « Supprimer les N photos ratées et leur photo du sol »
 
     private enum Retour {                                 // un geste peut toucher plusieurs photos (galerie)
         case suppression([FichePhoto])
@@ -263,6 +265,7 @@ struct RevueView: View {
     /// Rafale : photos du même boîtier à moins de 1,5 s. Une photo nettement moins nette que la meilleure de sa
     /// rafale est « floue ? » (comme la v00, seuil 30 %).
     private func douteuse(_ f: FichePhoto, dans l: [FichePhoto]) -> String? {
+        if paires[f.id] != nil { return "photo ratée (photo du sol juste après) ?" }
         if f.scene == "code" { return "photo de code ?" }
         if f.scene == "sol" { return "photo du sol ?" }
         guard let p = f.prise, f.nettete > 0 else { return nil }
@@ -314,10 +317,37 @@ struct RevueView: View {
         return tetes + l.filter { !ids.contains($0.id) }
     }
 
+    /// La photo est-elle une photo du sol ? Classement de HUGO d'abord, sinon la mémoire, sinon l'analyse rapide
+    /// (même ordre que `aTraiter`).
+    static func categorie(_ f: FichePhoto) -> String {
+        if !f.classe.isEmpty { return f.classe }
+        if let d = f.detection.split(separator: "|").first.map(String.init), ["sol", "floue", "code"].contains(d) { return d }
+        return f.scene
+    }
+    static func estSol(_ f: FichePhoto) -> Bool { categorie(f) == "sol" }
+
+    /// Photo du sol = signal du photographe (HUGO 28/11) : la photo d'AVANT, du même boîtier, est ratée (mise au point
+    /// qui décroche, mal déclenchée…) et ne doit pas être gardée. Renvoie photo ratée → photo du sol.
+    /// La photo d'avant doit être à moins de 2 minutes, ne pas être elle-même du sol ou de code, ni classée « bonne »
+    /// par HUGO (il a le dernier mot). Elle peut être aussi détectée floue : elle reste proposée ici.
+    static func avantSol(_ l: [FichePhoto]) -> [Int64: Int64] {
+        var r: [Int64: Int64] = [:]
+        for (_, liste) in Dictionary(grouping: l.filter { $0.prise != nil }, by: \.boitier) {
+            let t = liste.sorted { ($0.prise!, $0.origine) < ($1.prise!, $1.origine) }
+            for i in t.indices.dropFirst() where estSol(t[i]) {
+                let avant = t[i - 1]
+                guard t[i].prise!.timeIntervalSince(avant.prise!) <= 120,
+                      !["sol", "code", "bonne"].contains(categorie(avant)) else { continue }
+                r[avant.id] = t[i].id
+            }
+        }
+        return r
+    }
+
     /// Les photos à regarder d'abord (détection code / sol, ou floue dans sa rafale), pas encore classées.
     /// Rafales calculées boîtier par boîtier, photos triées par heure : rapide même sur des milliers de photos.
     static func douteuses(_ l: [FichePhoto]) -> Set<Int64> {
-        var marques: Set<Int64> = []
+        var marques = Set(avantSol(l).keys)
         for (_, liste) in Dictionary(grouping: l.filter { $0.prise != nil }, by: \.boitier) {
             let t = liste.sorted { $0.prise! < $1.prise! }
             var debut = 0
@@ -362,6 +392,7 @@ struct RevueView: View {
             if f.scene == "code" || f.scene == "sol" { r[f.id] = f.scene; continue }
             if floues.contains(f.id) { r[f.id] = "floue" }
         }
+        for ratee in avantSol(l).keys { r[ratee] = "avantSol" }   // même si elle est aussi floue
         return r
     }
 
@@ -428,7 +459,7 @@ struct RevueView: View {
             case .aTrier, .sol, .floues, .code:
                 let cats = RevueView.aTraiter(l)
                 let voulue: String? = tri == .sol ? "sol" : tri == .floues ? "floue" : tri == .code ? "code" : nil
-                l = l.filter { f in cats[f.id].map { voulue == nil || $0 == voulue } ?? false }
+                l = l.filter { f in cats[f.id].map { voulue == nil || $0 == voulue || (voulue == "sol" && $0 == "avantSol") } ?? false }
             case .belles:
                 l = RevueView.bellesDabord(l, seulementLesTetes: true)
             case .meilleures:
@@ -439,11 +470,13 @@ struct RevueView: View {
                 break
             }
             let cats = RevueView.aTraiter(l)
+            let duo = RevueView.avantSol(l)
             DispatchQueue.main.async {
                 guard numero == chargement else { return }   // un chargement plus récent est en route : on l'attend
                 let garde = courante?.id ?? etat.revuePhotoId   // retour sur l'onglet : la photo où on en était
                 if photos != l { photos = l }          // en direct : rien ne bouge à l'écran si rien n'a changé
                 if etiquettes != cats { etiquettes = cats }
+                if paires != duo { paires = duo }
                 index = garde.flatMap { g in l.firstIndex { $0.id == g } } ?? 0
                 choix = choix.intersection(l.map(\.id))
             }
@@ -521,6 +554,24 @@ struct RevueView: View {
             if ordre == .belles {
                 Text("Pour les réseaux sociaux : la plus belle photo de chaque couple, d'après la mémoire (catégorie « Meilleures ») et la netteté.")
                     .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+            }
+            if ordre == .sol || ordre == .aTrier {
+                Text("Photo du sol = la photo d'avant (même boîtier) est ratée : elles sont proposées ensemble, rien n'est supprimé sans toi.")
+                    .font(.system(size: 11)).foregroundStyle(Theme.texteTresDiscret)
+                let n = pairesVisibles.count
+                if n > 0 {
+                    Button(n == 1 ? "Supprimer la photo ratée et son sol…" : "Supprimer les \(n) photos ratées et leur sol…") {
+                        confirmerToutesRatees = true
+                    }
+                    .buttonStyle(BoutonStyle())
+                    .confirmationDialog(n == 1 ? "Supprimer 1 photo ratée et sa photo du sol ?" : "Supprimer \(n) photos ratées et leurs \(n) photos du sol ?",
+                                        isPresented: $confirmerToutesRatees) {
+                        Button("Supprimer les \(2 * n) photos", role: .destructive) { supprimerPaires(pairesVisibles) }
+                        Button("Annuler", role: .cancel) {}
+                    } message: {
+                        Text("Copies retirées du serveur et de la galerie en ligne, originaux à la Corbeille. ⌘Z les remet toutes.")
+                    }
+                }
             }
             Button("Actualiser") { charger() }.buttonStyle(BoutonStyle())
             Text(Pluriel.photos(photos.count)).font(.system(size: 12)).foregroundStyle(Theme.texteDiscret)
@@ -649,6 +700,11 @@ struct RevueView: View {
                 .buttonStyle(BoutonStyle())
                 .help("La photo n'est plus retenue dans ce filtre. Elle reste sur le serveur et dans Lightroom.")
         }
+        if suppressionPermise, let duo = duoSol(f) {
+            Button(court ? "Ratée + sol ⇧⌫" : "Supprimer la ratée et le sol (⇧⌫)") { supprimerDuo(duo) }
+                .buttonStyle(BoutonStyle(principal: true))
+                .help("Photo du sol : celle d'avant (\(duo.ratee.origine)) est ratée. Supprime les deux d'un coup (serveur, galerie en ligne, originaux à la Corbeille). ⌘Z les remet.")
+        }
         if suppressionPermise {
             Button(court ? "Suppr. ⌫" : "Supprimer (⌫)") { supprimer() }
                 .buttonStyle(BoutonStyle())
@@ -758,7 +814,7 @@ struct RevueView: View {
     /// Ce que dit l'étiquette d'une vignette : le classement de HUGO (sûr), sinon ce que l'app soupçonne (« sol ? »).
     private func etiquette(_ f: FichePhoto) -> (texte: String, sure: Bool)? {
         if !f.classe.isEmpty { return (f.classe, true) }
-        if let e = etiquettes[f.id] { return ("\(e) ?", false) }
+        if let e = etiquettes[f.id] { return (e == "avantSol" ? "ratée ?" : "\(e) ?", false) }
         return nil
     }
 
@@ -965,6 +1021,42 @@ struct RevueView: View {
         index = min(premier, max(0, photos.count - 1))
     }
 
+    /// La paire « photo ratée + photo du sol » de cette photo (quelle que soit celle des deux qu'on regarde),
+    /// si les deux sont dans la liste affichée.
+    private func duoSol(_ f: FichePhoto) -> (ratee: FichePhoto, sol: FichePhoto)? {
+        let ratee = paires[f.id] != nil ? f.id : paires.first(where: { $0.value == f.id })?.key
+        guard let r = ratee, let s = paires[r],
+              let fr = photos.first(where: { $0.id == r }), let fs = photos.first(where: { $0.id == s }) else { return nil }
+        return (fr, fs)
+    }
+
+    /// Supprime la photo ratée et sa photo du sol d'un seul geste (HUGO 28/11). ⌘Z remet les deux.
+    private func supprimerDuo(_ duo: (ratee: FichePhoto, sol: FichePhoto)) {
+        supprimerPaires([(duo.ratee, duo.sol)])
+    }
+
+    private func supprimerPaires(_ l: [(FichePhoto, FichePhoto)]) {
+        guard suppressionPermise, !l.isEmpty, !Visite.partagee.bloque("rien n'est supprimé") else { return }
+        let fiches = l.flatMap { [$0.0, $0.1] }
+        let ids = Set(fiches.map(\.id))
+        let premier = photos.firstIndex { ids.contains($0.id) } ?? index
+        moteur.supprimer(fiches.map(\.id))
+        retours.append(.suppression(fiches))
+        corrections.insert(l.count == 1 ? "\(l[0].0.origine) (ratée) et \(l[0].1.origine) (sol) : supprimées"
+                           : "\(l.count) photos ratées et leur photo du sol : supprimées", at: 0)
+        photos.removeAll { ids.contains($0.id) }
+        for id in ids { paires[id] = nil }
+        choix = []
+        index = min(premier, max(0, photos.count - 1))
+    }
+
+    /// Toutes les paires visibles (ratée + sol), pour le bouton du filtre « sol ».
+    private var pairesVisibles: [(FichePhoto, FichePhoto)] {
+        let parId = Dictionary(photos.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return paires.compactMap { r, s in parId[r].flatMap { a in parId[s].map { (a, $0) } } }
+            .sorted { ($0.0.prise ?? .distantPast) < ($1.0.prise ?? .distantPast) }
+    }
+
     private func annulerSuppression() {
         guard let r = retours.popLast() else { return }
         let fiches: [FichePhoto]
@@ -1018,6 +1110,8 @@ struct RevueView: View {
             Button("") { basculer("meilleure") }.keyboardShortcut("m", modifiers: [])
             Button("") { basculer("reseaux") }.keyboardShortcut("r", modifiers: [])
             Button("") { supprimer() }.keyboardShortcut(.delete, modifiers: [])
+            Button("") { if suppressionPermise, let f = courante, let d = duoSol(f) { supprimerDuo(d) } }
+                .keyboardShortcut(.delete, modifiers: .shift)
             Button("") { annulerSuppression() }.keyboardShortcut("z", modifiers: .command)
         }
         .opacity(0)
